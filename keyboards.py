@@ -244,6 +244,7 @@ def branch_edit_fields_kb(branch_id) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="✏️ Manzili", callback_data=f"bredit:address:{branch_id}"))
     kb.row(InlineKeyboardButton(text="✏️ Telefon", callback_data=f"bredit:phone:{branch_id}"))
     kb.row(InlineKeyboardButton(text="✏️ Lokatsiya", callback_data=f"bredit:location:{branch_id}"))
+    kb.row(InlineKeyboardButton(text="🕐 Ish vaqti", callback_data=f"bredit:hours:{branch_id}"))
     kb.row(InlineKeyboardButton(text="🖼 Rasm", callback_data=f"bredit:photo:{branch_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="br_edit_list"))
     return kb.as_markup()

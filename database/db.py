@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS branches (
     phone         TEXT,
     lat           REAL,
     lon           REAL,
-    photo_file_id TEXT
+    photo_file_id TEXT,
+    open_time     TEXT DEFAULT '08:00',
+    close_time    TEXT DEFAULT '23:00'
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -164,6 +166,16 @@ async def init_db():
     ucols = [row[1] for row in await cur.fetchall()]
     if "lang" not in ucols:
         await db.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'uz'")
+        await db.commit()
+
+    # Migratsiya: branches ish vaqti ustunlari
+    cur = await db.execute("PRAGMA table_info(branches)")
+    bcols = [row[1] for row in await cur.fetchall()]
+    if "open_time" not in bcols:
+        await db.execute("ALTER TABLE branches ADD COLUMN open_time TEXT DEFAULT '08:00'")
+        await db.commit()
+    if "close_time" not in bcols:
+        await db.execute("ALTER TABLE branches ADD COLUMN close_time TEXT DEFAULT '23:00'")
         await db.commit()
 
     # Boshlang'ich FAQ

@@ -402,9 +402,34 @@ async def br_address(message: Message, state: FSMContext):
     await message.answer("Filial telefon raqamini kiriting:\n\nMasalan: +998712000005")
 
 
+def parse_hours(text: str):
+    """Matndan ish vaqtini ajratadi. '08:00-23:00' -> ('08:00','23:00'). Aks holda None."""
+    import re
+    found = re.findall(r"\b(\d{1,2}:\d{2})\b", text or "")
+    if len(found) >= 2:
+        return found[0], found[1]
+    return None
+
+
 @router.message(AdminFlow.br_phone)
 async def br_phone(message: Message, state: FSMContext):
     await state.update_data(br_phone=message.text)
+    await state.set_state(AdminFlow.br_hours)
+    await message.answer(
+        "Filialning ish vaqtini kiriting (boshlanish va tugash):\n\n"
+        "Masalan: <code>08:00-23:00</code>\n\n"
+        "(Bo'sh qoldirish uchun <code>-</code> yuboring — 08:00-23:00 qabul qilinadi.)"
+    )
+
+
+@router.message(AdminFlow.br_hours)
+async def br_hours(message: Message, state: FSMContext):
+    hours = parse_hours(message.text)
+    if hours:
+        await state.update_data(open_time=hours[0], close_time=hours[1])
+    else:
+        # Standart vaqt
+        await state.update_data(open_time="08:00", close_time="23:00")
     await state.set_state(AdminFlow.br_location)
     await message.answer(
         "Filial lokatsiyasini yuboring 📍\n\nTugmadan foydalaning yoki "
@@ -455,12 +480,15 @@ async def br_photo_bad(message: Message):
 
 async def _save_branch(message, state, photo_id):
     d = await state.get_data()
+    open_t = d.get("open_time", "08:00")
+    close_t = d.get("close_time", "23:00")
     await q.add_branch(d["br_name"], d["br_address"], d["br_phone"],
-                       d.get("lat"), d.get("lon"), photo_id)
+                       d.get("lat"), d.get("lon"), photo_id, open_t, close_t)
     await state.clear()
     await message.answer(
         "✅ <b>Yangi filial qo'shildi!</b>\n\n"
         f"🏥 Nomi: {d['br_name']}\n📍 Manzil: {d['br_address']}\n☎️ Telefon: {d['br_phone']}\n"
+        f"🕐 Ish vaqti: {open_t} — {close_t}\n"
         f"🗺 Lokatsiya: {'qabul qilindi' if d.get('lat') else 'berilmadi'}\n"
         f"📷 Rasm: {'yuklandi' if photo_id else 'yuklanmadi'}",
         reply_markup=kb.REMOVE,
@@ -501,6 +529,9 @@ async def br_edit_field(call: CallbackQuery, state: FSMContext):
         await state.set_state(AdminFlow.br_edit_value)
         await call.message.answer("Yangi lokatsiyani yuboring 📍 yoki <code>lat,lon</code> matn qilib yuboring.",
                                   reply_markup=kb.location_request_kb())
+    elif field == "hours":
+        await state.set_state(AdminFlow.br_edit_value)
+        await call.message.answer("Yangi ish vaqtini kiriting:\n\nMasalan: <code>09:00-21:00</code>")
     else:
         labels = {"name": "nom", "address": "manzil", "phone": "telefon"}
         await state.set_state(AdminFlow.br_edit_value)
@@ -530,6 +561,14 @@ async def br_edit_value(message: Message, state: FSMContext):
                 await message.answer("⚠️ Koordinata noto'g'ri.")
                 return
         msg = "✅ Filial lokatsiyasi yangilandi."
+    elif field == "hours":
+        hours = parse_hours(message.text)
+        if not hours:
+            await message.answer("⚠️ Ish vaqti noto'g'ri. Masalan: <code>09:00-21:00</code>")
+            return
+        await q.update_branch(branch_id, "open_time", hours[0])
+        await q.update_branch(branch_id, "close_time", hours[1])
+        msg = f"✅ Ish vaqti yangilandi: {hours[0]} — {hours[1]}"
     else:
         await q.update_branch(branch_id, field, message.text)
         msg = "✅ Filial ma'lumoti yangilandi."

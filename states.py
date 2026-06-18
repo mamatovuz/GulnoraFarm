@@ -33,6 +33,7 @@ class AdminFlow(StatesGroup):
     br_name = State()
     br_address = State()
     br_phone = State()
+    br_hours = State()
     br_location = State()
     br_photo = State()
     # filial tahrirlash

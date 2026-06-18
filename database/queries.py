@@ -96,11 +96,13 @@ async def get_branch(branch_id: int):
     return await cur.fetchone()
 
 
-async def add_branch(name, address, phone, lat=None, lon=None, photo_file_id=None):
+async def add_branch(name, address, phone, lat=None, lon=None, photo_file_id=None,
+                     open_time="08:00", close_time="23:00"):
     db = await get_db()
     cur = await db.execute(
-        "INSERT INTO branches (name, address, phone, lat, lon, photo_file_id) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, address, phone, lat, lon, photo_file_id),
+        "INSERT INTO branches (name, address, phone, lat, lon, photo_file_id, open_time, close_time) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, address, phone, lat, lon, photo_file_id, open_time, close_time),
     )
     await db.commit()
     return cur.lastrowid

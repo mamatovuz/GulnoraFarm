@@ -72,8 +72,9 @@ async def branch_info(call: CallbackQuery):
     if not b:
         await call.answer("Filial topilmadi", show_alert=True)
         return
+    hours = f"{b['open_time'] or '08:00'} — {b['close_time'] or '23:00'}"
     caption = loc.t("branch_card", lang, name=b["name"],
-                    address=b["address"] or "—", phone=b["phone"] or "—")
+                    address=b["address"] or "—", phone=b["phone"] or "—", hours=hours)
     has_loc = b["lat"] is not None and b["lon"] is not None
     markup = kb.branch_card_kb(branch_id, has_loc, lang)
     if b["photo_file_id"]:

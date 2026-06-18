@@ -192,8 +192,8 @@ T = {
         "ru": "📍 <b>Наши филиалы</b>\n\nВыберите филиал из списка:",
     },
     "branch_card": {
-        "uz": "🏥 <b>{name}</b>\n\n📍 Manzil: {address}\n☎️ Telefon: {phone}\n🕐 Ish vaqti: 08:00 — 23:00",
-        "ru": "🏥 <b>{name}</b>\n\n📍 Адрес: {address}\n☎️ Телефон: {phone}\n🕐 Время работы: 08:00 — 23:00",
+        "uz": "🏥 <b>{name}</b>\n\n📍 Manzil: {address}\n☎️ Telefon: {phone}\n🕐 Ish vaqti: {hours}",
+        "ru": "🏥 <b>{name}</b>\n\n📍 Адрес: {address}\n☎️ Телефон: {phone}\n🕐 Время работы: {hours}",
     },
     "contact_prompt": {
         "uz": "\n\n➡️ <i>So'rovingiz yoki savolingizni shu yerga yozing — "
