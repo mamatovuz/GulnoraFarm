@@ -63,10 +63,12 @@ def subscribe_kb(channels, lang="uz") -> InlineKeyboardMarkup:
 
 
 # ---- Inline: filial tanlash (ro'yxatdan o'tishda) ----
-def branches_choose_kb(branches, prefix="pickbranch") -> InlineKeyboardMarkup:
+def branches_choose_kb(branches, prefix="pickbranch", lang="uz", show_skip=True) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"{prefix}:{b['id']}"))
+    if show_skip:
+        kb.row(InlineKeyboardButton(text=loc.btn("skip", lang), callback_data="branch_skip"))
     return kb.as_markup()
 
 

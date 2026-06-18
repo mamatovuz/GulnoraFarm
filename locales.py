@@ -114,6 +114,12 @@ T = {
         "ru": "✅ Вы выбрали филиал <b>«{branch}»</b>.\n\n"
               "Изменить его можно в любое время в разделе «📍 Филиалы».",
     },
+    "branch_skipped": {
+        "uz": "✅ Yaxshi, filialsiz davom etamiz.\n\n"
+              "Filialni keyin \"📍 Filiallar\" bo'limidan tanlashingiz mumkin.",
+        "ru": "✅ Хорошо, продолжим без филиала.\n\n"
+              "Вы можете выбрать филиал позже в разделе «📍 Филиалы».",
+    },
     "no_branches": {
         "uz": "⚠️ Hozircha filiallar qo'shilmagan. Iltimos, keyinroq urinib ko'ring.",
         "ru": "⚠️ Филиалы пока не добавлены. Пожалуйста, попробуйте позже.",

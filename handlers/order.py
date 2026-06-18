@@ -24,7 +24,7 @@ OK_KEYS = {"photo": "order_ok_photo", "document": "order_ok_document",
 async def ask_order(message: Message, state: FSMContext):
     lang = await q.get_lang(message.from_user.id)
     user = await q.get_user(message.from_user.id)
-    if not user or not user["branch_id"]:
+    if not user or not user["phone"]:
         await message.answer(loc.t("need_register", lang))
         return
     await state.set_state(OrderFlow.waiting_content)

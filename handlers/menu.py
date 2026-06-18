@@ -137,7 +137,7 @@ async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
     lang = await q.get_lang(call.from_user.id)
     data = await state.get_data()
     user = await q.get_user(call.from_user.id)
-    if not user or not user["branch_id"]:
+    if not user or not user["phone"]:
         await state.clear()
         await call.message.edit_text(loc.t("need_register", lang))
         await call.answer()

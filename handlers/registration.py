@@ -21,7 +21,7 @@ async def ask_branch(target: Message, state: FSMContext, lang: str, uid: int):
         await state.clear()
         return
     await state.set_state(Reg.branch)
-    await target.answer(loc.t("ask_branch", lang), reply_markup=kb.branches_choose_kb(branches))
+    await target.answer(loc.t("ask_branch", lang), reply_markup=kb.branches_choose_kb(branches, lang=lang))
 
 
 async def proceed_after_phone(message: Message, state: FSMContext, bot: Bot, lang: str):
@@ -39,7 +39,7 @@ async def proceed_after_phone(message: Message, state: FSMContext, bot: Bot, lan
 async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
     user = await q.get_user(message.from_user.id)
-    if user and user["full_name"] and user["phone"] and user["branch_id"]:
+    if user and user["full_name"] and user["phone"]:
         lang = user["lang"] or "uz"
         # Majburiy obunani HAR /start da tekshiramiz
         channels = await q.list_channels()
@@ -75,11 +75,8 @@ async def set_lang(call: CallbackQuery, state: FSMContext):
     user = await q.get_user(call.from_user.id)
     if user and user["full_name"] and user["phone"]:
         # Allaqachon ro'yxatdan o'tgan — faqat til o'zgardi
-        if not user["branch_id"]:
-            await ask_branch(call.message, state, lang, call.from_user.id)
-        else:
-            await call.message.answer(loc.t("welcome_back", lang, name=user["full_name"].split()[0]),
-                                      reply_markup=await main_kb(call.from_user.id))
+        await call.message.answer(loc.t("welcome_back", lang, name=user["full_name"].split()[0]),
+                                  reply_markup=await main_kb(call.from_user.id))
     else:
         await call.message.answer(loc.t("welcome_new", lang), reply_markup=kb.register_kb(lang))
 
@@ -160,7 +157,7 @@ async def check_sub_cb(call: CallbackQuery, state: FSMContext, bot: Bot):
         return
     await call.answer("✅")
     user = await q.get_user(call.from_user.id)
-    if user and user["full_name"] and user["phone"] and user["branch_id"]:
+    if user and user["full_name"] and user["phone"]:
         # Qaytgan (ro'yxatdan o'tgan) foydalanuvchi — to'g'ri menyuga
         await state.clear()
         try:
@@ -184,5 +181,17 @@ async def pick_branch_cb(call: CallbackQuery, state: FSMContext):
     await q.set_user_branch(call.from_user.id, branch_id)
     await call.message.edit_text(loc.t("branch_selected", lang, branch=branch["name"]))
     await state.clear()
+    await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
+    await call.answer()
+
+
+@router.callback_query(Reg.branch, F.data == "branch_skip")
+async def skip_branch_cb(call: CallbackQuery, state: FSMContext):
+    lang = await q.get_lang(call.from_user.id)
+    await state.clear()
+    try:
+        await call.message.edit_text(loc.t("branch_skipped", lang))
+    except Exception:
+        pass
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
     await call.answer()
