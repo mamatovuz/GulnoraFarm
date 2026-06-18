@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS orders (
     status       TEXT DEFAULT 'new',          -- new | in_progress | done | canceled
     content_type TEXT,                         -- text | photo | document | video
     bill         TEXT,
-    rating       INTEGER                        -- mijoz bahosi (1-5)
+    rating       INTEGER,                        -- mijoz bahosi (1-5)
+    feedback     TEXT                            -- mijoz izohi (nega shunday baho)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -159,6 +160,9 @@ async def init_db():
     ocols = [row[1] for row in await cur.fetchall()]
     if "rating" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN rating INTEGER")
+        await db.commit()
+    if "feedback" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN feedback TEXT")
         await db.commit()
 
     # Migratsiya: users.lang ustuni

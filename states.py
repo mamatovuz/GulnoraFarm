@@ -11,6 +11,7 @@ class Reg(StatesGroup):
 
 class OrderFlow(StatesGroup):
     waiting_content = State()   # birinchi kontent -> murojaat yaratiladi
+    feedback = State()          # baho sababini (izoh) kutish
 
 
 class ContactFlow(StatesGroup):

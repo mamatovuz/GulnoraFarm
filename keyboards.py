@@ -114,6 +114,12 @@ def rating_kb(order_id) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def feedback_skip_kb(order_id, lang="uz") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=loc.btn("skip", lang), callback_data=f"fb_skip:{order_id}"))
+    return kb.as_markup()
+
+
 def contact_confirm_kb(lang="uz") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text=loc.btn("confirm_yes", lang), callback_data="contact_send"),

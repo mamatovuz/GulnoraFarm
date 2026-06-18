@@ -787,12 +787,16 @@ async def hist_search(message: Message, state: FSMContext):
             f"[{'mijoz' if m['sender']=='client' else 'operator'}]: "
             f"{m['text'] or '('+m['content_type']+')'}" for m in msgs
         ) or "(yozishma yo'q)"
+        rating_line = (f"⭐ Baho: {'⭐' * int(r['rating'])} ({r['rating']}/5)\n"
+                       if r["rating"] else "⭐ Baho: —\n")
+        feedback_line = f"💬 Mijoz izohi: {r['feedback']}\n" if r["feedback"] else ""
         await message.answer(
             f"📋 <b>Murojaat #{r['id']}</b>\n\n"
             f"👤 Mijoz: {r['full_name']}, {r['phone']}\n"
             f"🏥 Filial: {r['branch']}\n👨‍⚕️ Operator: {r['operator'] or '—'}\n"
             f"🕐 Boshlangan: {r['created_at']}\n🕐 Yakunlangan: {r['closed_at'] or '—'}\n"
-            f"Holat: {STATUS_LABEL.get(r['status'], r['status'])}\n\n"
+            f"Holat: {STATUS_LABEL.get(r['status'], r['status'])}\n"
+            f"{rating_line}{feedback_line}\n"
             f"💬 <b>Yozishma:</b>\n{chat}",
             reply_markup=kb.admin_back_kb("adm:hist"),
         )

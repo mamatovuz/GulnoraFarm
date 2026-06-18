@@ -27,6 +27,7 @@ B = {
     "cancel":      {"uz": "🔙 Bekor qilish",                 "ru": "🔙 Отмена"},
     "confirm_yes": {"uz": "✅ Tasdiqlash",                   "ru": "✅ Подтвердить"},
     "confirm_no":  {"uz": "❌ Bekor qilish",                 "ru": "❌ Отмена"},
+    "skip":        {"uz": "⏭ O'tkazib yuborish",            "ru": "⏭ Пропустить"},
 }
 
 
@@ -179,9 +180,17 @@ T = {
         "uz": "\n\n⭐ Iltimos, ko'rsatilgan xizmatni baholang:",
         "ru": "\n\n⭐ Пожалуйста, оцените оказанную услугу:",
     },
-    "rate_thanks": {
-        "uz": "Bahoyingiz uchun rahmat! 🙏\n\nSizning bahoyingiz: {stars}",
-        "ru": "Спасибо за вашу оценку! 🙏\n\nВаша оценка: {stars}",
+    "rate_reason": {
+        "uz": "Siz xizmatimizni <b>{n} ta yulduz</b> bilan baholadingiz: {stars}\n\n"
+              "Nima sababdan shunday baho berdingiz? Fikr-mulohazangizni yozib qoldiring 👇\n\n"
+              "<i>(Yoki «O'tkazib yuborish» tugmasini bosing.)</i>",
+        "ru": "Вы оценили наш сервис на <b>{n} звёзд(ы)</b>: {stars}\n\n"
+              "Почему вы поставили такую оценку? Напишите, пожалуйста, ваш отзыв 👇\n\n"
+              "<i>(Или нажмите «Пропустить».)</i>",
+    },
+    "feedback_thanks": {
+        "uz": "Fikringiz uchun rahmat! 🙏\nXizmatimizni yaxshilash uchun harakat qilamiz.",
+        "ru": "Спасибо за ваш отзыв! 🙏\nМы постараемся улучшить наш сервис.",
     },
     "faq_menu": {
         "uz": "❓ <b>Ko'p beriladigan savollar</b>\n\nQuyidagi mavzulardan birini tanlang:",

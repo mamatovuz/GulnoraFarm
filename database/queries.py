@@ -181,6 +181,12 @@ async def set_order_rating(order_id, rating):
     await db.commit()
 
 
+async def set_order_feedback(order_id, feedback):
+    db = await get_db()
+    await db.execute("UPDATE orders SET feedback = ? WHERE id = ?", (feedback, order_id))
+    await db.commit()
+
+
 async def orders_by_status(status, operator_id=None):
     db = await get_db()
     if operator_id is not None:
@@ -527,7 +533,7 @@ async def all_orders_full():
     db = await get_db()
     cur = await db.execute(
         "SELECT o.id, u.full_name, u.phone, b.name AS branch, op.name AS operator, "
-        "o.status, o.content_type, o.bill, o.created_at, o.closed_at "
+        "o.status, o.content_type, o.bill, o.created_at, o.closed_at, o.rating, o.feedback "
         "FROM orders o "
         "LEFT JOIN users u ON u.telegram_id = o.user_id "
         "LEFT JOIN branches b ON b.id = o.branch_id "
