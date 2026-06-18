@@ -13,7 +13,7 @@ CHOOSE_LANG = "🇺🇿 Tilni tanlang:\n🇷🇺 Выберите язык:"
 # ============================ TUGMALAR ============================
 B = {
     "register":    {"uz": "✅ Ro'yxatdan o'tish",            "ru": "✅ Регистрация"},
-    "send_phone":  {"uz": "📱 Telefon raqamni yuborish",     "ru": "📱 Отправить номер"},
+    "send_phone":  {"uz": "📲 Raqamni yuborish",             "ru": "📲 Отправить номер"},
     "order":       {"uz": "💊 Retsept yuborish",             "ru": "💊 Отправить рецепт"},
     "faq":         {"uz": "❓ Ko'p beriladigan savollar",     "ru": "❓ Частые вопросы"},
     "branches":    {"uz": "📍 Filiallar",                    "ru": "📍 Филиалы"},
@@ -71,14 +71,18 @@ T = {
         "ru": "⚠️ Пожалуйста, введите корректное имя и фамилию (только буквы).",
     },
     "ask_phone": {
-        "uz": ("Rahmat, <b>{name}</b>!\n\nEndi bog'lanish uchun telefon raqamingizni <b>qo'lda kiriting</b> 📱\n\n"
-               "Masalan: <code>+998901234567</code>\n\n"
-               "(Telegram raqamingiz boshqa bo'lsa, mobil raqamingizni yozing. "
-               "Yoki pastdagi tugma orqali Telegram raqamingizni yuborishingiz ham mumkin.)"),
-        "ru": ("Спасибо, <b>{name}</b>!\n\nТеперь <b>введите вручную</b> свой номер телефона 📱\n\n"
-               "Например: <code>+998901234567</code>\n\n"
-               "(Если ваш номер в Telegram другой, напишите мобильный номер. "
-               "Либо отправьте номер кнопкой ниже.)"),
+        "uz": ("Rahmat, <b>{name}</b>! 😊\n\n"
+               "Endi bog'lanish uchun telefon raqamingizni yuboring 📱\n\n"
+               "Misol: <code>+998901234567</code>\n\n"
+               "Agar Telegram raqamingiz va mobil raqamingiz bir xil bo'lsa, "
+               "pastdagi \"📲 Raqamni yuborish\" tugmasini bosing.\n\n"
+               "Agar boshqa raqam ishlatsangiz, uni qo'lda kiriting."),
+        "ru": ("Спасибо, <b>{name}</b>! 😊\n\n"
+               "Теперь для связи отправьте свой номер телефона 📱\n\n"
+               "Пример: <code>+998901234567</code>\n\n"
+               "Если ваш номер Telegram совпадает с мобильным, нажмите кнопку "
+               "\"📲 Отправить номер\" ниже.\n\n"
+               "Если используете другой номер, введите его вручную."),
     },
     "bad_phone": {
         "uz": "⚠️ Telefon raqam noto'g'ri kiritildi.\n\nIltimos, raqamni to'liq kiriting. "
