@@ -1,0 +1,535 @@
+"""Barcha ma'lumotlar bazasi amallari."""
+import hashlib
+from datetime import datetime, timedelta
+from database.db import get_db
+
+
+def now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(("gulnorafarm_salt_" + password).encode()).hexdigest()
+
+
+# ============================ USERS ============================
+async def get_user(telegram_id: int):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    return await cur.fetchone()
+
+
+async def create_user(telegram_id: int, full_name: str, phone: str):
+    """Ism/telefonni saqlaydi. Mavjud foydalanuvchining tili va filiali saqlanib qoladi."""
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO users (telegram_id, full_name, phone, registered_at, status) "
+        "VALUES (?, ?, ?, ?, 'active') "
+        "ON CONFLICT(telegram_id) DO UPDATE SET "
+        "full_name = excluded.full_name, phone = excluded.phone, registered_at = excluded.registered_at",
+        (telegram_id, full_name, phone, now()),
+    )
+    await db.commit()
+
+
+async def set_user_lang(telegram_id: int, lang: str):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO users (telegram_id, lang, registered_at, status) "
+        "VALUES (?, ?, ?, 'active') "
+        "ON CONFLICT(telegram_id) DO UPDATE SET lang = excluded.lang",
+        (telegram_id, lang, now()),
+    )
+    await db.commit()
+
+
+async def get_lang(telegram_id: int) -> str:
+    db = await get_db()
+    cur = await db.execute("SELECT lang FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = await cur.fetchone()
+    return (row["lang"] if row and row["lang"] else "uz")
+
+
+async def set_user_branch(telegram_id: int, branch_id: int):
+    db = await get_db()
+    await db.execute("UPDATE users SET branch_id = ? WHERE telegram_id = ?", (branch_id, telegram_id))
+    await db.commit()
+
+
+async def set_user_active_order(telegram_id: int, order_id):
+    db = await get_db()
+    await db.execute(
+        "UPDATE users SET active_order_id = ? WHERE telegram_id = ?", (order_id, telegram_id)
+    )
+    await db.commit()
+
+
+async def all_users(branch_id=None, only_active=False):
+    db = await get_db()
+    q = "SELECT * FROM users WHERE 1=1"
+    params = []
+    if branch_id:
+        q += " AND branch_id = ?"
+        params.append(branch_id)
+    if only_active:
+        q += " AND status = 'active'"
+    cur = await db.execute(q, params)
+    return await cur.fetchall()
+
+
+async def set_user_status(telegram_id: int, status: str):
+    db = await get_db()
+    await db.execute("UPDATE users SET status = ? WHERE telegram_id = ?", (status, telegram_id))
+    await db.commit()
+
+
+# ============================ BRANCHES ============================
+async def list_branches():
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM branches ORDER BY id")
+    return await cur.fetchall()
+
+
+async def get_branch(branch_id: int):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM branches WHERE id = ?", (branch_id,))
+    return await cur.fetchone()
+
+
+async def add_branch(name, address, phone, lat=None, lon=None, photo_file_id=None):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO branches (name, address, phone, lat, lon, photo_file_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, address, phone, lat, lon, photo_file_id),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def update_branch(branch_id, field, value):
+    db = await get_db()
+    await db.execute(f"UPDATE branches SET {field} = ? WHERE id = ?", (value, branch_id))
+    await db.commit()
+
+
+async def update_branch_location(branch_id, lat, lon):
+    db = await get_db()
+    await db.execute("UPDATE branches SET lat = ?, lon = ? WHERE id = ?", (lat, lon, branch_id))
+    await db.commit()
+
+
+async def delete_branch(branch_id):
+    db = await get_db()
+    await db.execute("DELETE FROM branches WHERE id = ?", (branch_id,))
+    # Bu filialni tanlagan foydalanuvchilarni qayta tanlashga majburlaymiz
+    await db.execute("UPDATE users SET branch_id = NULL WHERE branch_id = ?", (branch_id,))
+    await db.commit()
+
+
+# ============================ ORDERS ============================
+async def create_order(user_id, branch_id, content_type):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO orders (user_id, branch_id, created_at, status, content_type) "
+        "VALUES (?, ?, ?, 'new', ?)",
+        (user_id, branch_id, now(), content_type),
+    )
+    await db.commit()
+    oid = cur.lastrowid
+    await log_status(oid, None, "new", f"client:{user_id}")
+    return oid
+
+
+async def get_order(order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+    return await cur.fetchone()
+
+
+async def set_order_status(order_id, status, changed_by):
+    db = await get_db()
+    cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+    row = await cur.fetchone()
+    old = row["status"] if row else None
+    closed = now() if status in ("done", "canceled") else None
+    if closed:
+        await db.execute("UPDATE orders SET status = ?, closed_at = ? WHERE id = ?",
+                         (status, closed, order_id))
+    else:
+        await db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+    await db.commit()
+    await log_status(order_id, old, status, changed_by)
+
+
+async def assign_order(order_id, operator_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET operator_id = ? WHERE id = ?", (operator_id, order_id))
+    await db.commit()
+
+
+async def set_order_bill(order_id, bill):
+    db = await get_db()
+    await db.execute("UPDATE orders SET bill = ? WHERE id = ?", (bill, order_id))
+    await db.commit()
+
+
+async def set_order_rating(order_id, rating):
+    db = await get_db()
+    await db.execute("UPDATE orders SET rating = ? WHERE id = ?", (rating, order_id))
+    await db.commit()
+
+
+async def orders_by_status(status, operator_id=None):
+    db = await get_db()
+    if operator_id is not None:
+        cur = await db.execute(
+            "SELECT * FROM orders WHERE status = ? AND operator_id = ? ORDER BY id DESC",
+            (status, operator_id),
+        )
+    else:
+        cur = await db.execute("SELECT * FROM orders WHERE status = ? ORDER BY id DESC", (status,))
+    return await cur.fetchall()
+
+
+async def log_status(order_id, old, new, changed_by):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO status_log (order_id, old_status, new_status, changed_by, changed_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (order_id, old, new, changed_by, now()),
+    )
+    await db.commit()
+
+
+# ============================ MESSAGES (proxy-chat) ============================
+async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (order_id, sender, content_type, text, file_id, tg_msg_id, now()),
+    )
+    await db.commit()
+
+
+async def order_messages(order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM messages WHERE order_id = ? ORDER BY id", (order_id,))
+    return await cur.fetchall()
+
+
+async def last_client_tg_msg(order_id):
+    """Mijozning oxirgi xabarining (mijoz chatidagi) message_id sini qaytaradi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT tg_msg_id FROM messages WHERE order_id = ? AND sender = 'client' "
+        "AND tg_msg_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (order_id,),
+    )
+    row = await cur.fetchone()
+    return row["tg_msg_id"] if row else None
+
+
+async def last_operator_tg_msg(order_id):
+    """Operatorning oxirgi xabarining (operator chatidagi) message_id sini qaytaradi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT tg_msg_id FROM messages WHERE order_id = ? AND sender = 'operator' "
+        "AND tg_msg_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (order_id,),
+    )
+    row = await cur.fetchone()
+    return row["tg_msg_id"] if row else None
+
+
+# ---- Xabarlarni "Reply" uchun bog'lash (mijoz chati <-> operator chati) ----
+async def add_link(order_id, client_msg_id, operator_msg_id, operator_tg):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO msg_links (order_id, client_msg_id, operator_msg_id, operator_tg) "
+        "VALUES (?, ?, ?, ?)",
+        (order_id, client_msg_id, operator_msg_id, operator_tg),
+    )
+    await db.commit()
+
+
+async def link_by_operator_msg(operator_msg_id, operator_tg):
+    """Operator chatidagi message_id bo'yicha mos mijoz xabarini topadi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM msg_links WHERE operator_msg_id = ? AND operator_tg = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (operator_msg_id, operator_tg),
+    )
+    return await cur.fetchone()
+
+
+async def link_by_client_msg(client_msg_id, order_id):
+    """Mijoz chatidagi message_id bo'yicha mos operator xabarini topadi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM msg_links WHERE client_msg_id = ? AND order_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (client_msg_id, order_id),
+    )
+    return await cur.fetchone()
+
+
+# ============================ OPERATORS ============================
+async def add_operator(name, login, password):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO operators (name, login, password_hash, status) VALUES (?, ?, ?, 'active')",
+        (name, login, hash_password(password)),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def list_operators():
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators ORDER BY id")
+    return await cur.fetchall()
+
+
+async def get_operator(operator_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators WHERE id = ?", (operator_id,))
+    return await cur.fetchone()
+
+
+async def get_operator_by_login(login):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators WHERE login = ?", (login,))
+    return await cur.fetchone()
+
+
+async def get_operator_by_tg(telegram_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators WHERE telegram_id = ?", (telegram_id,))
+    return await cur.fetchone()
+
+
+async def login_operator(operator_id, telegram_id):
+    db = await get_db()
+    # bitta telegram bitta operatorga bog'lansin
+    await db.execute("UPDATE operators SET telegram_id = NULL WHERE telegram_id = ?", (telegram_id,))
+    await db.execute("UPDATE operators SET telegram_id = ? WHERE id = ?", (telegram_id, operator_id))
+    await db.commit()
+
+
+async def logout_operator(telegram_id):
+    db = await get_db()
+    await db.execute(
+        "UPDATE operators SET telegram_id = NULL, active_order_id = NULL WHERE telegram_id = ?",
+        (telegram_id,),
+    )
+    await db.commit()
+
+
+async def set_operator_active_order(operator_id, order_id):
+    db = await get_db()
+    await db.execute("UPDATE operators SET active_order_id = ? WHERE id = ?", (order_id, operator_id))
+    await db.commit()
+
+
+async def update_operator(operator_id, field, value):
+    db = await get_db()
+    await db.execute(f"UPDATE operators SET {field} = ? WHERE id = ?", (value, operator_id))
+    await db.commit()
+
+
+async def delete_operator(operator_id):
+    db = await get_db()
+    await db.execute("DELETE FROM operators WHERE id = ?", (operator_id,))
+    await db.commit()
+
+
+async def operator_stats(operator_id):
+    db = await get_db()
+    today = datetime.now().strftime("%Y-%m-%d")
+    month = datetime.now().strftime("%Y-%m")
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE operator_id = ?", (operator_id,)
+    )
+    accepted = (await cur.fetchone())[0]
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND status = 'done'", (operator_id,)
+    )
+    done = (await cur.fetchone())[0]
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND bill IS NOT NULL", (operator_id,)
+    )
+    billed = (await cur.fetchone())[0]
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND status = 'done' AND closed_at LIKE ?",
+        (operator_id, today + "%"),
+    )
+    today_done = (await cur.fetchone())[0]
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND status = 'done' AND closed_at LIKE ?",
+        (operator_id, month + "%"),
+    )
+    month_done = (await cur.fetchone())[0]
+    cur = await db.execute(
+        "SELECT AVG(rating), COUNT(rating) FROM orders WHERE operator_id = ? AND rating IS NOT NULL",
+        (operator_id,),
+    )
+    row = await cur.fetchone()
+    avg_rating = round(row[0], 1) if row[0] else 0
+    rated_count = row[1] or 0
+    return {
+        "accepted": accepted, "done": done, "billed": billed,
+        "today_done": today_done, "month_done": month_done,
+        "avg_rating": avg_rating, "rated_count": rated_count,
+    }
+
+
+async def operators_rating():
+    """Shu oydagi reyting: yakunlangan + hisoblangan."""
+    db = await get_db()
+    month = datetime.now().strftime("%Y-%m")
+    cur = await db.execute("SELECT id, name FROM operators ORDER BY id")
+    ops = await cur.fetchall()
+    result = []
+    for op in ops:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND status='done' AND closed_at LIKE ?",
+            (op["id"], month + "%"),
+        )
+        done = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND bill IS NOT NULL AND created_at LIKE ?",
+            (op["id"], month + "%"),
+        )
+        billed = (await cur.fetchone())[0]
+        cur = await db.execute(
+            "SELECT AVG(rating) FROM orders WHERE operator_id = ? AND rating IS NOT NULL",
+            (op["id"],),
+        )
+        avg = (await cur.fetchone())[0]
+        avg_rating = round(avg, 1) if avg else 0
+        result.append({"name": op["name"], "score": done + billed, "done": done,
+                       "billed": billed, "avg_rating": avg_rating})
+    result.sort(key=lambda x: x["score"], reverse=True)
+    return result
+
+
+# ============================ FAQ ============================
+async def list_faqs():
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM faqs ORDER BY id")
+    return await cur.fetchall()
+
+
+async def get_faq(faq_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM faqs WHERE id = ?", (faq_id,))
+    return await cur.fetchone()
+
+
+async def add_faq(title, answer):
+    db = await get_db()
+    await db.execute("INSERT INTO faqs (title, answer) VALUES (?, ?)", (title, answer))
+    await db.commit()
+
+
+async def update_faq(faq_id, title, answer):
+    db = await get_db()
+    await db.execute("UPDATE faqs SET title = ?, answer = ? WHERE id = ?", (title, answer, faq_id))
+    await db.commit()
+
+
+async def delete_faq(faq_id):
+    db = await get_db()
+    await db.execute("DELETE FROM faqs WHERE id = ?", (faq_id,))
+    await db.commit()
+
+
+# ============================ CHANNELS ============================
+async def list_channels():
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM channels ORDER BY id")
+    return await cur.fetchall()
+
+
+async def add_channel(chat_id, title):
+    db = await get_db()
+    await db.execute("INSERT INTO channels (chat_id, title) VALUES (?, ?)", (chat_id, title))
+    await db.commit()
+
+
+async def delete_channel(channel_id):
+    db = await get_db()
+    await db.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+    await db.commit()
+
+
+# ============================ SETTINGS ============================
+async def get_setting(key, default=""):
+    db = await get_db()
+    cur = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = await cur.fetchone()
+    return row["value"] if row else default
+
+
+async def set_setting(key, value):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    await db.commit()
+
+
+# ============================ STATISTIKA ============================
+async def general_stats():
+    db = await get_db()
+    today = datetime.now().strftime("%Y-%m-%d")
+    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    month = datetime.now().strftime("%Y-%m")
+
+    async def count(q, p=()):
+        cur = await db.execute(q, p)
+        return (await cur.fetchone())[0]
+
+    stats = {
+        "users_total": await count("SELECT COUNT(*) FROM users"),
+        "users_today": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (today + "%",)),
+        "users_week": await count("SELECT COUNT(*) FROM users WHERE registered_at >= ?", (week_ago,)),
+        "users_month": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (month + "%",)),
+        "orders_total": await count("SELECT COUNT(*) FROM orders"),
+        "orders_new": await count("SELECT COUNT(*) FROM orders WHERE status = 'new'"),
+        "orders_progress": await count("SELECT COUNT(*) FROM orders WHERE status = 'in_progress'"),
+        "orders_done": await count("SELECT COUNT(*) FROM orders WHERE status = 'done'"),
+        "orders_canceled": await count("SELECT COUNT(*) FROM orders WHERE status = 'canceled'"),
+    }
+    # umumiy o'rtacha baho
+    cur = await db.execute("SELECT AVG(rating), COUNT(rating) FROM orders WHERE rating IS NOT NULL")
+    row = await cur.fetchone()
+    stats["avg_rating"] = round(row[0], 1) if row[0] else 0
+    stats["rated_count"] = row[1] or 0
+
+    # filiallar kesimida
+    cur = await db.execute(
+        "SELECT b.name, COUNT(o.id) AS cnt FROM branches b "
+        "LEFT JOIN orders o ON o.branch_id = b.id GROUP BY b.id ORDER BY b.id"
+    )
+    stats["branches"] = await cur.fetchall()
+    return stats
+
+
+# ============================ EXCEL HISOBOT UCHUN ============================
+async def all_orders_full():
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, u.full_name, u.phone, b.name AS branch, op.name AS operator, "
+        "o.status, o.content_type, o.bill, o.created_at, o.closed_at "
+        "FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "LEFT JOIN branches b ON b.id = o.branch_id "
+        "LEFT JOIN operators op ON op.id = o.operator_id "
+        "ORDER BY o.id"
+    )
+    return await cur.fetchall()
