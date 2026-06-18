@@ -237,13 +237,36 @@ async def ch_add(call: CallbackQuery, state: FSMContext):
 
 
 @router.message(AdminFlow.ch_add)
-async def ch_add_save(message: Message, state: FSMContext):
-    chat_id = message.text.strip()
-    await q.add_channel(chat_id, chat_id)
+async def ch_add_save(message: Message, state: FSMContext, bot: Bot):
+    raw = message.text.strip()
+    # Kanalni tekshiramiz: bot kira oladimi?
+    try:
+        chat = await bot.get_chat(raw)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer(
+            "⚠️ Kanal topilmadi yoki bot unga kira olmadi.\n\n"
+            "1) Avval botni kanalga <b>ADMIN</b> qiling.\n"
+            "2) Keyin kanal <code>@username</code> yoki ID (-100...) ni yuboring.",
+        )
+        return
+    # Bot kanalda admin ekanini tekshiramiz
+    try:
+        me = await bot.get_me()
+        mem = await bot.get_chat_member(chat.id, me.id)
+        bot_is_admin = mem.status in ("administrator", "creator")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        bot_is_admin = False
+
+    # @username bo'lsa o'shani saqlaymiz (havola tugmasi ishlashi uchun), aks holda ID
+    stored = f"@{chat.username}" if chat.username else str(chat.id)
+    await q.add_channel(stored, chat.title or stored)
     await state.clear()
+
+    warn = ("" if bot_is_admin else
+            "\n\n⚠️ <b>DIQQAT:</b> bot bu kanalda ADMIN emas — obunani tekshira olmaydi! "
+            "Botni kanalga admin qiling.")
     await message.answer(
-        f"✅ Kanal qo'shildi: {chat_id}\n\n"
-        "Diqqat: bot kanalda admin bo'lmasa, obunani tekshira olmaydi.",
+        f"✅ Kanal qo'shildi: <b>{chat.title}</b> ({stored}){warn}",
         reply_markup=kb.admin_back_kb("adm:ch"),
     )
 

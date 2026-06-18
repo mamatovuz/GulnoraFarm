@@ -36,7 +36,7 @@ async def check_subscription(bot: Bot, telegram_id: int):
             member = await bot.get_chat_member(ch["chat_id"], telegram_id)
             if member.status in ("left", "kicked"):
                 not_subbed.append(ch)
-        except TelegramBadRequest:
+        except (TelegramBadRequest, TelegramForbiddenError):
             # bot kanalda admin emas yoki kanal topilmadi — tekshira olmaymiz, o'tkazib yuboramiz
             continue
     return not_subbed

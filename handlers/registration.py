@@ -41,6 +41,15 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     user = await q.get_user(message.from_user.id)
     if user and user["full_name"] and user["phone"] and user["branch_id"]:
         lang = user["lang"] or "uz"
+        # Majburiy obunani HAR /start da tekshiramiz
+        channels = await q.list_channels()
+        if channels:
+            not_subbed = await check_subscription(bot, message.from_user.id)
+            if not_subbed:
+                await state.set_state(Reg.channel)
+                await message.answer(loc.t("ask_subscribe", lang),
+                                     reply_markup=kb.subscribe_kb(not_subbed, lang))
+                return
         await message.answer(loc.t("welcome_back", lang, name=user["full_name"].split()[0]),
                              reply_markup=await main_kb(message.from_user.id))
         return
@@ -147,9 +156,20 @@ async def check_sub_cb(call: CallbackQuery, state: FSMContext, bot: Bot):
         names = "\n".join(f"📢 {c['title']}" for c in not_subbed)
         await call.message.answer(loc.t("not_subscribed", lang, channels=names),
                                   reply_markup=kb.subscribe_kb(not_subbed, lang))
-        await call.answer()
+        await call.answer("❌")
+        return
+    await call.answer("✅")
+    user = await q.get_user(call.from_user.id)
+    if user and user["full_name"] and user["phone"] and user["branch_id"]:
+        # Qaytgan (ro'yxatdan o'tgan) foydalanuvchi — to'g'ri menyuga
+        await state.clear()
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await call.message.answer(loc.t("welcome_back", lang, name=user["full_name"].split()[0]),
+                                  reply_markup=await main_kb(call.from_user.id))
     else:
-        await call.answer("✅")
         await ask_branch(call.message, state, lang, call.from_user.id)
 
 
