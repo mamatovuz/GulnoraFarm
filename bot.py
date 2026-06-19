@@ -10,6 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from database.db import init_db
 from handlers import registration, admin, operator, menu, order
+from middlewares import ActivityMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 # aiogram ichki loglarini o'chiramiz — terminal toza bo'lsin
@@ -25,6 +26,10 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
+    # Operator faolligini kuzatish (avto-logout uchun)
+    dp.message.middleware(ActivityMiddleware())
+    dp.callback_query.middleware(ActivityMiddleware())
+
     # Routerlar tartibi muhim: avval aniqroq (FSM/rol asosidagi) handlerlar
     dp.include_router(registration.router)
     dp.include_router(admin.router)
@@ -35,6 +40,8 @@ async def main():
     me = await bot.get_me()
     logger.info("✅ Bot ishga tushdi: @%s", me.username)
     await bot.delete_webhook(drop_pending_updates=True)
+    # 30 daqiqa harakatsiz operatorlarni avtomatik chiqaruvchi fon vazifasi
+    asyncio.create_task(operator.auto_logout_loop(bot))
     await dp.start_polling(bot, handle_signals=False)
 
 

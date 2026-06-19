@@ -1,4 +1,6 @@
 """Operator kabineti: login, murojaatlar, javob, hisob-kitob, statistika, reyting."""
+import asyncio
+from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.context import FSMContext
@@ -8,6 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import keyboards as kb
 import texts as t
 import locales as loc
+from config import OPERATORS_GROUP_ID
 from states import OperatorFlow
 from database import queries as q
 from utils import (
@@ -15,6 +18,16 @@ from utils import (
 )
 
 router = Router()
+
+AUTO_CLOSE_MIN = 10        # mijoz javob bermasa, necha daqiqada avto-yakunlash
+IDLE_LOGOUT_MIN = 30       # operator harakatsizligi (daqiqa) -> avto-logout
+
+# Kanaldan "Qabul qilish" bosib, lekin hali login qilmagan operatorlar uchun kutilayotgan murojaat
+_pending_accept: dict[int, int] = {}
+
+
+def remember_pending_accept(telegram_id: int, order_id: int):
+    _pending_accept[telegram_id] = order_id
 
 
 class IsOperator(BaseFilter):
@@ -72,6 +85,12 @@ async def op_password(message: Message, state: FSMContext):
         f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
         reply_markup=kb.operator_menu(),
     )
+    # Kanaldan "Qabul qilish" bosib kelgan bo'lsa — o'sha murojaatni avtomatik ochamiz
+    pending = _pending_accept.pop(message.from_user.id, None)
+    if pending:
+        ok, err = await do_accept(message.bot, op, pending, message.from_user.id)
+        if not ok:
+            await message.answer(f"⚠️ {err}")
 
 
 @router.message(IsOperator(), F.text.in_(loc.labels("op_cabinet")))
@@ -361,6 +380,87 @@ async def op_cancel(call: CallbackQuery):
     await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
     await call.message.answer(f"🔴 Murojaat #{order_id} bekor qilindi.")
     await call.answer("Bekor qilindi")
+
+
+# ---------------- 10 daqiqada avto-yakunlash ----------------
+async def _finish_with_rating(bot: Bot, order_id: int, by: str):
+    """Murojaatni yakunlaydi va mijozga baholash so'rovini yuboradi."""
+    order = await q.get_order(order_id)
+    await q.set_order_status(order_id, "done", by)
+    if order["operator_id"]:
+        await q.set_operator_active_order(order["operator_id"], None)
+    await q.set_user_active_order(order["user_id"], None)
+    clang = await q.get_lang(order["user_id"])
+    try:
+        await bot.send_message(
+            order["user_id"],
+            loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
+            reply_markup=kb.rating_kb(order_id),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
+async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: int):
+    await asyncio.sleep(AUTO_CLOSE_MIN * 60)
+    order = await q.get_order(order_id)
+    if not order or order["status"] != "in_progress":
+        return  # allaqachon yopilgan/bekor qilingan
+    last_client = await q.last_client_msg_time(order_id)
+    if last_client and last_client > armed_at:
+        return  # mijoz javob berdi -> avto-yakunlash bekor
+    await _finish_with_rating(bot, order_id, "auto")
+    try:
+        await bot.send_message(
+            operator_tg,
+            f"⏱ Murojaat #{order_id} mijoz {AUTO_CLOSE_MIN} daqiqa javob bermagani uchun "
+            f"avtomatik yakunlandi.",
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
+@router.callback_query(F.data.startswith("opc:autoclose:"))
+async def op_autoclose(call: CallbackQuery):
+    op = await q.get_operator_by_tg(call.from_user.id)
+    if not op:
+        await call.answer("Avval /operator orqali kiring.", show_alert=True)
+        return
+    order_id = int(call.data.split(":")[2])
+    order = await q.get_order(order_id)
+    if not order or order["status"] != "in_progress":
+        await call.answer("Bu murojaat faol emas.", show_alert=True)
+        return
+    armed_at = q.now()
+    asyncio.create_task(_auto_close_task(call.bot, order_id, armed_at, call.from_user.id))
+    await call.answer(
+        f"⏱ Yoqildi! Agar mijoz {AUTO_CLOSE_MIN} daqiqa ichida javob bermasa, "
+        f"murojaat avtomatik yakunlanadi.",
+        show_alert=True,
+    )
+
+
+# ---------------- Operatorlarni avto-logout (30 daqiqa harakatsizlik) ----------------
+async def auto_logout_loop(bot: Bot):
+    """Har daqiqada tekshiradi: 30 daqiqa harakatsiz operatorlarni tizimdan chiqaradi."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            threshold = (datetime.now() - timedelta(minutes=IDLE_LOGOUT_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+            for op in await q.idle_operators(threshold):
+                tg = op["telegram_id"]
+                await q.logout_operator(tg)
+                try:
+                    await bot.send_message(
+                        tg,
+                        f"⏱ {IDLE_LOGOUT_MIN} daqiqa harakatsizlik tufayli tizimdan chiqdingiz.\n"
+                        f"Qayta kirish: /operator",
+                        reply_markup=await main_kb(tg),
+                    )
+                except (TelegramBadRequest, TelegramForbiddenError):
+                    pass
+        except Exception:
+            pass
 
 
 # ---------------- Yakunlanganlar ----------------

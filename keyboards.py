@@ -346,6 +346,8 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="💬 Javob yozish", callback_data=f"opc:reply:{order_id}"))
     kb.row(InlineKeyboardButton(text="💊 Dori/retsept hisoblash", callback_data=f"opc:bill:{order_id}"))
+    kb.row(InlineKeyboardButton(text="⏱ 10 daqiqada avto-yakunlash",
+                                callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"opc:done:{order_id}"),
            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"opc:cancel:{order_id}"))
     return kb.as_markup()

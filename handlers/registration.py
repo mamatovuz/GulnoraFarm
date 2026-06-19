@@ -7,7 +7,7 @@ from aiogram.types import Message, CallbackQuery
 
 import keyboards as kb
 import locales as loc
-from states import Reg
+from states import Reg, OperatorFlow
 from database import queries as q
 from utils import check_subscription, main_kb
 
@@ -42,16 +42,21 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, command: Comm
     # Operatorlar guruhidagi "Qabul qilish" havolasi: /start accept_<id>
     arg = command.args if command else None
     if arg and arg.startswith("accept_"):
-        from handlers.operator import do_accept
-        op = await q.get_operator_by_tg(message.from_user.id)
-        if not op or op["status"] != "active":
-            await message.answer("Bu murojaatni qabul qilish uchun avval /operator orqali "
-                                 "kabinetga kiring, so'ng havolani qayta bosing.")
-            return
+        from handlers.operator import do_accept, remember_pending_accept
         try:
             order_id = int(arg.split("_", 1)[1])
         except (ValueError, IndexError):
             await message.answer("Noto'g'ri havola.")
+            return
+        op = await q.get_operator_by_tg(message.from_user.id)
+        if not op or op["status"] != "active":
+            # Hali login qilmagan — eslab qolamiz, login qilgach avtomatik ochiladi
+            remember_pending_accept(message.from_user.id, order_id)
+            await message.answer(
+                "Bu murojaatni qabul qilish uchun avval operator kabinetiga kiring 👇\n"
+                "Login qilganingizdan so'ng murojaat avtomatik ochiladi.")
+            await state.set_state(OperatorFlow.login)
+            await message.answer("👨‍⚕️ <b>Operator kabineti</b>\n\n🔑 Login:", reply_markup=kb.REMOVE)
             return
         ok, err = await do_accept(bot, op, order_id, message.from_user.id)
         if not ok:

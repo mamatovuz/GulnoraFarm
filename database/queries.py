@@ -244,6 +244,18 @@ async def last_client_tg_msg(order_id):
     return row["tg_msg_id"] if row else None
 
 
+async def last_client_msg_time(order_id):
+    """Mijozning oxirgi xabari vaqtini (created_at) qaytaradi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT created_at FROM messages WHERE order_id = ? AND sender = 'client' "
+        "ORDER BY id DESC LIMIT 1",
+        (order_id,),
+    )
+    row = await cur.fetchone()
+    return row["created_at"] if row else None
+
+
 async def last_operator_tg_msg(order_id):
     """Operatorning oxirgi xabarining (operator chatidagi) message_id sini qaytaradi."""
     db = await get_db()
@@ -328,8 +340,28 @@ async def login_operator(operator_id, telegram_id):
     db = await get_db()
     # bitta telegram bitta operatorga bog'lansin
     await db.execute("UPDATE operators SET telegram_id = NULL WHERE telegram_id = ?", (telegram_id,))
-    await db.execute("UPDATE operators SET telegram_id = ? WHERE id = ?", (telegram_id, operator_id))
+    await db.execute("UPDATE operators SET telegram_id = ?, last_active = ? WHERE id = ?",
+                     (telegram_id, now(), operator_id))
     await db.commit()
+
+
+async def touch_operator(telegram_id):
+    """Operatorning oxirgi faollik vaqtini yangilaydi (faqat login qilganlar uchun)."""
+    db = await get_db()
+    await db.execute("UPDATE operators SET last_active = ? WHERE telegram_id = ?",
+                     (now(), telegram_id))
+    await db.commit()
+
+
+async def idle_operators(threshold: str):
+    """last_active berilgan vaqtdan eski bo'lgan (harakatsiz) login operatorlarni qaytaradi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM operators WHERE telegram_id IS NOT NULL "
+        "AND (last_active IS NULL OR last_active < ?)",
+        (threshold,),
+    )
+    return await cur.fetchall()
 
 
 async def logout_operator(telegram_id):

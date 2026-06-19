@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS operators (
     password_hash TEXT,
     telegram_id   INTEGER,
     status        TEXT DEFAULT 'active',        -- active | inactive
-    active_order_id INTEGER
+    active_order_id INTEGER,
+    last_active   TEXT                           -- oxirgi faollik vaqti (auto-logout uchun)
 );
 
 CREATE TABLE IF NOT EXISTS faqs (
@@ -167,6 +168,13 @@ async def init_db():
         await db.commit()
     if "group_msg_id" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN group_msg_id INTEGER")
+        await db.commit()
+
+    # Migratsiya: operators.last_active ustuni
+    cur = await db.execute("PRAGMA table_info(operators)")
+    opcols = [row[1] for row in await cur.fetchall()]
+    if "last_active" not in opcols:
+        await db.execute("ALTER TABLE operators ADD COLUMN last_active TEXT")
         await db.commit()
 
     # Migratsiya: users.lang ustuni
