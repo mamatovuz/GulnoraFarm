@@ -169,6 +169,12 @@ async def assign_order(order_id, operator_id):
     await db.commit()
 
 
+async def set_order_group_msg(order_id, msg_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET group_msg_id = ? WHERE id = ?", (msg_id, order_id))
+    await db.commit()
+
+
 async def set_order_bill(order_id, bill):
     db = await get_db()
     await db.execute("UPDATE orders SET bill = ? WHERE id = ?", (bill, order_id))

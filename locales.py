@@ -20,6 +20,8 @@ B = {
     "contact":     {"uz": "☎️ Bog'lanish",                   "ru": "☎️ Связаться"},
     "admin":       {"uz": "👨‍💻 Admin panel",                 "ru": "👨‍💻 Админ-панель"},
     "op_cabinet":  {"uz": "👨‍⚕️ Operator kabineti",           "ru": "👨‍⚕️ Кабинет оператора"},
+    "join_team":   {"uz": "🤝 Jamoamizga qo'shilish",         "ru": "🤝 Присоединиться к команде"},
+    "open_vacancy":{"uz": "👉 Vakansiyalar botiga o'tish",    "ru": "👉 Перейти в бот вакансий"},
     "check_sub":   {"uz": "✅ Tekshirish",                   "ru": "✅ Проверить"},
     "map":         {"uz": "🗺 Xaritada ko'rish",             "ru": "🗺 Показать на карте"},
     "branches_back": {"uz": "🔙 Filiallar ro'yxatiga qaytish", "ru": "🔙 К списку филиалов"},
@@ -205,6 +207,14 @@ T = {
     "faq_menu": {
         "uz": "❓ <b>Ko'p beriladigan savollar</b>\n\nQuyidagi mavzulardan birini tanlang:",
         "ru": "❓ <b>Частые вопросы</b>\n\nВыберите одну из тем:",
+    },
+    "join_team_text": {
+        "uz": "🤝 <b>Bizning jamoamizga qo'shiling!</b>\n\n"
+              "Gulnora Farm jamoasida ishlashni xohlaysizmi? Quyidagi tugma orqali "
+              "vakansiyalar botiga o'ting va ariza qoldiring 👇",
+        "ru": "🤝 <b>Присоединяйтесь к нашей команде!</b>\n\n"
+              "Хотите работать в команде Gulnora Farm? Нажмите кнопку ниже, чтобы перейти "
+              "в бот вакансий и оставить заявку 👇",
     },
     "branches_header": {
         "uz": "📍 <b>Bizning filiallarimiz</b>\n\nQuyidagi ro'yxatdan filialni tanlang:",

@@ -101,6 +101,14 @@ async def branches_back(call: CallbackQuery):
     await call.answer()
 
 
+# ---------------- Jamoaga qo'shilish (vakansiya boti) ----------------
+@router.message(F.text.in_(loc.labels("join_team")))
+async def join_team(message: Message, state: FSMContext):
+    await state.clear()
+    lang = await q.get_lang(message.from_user.id)
+    await message.answer(loc.t("join_team_text", lang), reply_markup=kb.vacancy_kb(lang))
+
+
 # ---------------- Bog'lanish ----------------
 @router.message(F.text.in_(loc.labels("contact")))
 async def contact_section(message: Message, state: FSMContext):

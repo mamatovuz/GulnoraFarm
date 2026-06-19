@@ -93,26 +93,41 @@ def extract_content(message):
     return "text", None, message.text
 
 
+_bot_username = None
+
+
+async def get_bot_username(bot: Bot) -> str:
+    global _bot_username
+    if _bot_username is None:
+        me = await bot.get_me()
+        _bot_username = me.username
+    return _bot_username
+
+
 async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, text):
-    """Murojaatni operatorlar guruhiga BITTA xabar (kontent + caption + Qabul tugmasi) qilib yuboradi."""
+    """Murojaatni operatorlar guruhiga BITTA xabar (kontent + caption + Qabul havolasi) qilib yuboradi."""
     if not OPERATORS_GROUP_ID:
         return
     order = await q.get_order(order_id)
     info = await order_card_text(order)
     note = (text or "").strip()
     caption = f"{note}\n\n{info}" if note else info
-    markup = kb.order_accept_kb(order_id)
+    username = await get_bot_username(bot)
+    markup = kb.order_accept_link_kb(order_id, username)
+    sent = None
     try:
         if content_type == "photo":
-            await bot.send_photo(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
+            sent = await bot.send_photo(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
         elif content_type == "video":
-            await bot.send_video(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
+            sent = await bot.send_video(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
         elif content_type == "document":
-            await bot.send_document(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
+            sent = await bot.send_document(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
         else:
-            await bot.send_message(OPERATORS_GROUP_ID, caption, reply_markup=markup)
+            sent = await bot.send_message(OPERATORS_GROUP_ID, caption, reply_markup=markup)
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
+    if sent:
+        await q.set_order_group_msg(order_id, sent.message_id)
 
 
 async def send_first_content_to_operators(bot: Bot, order_id: int, message):

@@ -1,7 +1,7 @@
 """Ro'yxatdan o'tish: /start -> til -> ism -> telefon -> obuna -> filial -> asosiy menyu."""
 import re
 from aiogram import Router, F, Bot
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
@@ -36,8 +36,28 @@ async def proceed_after_phone(message: Message, state: FSMContext, bot: Bot, lan
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, bot: Bot):
+async def cmd_start(message: Message, state: FSMContext, bot: Bot, command: CommandObject):
     await state.clear()
+
+    # Operatorlar guruhidagi "Qabul qilish" havolasi: /start accept_<id>
+    arg = command.args if command else None
+    if arg and arg.startswith("accept_"):
+        from handlers.operator import do_accept
+        op = await q.get_operator_by_tg(message.from_user.id)
+        if not op or op["status"] != "active":
+            await message.answer("Bu murojaatni qabul qilish uchun avval /operator orqali "
+                                 "kabinetga kiring, so'ng havolani qayta bosing.")
+            return
+        try:
+            order_id = int(arg.split("_", 1)[1])
+        except (ValueError, IndexError):
+            await message.answer("Noto'g'ri havola.")
+            return
+        ok, err = await do_accept(bot, op, order_id, message.from_user.id)
+        if not ok:
+            await message.answer(f"⚠️ {err}")
+        return
+
     user = await q.get_user(message.from_user.id)
     if user and user["full_name"] and user["phone"]:
         lang = user["lang"] or "uz"

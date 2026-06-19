@@ -183,6 +183,46 @@ async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
 
 
 # ---------------- Qabul qilish ----------------
+async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
+    """Murojaatni operatorga biriktiradi va hamma ishni operatorning shaxsiy chatiga o'tkazadi.
+    (ok, xato_matni) qaytaradi."""
+    order = await q.get_order(order_id)
+    if not order:
+        return False, "Murojaat topilmadi."
+    if order["status"] != "new":
+        return False, f"Murojaat #{order_id} allaqachon qabul qilingan yoki yopilgan."
+
+    await q.assign_order(order_id, op["id"])
+    await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
+    await q.set_operator_active_order(op["id"], order_id)
+
+    # 1) Guruhdagi xabardan "Qabul qilish" tugmasini olib tashlaymiz va kim olganini belgilaymiz
+    if order["group_msg_id"] and OPERATORS_GROUP_ID:
+        try:
+            await bot.edit_message_reply_markup(OPERATORS_GROUP_ID, order["group_msg_id"],
+                                                reply_markup=None)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+        try:
+            await bot.send_message(
+                OPERATORS_GROUP_ID,
+                f"✅ Murojaat #{order_id} ni {op['name']} qabul qildi. Ish bot ichida davom etmoqda.",
+                reply_to_message_id=order["group_msg_id"],
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+    # 2) Butun ish operatorning SHAXSIY chatiga — BITTA xabar bilan
+    assign_text = (f"🔵 Murojaat #{order_id} sizga biriktirildi.\n"
+                   f"Endi shu yerga yozgan har bir xabaringiz to'g'ridan-to'g'ri mijozga yetib boradi.")
+    await _send_order_single(bot, op_chat, order_id, assign_text, kb.op_order_actions_kb(order_id))
+
+    # 3) Mijozga xabar
+    clang = await q.get_lang(order["user_id"])
+    await notify_client(bot, order["user_id"], loc.t("accept_notify", clang))
+    return True, None
+
+
 @router.callback_query(F.data.startswith("op_accept:"))
 async def op_accept(call: CallbackQuery):
     op = await q.get_operator_by_tg(call.from_user.id)
@@ -190,37 +230,14 @@ async def op_accept(call: CallbackQuery):
         await call.answer("Avval /operator orqali kabinetga kiring.", show_alert=True)
         return
     order_id = int(call.data.split(":")[1])
-    order = await q.get_order(order_id)
-    if not order:
-        await call.answer("Murojaat topilmadi", show_alert=True)
-        return
-    if order["status"] != "new":
-        await call.answer("Bu murojaat allaqachon qabul qilingan yoki yopilgan.", show_alert=True)
-        return
-    await q.assign_order(order_id, op["id"])
-    await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
-    await q.set_operator_active_order(op["id"], order_id)
-
-    # 1) Guruh/kanaldagi xabarda "Qabul qilish" tugmasini olib tashlaymiz va kim olganini belgilaymiz
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except TelegramBadRequest:
         pass
-    try:
-        await call.message.reply(f"✅ Murojaat #{order_id} ni {op['name']} qabul qildi. "
-                                 f"Ish bot ichida davom etmoqda.")
-    except TelegramBadRequest:
-        pass
-
-    # 2) Butun ish operatorning SHAXSIY chatiga (botga) — BITTA xabar bilan o'tadi
-    op_chat = op["telegram_id"] or call.from_user.id
-    order = await q.get_order(order_id)
-    assign_text = (f"🔵 Murojaat #{order_id} sizga biriktirildi.\n"
-                   f"Endi shu yerga yozgan har bir xabaringiz to'g'ridan-to'g'ri mijozga yetib boradi.")
-    await _send_order_single(call.bot, op_chat, order_id, assign_text,
-                             kb.op_order_actions_kb(order_id))
-    clang = await q.get_lang(order["user_id"])
-    await notify_client(call.bot, order["user_id"], loc.t("accept_notify", clang))
+    ok, err = await do_accept(call.bot, op, order_id, op["telegram_id"] or call.from_user.id)
+    if not ok:
+        await call.answer(err, show_alert=True)
+        return
     await call.answer("Qabul qilindi ✅ — botga o'ting", show_alert=True)
 
 

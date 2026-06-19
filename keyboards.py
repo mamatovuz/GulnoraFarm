@@ -9,6 +9,9 @@ import locales as loc
 
 REMOVE = ReplyKeyboardRemove()
 
+# Vakansiyalar boti (jamoaga qo'shilish)
+VACANCY_BOT_URL = "https://t.me/Gulnorafarmvacancy_bot"
+
 # Operator kabineti tugmalari (xodimlar uchun, o'zbekcha qoladi)
 BTN_OP_BACK = "🔙 Bosh menyu"
 
@@ -29,11 +32,18 @@ def main_menu(lang="uz", is_admin: bool = False, is_operator: bool = False,
     else:
         rows.append([KeyboardButton(text=loc.btn("branches", lang))])
     rows.append([KeyboardButton(text=loc.btn("contact", lang))])
+    rows.append([KeyboardButton(text=loc.btn("join_team", lang))])
     if is_operator:
         rows.append([KeyboardButton(text=loc.btn("op_cabinet", lang))])
     if is_admin:
         rows.append([KeyboardButton(text=loc.btn("admin", lang))])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def vacancy_kb(lang="uz") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=loc.btn("open_vacancy", lang), url=VACANCY_BOT_URL))
+    return kb.as_markup()
 
 
 def register_kb(lang="uz") -> ReplyKeyboardMarkup:
@@ -129,10 +139,18 @@ def contact_confirm_kb(lang="uz") -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-# ---- Operatorga yangi murojaat (guruh/kabinet) ----
+# ---- Operatorga yangi murojaat (kabinet ichida — callback) ----
 def order_accept_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"op_accept:{order_id}"))
+    return kb.as_markup()
+
+
+# ---- Operatorlar guruhi uchun — havola (bosilsa avtomatik botga o'tadi) ----
+def order_accept_link_kb(order_id, bot_username) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    url = f"https://t.me/{bot_username}?start=accept_{order_id}"
+    kb.row(InlineKeyboardButton(text="✅ Qabul qilish (botda ochish)", url=url))
     return kb.as_markup()
 
 
@@ -319,7 +337,7 @@ OPERATOR_MENU_BUTTONS = {
     "📊 Mening statistikam", "🏆 Reyting", "🚪 Chiqish (logout)", BTN_OP_BACK,
 }
 ALL_MENU_BUTTONS = (
-    loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register")
+    loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register", "join_team")
     | OPERATOR_MENU_BUTTONS
 )
 

@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS orders (
     content_type TEXT,                         -- text | photo | document | video
     bill         TEXT,
     rating       INTEGER,                        -- mijoz bahosi (1-5)
-    feedback     TEXT                            -- mijoz izohi (nega shunday baho)
+    feedback     TEXT,                           -- mijoz izohi (nega shunday baho)
+    group_msg_id INTEGER                          -- operatorlar guruhidagi xabar message_id
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -163,6 +164,9 @@ async def init_db():
         await db.commit()
     if "feedback" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN feedback TEXT")
+        await db.commit()
+    if "group_msg_id" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN group_msg_id INTEGER")
         await db.commit()
 
     # Migratsiya: users.lang ustuni
