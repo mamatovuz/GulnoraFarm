@@ -48,8 +48,9 @@ async def order_card_text(order) -> str:
     name = user["full_name"] if user else "—"
     phone = user["phone"] if user else "—"
     branch_name = branch["name"] if branch else "—"
+    header = "🆕" if order["status"] == "new" else "📋"
     return (
-        f"🆕 <b>Murojaat — #{order['id']}</b>\n\n"
+        f"{header} <b>Murojaat — #{order['id']}</b>\n\n"
         f"👤 Mijoz: {name}\n"
         f"📞 Telefon: {phone}\n"
         f"🏥 Filial: {branch_name}\n"

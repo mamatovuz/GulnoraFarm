@@ -196,19 +196,24 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], order_id)
 
-    # 1) Guruhdagi xabardan "Qabul qilish" tugmasini olib tashlaymiz va kim olganini belgilaymiz
+    # 1) Guruhdagi xabarni YANGILAYMIZ: tugma olib tashlanadi, holat o'zgaradi, kim olgani yoziladi
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
+        fresh = await q.get_order(order_id)            # endi holat 🔵 Jarayonda
+        info = await order_card_text(fresh)
+        msgs = await q.order_messages(order_id)
+        note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
+        new_caption = (f"{note}\n\n{info}" if note else info) + \
+                      f"\n\n✅ <b>Qabul qildi:</b> {op['name']}"
+        is_media = (fresh["content_type"] in ("photo", "video", "document"))
         try:
-            await bot.edit_message_reply_markup(OPERATORS_GROUP_ID, order["group_msg_id"],
-                                                reply_markup=None)
-        except (TelegramBadRequest, TelegramForbiddenError):
-            pass
-        try:
-            await bot.send_message(
-                OPERATORS_GROUP_ID,
-                f"✅ Murojaat #{order_id} ni {op['name']} qabul qildi. Ish bot ichida davom etmoqda.",
-                reply_to_message_id=order["group_msg_id"],
-            )
+            if is_media:
+                await bot.edit_message_caption(chat_id=OPERATORS_GROUP_ID,
+                                               message_id=order["group_msg_id"],
+                                               caption=new_caption, reply_markup=None)
+            else:
+                await bot.edit_message_text(chat_id=OPERATORS_GROUP_ID,
+                                            message_id=order["group_msg_id"],
+                                            text=new_caption, reply_markup=None)
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
 
