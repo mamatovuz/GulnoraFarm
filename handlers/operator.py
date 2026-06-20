@@ -227,6 +227,11 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
 
     # 1) Guruhdagi xabarni YANGILAYMIZ: tugma olib tashlanadi, holat o'zgaradi, kim olgani yoziladi
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
+        # Qabul qilindi -> kanaldan pin yechiladi (unpin)
+        try:
+            await bot.unpin_chat_message(OPERATORS_GROUP_ID, order["group_msg_id"])
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
         fresh = await q.get_order(order_id)            # endi holat 🔵 Jarayonda
         info = await order_card_text(fresh)
         msgs = await q.order_messages(order_id)
@@ -323,20 +328,36 @@ async def op_bill_btn(call: CallbackQuery, state: FSMContext):
     await state.set_state(OperatorFlow.bill_text)
     await state.update_data(bill_order=order_id)
     await call.message.answer(
-        "Hisoblangan summa va dorilar ro'yxatini kiriting:\n\n"
-        "Masalan:\nParacetamol — 2 quti — 24 000 so'm\nJami: 24 000 so'm"
+        "Hisob-kitobni <b>matn</b> yoki <b>rasm</b> ko'rinishida yuboring 📋\n\n"
+        "Masalan:\nParacetamol — 2 quti — 24 000 so'm\nJami: 24 000 so'm\n\n"
+        "(Yoki hisob-kitob/chek rasmini yuborishingiz mumkin.)"
     )
     await call.answer()
 
 
-@router.message(OperatorFlow.bill_text)
+@router.message(OperatorFlow.bill_text, F.photo)
+async def op_bill_save_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    order_id = data["bill_order"]
+    await q.set_order_bill(order_id, message.caption or "", message.photo[-1].file_id)
+    await state.clear()
+    await message.answer("✅ Hisob-kitob (rasm) saqlandi.\n\nMijozga yuborishni xohlaysizmi?",
+                         reply_markup=kb.bill_send_kb(order_id))
+
+
+@router.message(OperatorFlow.bill_text, F.text)
 async def op_bill_save(message: Message, state: FSMContext):
     data = await state.get_data()
     order_id = data["bill_order"]
-    await q.set_order_bill(order_id, message.text)
+    await q.set_order_bill(order_id, message.text, None)
     await state.clear()
     await message.answer("✅ Hisob-kitob saqlandi.\n\nMijozga yuborishni xohlaysizmi?",
                          reply_markup=kb.bill_send_kb(order_id))
+
+
+@router.message(OperatorFlow.bill_text)
+async def op_bill_save_bad(message: Message):
+    await message.answer("Iltimos, hisob-kitobni matn yoki rasm ko'rinishida yuboring.")
 
 
 @router.callback_query(F.data.startswith("bill_send:"))
@@ -344,8 +365,14 @@ async def bill_send(call: CallbackQuery):
     order_id = int(call.data.split(":")[1])
     order = await q.get_order(order_id)
     clang = await q.get_lang(order["user_id"])
-    await notify_client(call.bot, order["user_id"],
-                        loc.t("bill_to_client", clang, id=order_id, bill=order["bill"]))
+    caption = loc.t("bill_to_client", clang, id=order_id, bill=order["bill"] or "")
+    try:
+        if order["bill_photo"]:
+            await call.bot.send_photo(order["user_id"], order["bill_photo"], caption=caption)
+        else:
+            await call.bot.send_message(order["user_id"], caption)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
     await call.message.edit_text("✅ Hisob-kitob mijozga yuborildi.")
     await call.answer()
 
@@ -414,14 +441,16 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
     order_id, tpl_id = int(order_id), int(tpl_id)
     order = await q.get_order(order_id)
     tpl = await q.get_template(tpl_id)
-    if not order or not tpl:
+    op = await q.get_operator_by_tg(call.from_user.id)
+    if not order or not tpl or not op:
         await call.answer("Topilmadi", show_alert=True)
         return
     await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
     clang = await q.get_lang(order["user_id"])
     reply_to = await q.last_client_tg_msg(order_id)
     try:
-        await bot.send_message(order["user_id"], loc.t("operator_reply", clang, text=tpl["text"]),
+        await bot.send_message(order["user_id"],
+                               loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
                                reply_to_message_id=reply_to, allow_sending_without_reply=True)
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
@@ -614,7 +643,8 @@ async def operator_proxy(message: Message, bot: Bot):
         return
     await save_message_from_message(active, "operator", message)
     clang = await q.get_lang(order["user_id"])
-    caption = loc.t("operator_reply", clang, text=message.caption or message.text or "")
+    caption = loc.t("operator_reply", clang, name=op["name"],
+                    text=message.caption or message.text or "")
 
     # 1) Operator aniq bir xabarga 'reply' qilgan bo'lsa -> o'sha mijoz xabariga tirkaymiz
     reply_to = None

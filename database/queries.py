@@ -176,9 +176,10 @@ async def set_order_group_msg(order_id, msg_id):
     await db.commit()
 
 
-async def set_order_bill(order_id, bill):
+async def set_order_bill(order_id, bill, bill_photo=None):
     db = await get_db()
-    await db.execute("UPDATE orders SET bill = ? WHERE id = ?", (bill, order_id))
+    await db.execute("UPDATE orders SET bill = ?, bill_photo = ? WHERE id = ?",
+                     (bill, bill_photo, order_id))
     await db.commit()
 
 

@@ -109,14 +109,17 @@ def my_orders_kb(orders) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def my_order_cancel_kb(order_id) -> InlineKeyboardMarkup:
+def my_order_cancel_kb(order_id, lang="uz") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="❌ Murojaatni bekor qilish", callback_data=f"myordercancel:{order_id}"))
+    kb.row(InlineKeyboardButton(text=loc.t("cancel_order_btn", lang),
+                                callback_data=f"myordercancel:{order_id}"))
     return kb.as_markup()
 
 
 def branch_card_kb(branch_id, has_location, lang="uz") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text=loc.btn("select_branch", lang),
+                                callback_data=f"branch_select:{branch_id}"))
     if has_location:
         kb.row(InlineKeyboardButton(text=loc.btn("map", lang), callback_data=f"branch_map:{branch_id}"))
     kb.row(InlineKeyboardButton(text=loc.btn("branches_back", lang), callback_data="branches_back"))
@@ -330,10 +333,20 @@ def location_request_kb() -> ReplyKeyboardMarkup:
 def operators_admin_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="➕ Operator qo'shish", callback_data="op_add"))
+    kb.row(InlineKeyboardButton(text="✏️ Tahrirlash (ism/login/parol)", callback_data="op_edit_list"))
     kb.row(InlineKeyboardButton(text="⛔ Bloklash / Faollashtirish", callback_data="op_toggle_list"))
     kb.row(InlineKeyboardButton(text="🗑 O'chirish", callback_data="op_del_list"))
     kb.row(InlineKeyboardButton(text="📊 Operator statistikasi", callback_data="op_stat_list"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def operator_edit_fields_kb(op_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="✏️ Ismi", callback_data=f"opedit:name:{op_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Login", callback_data=f"opedit:login:{op_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Parol", callback_data=f"opedit:password:{op_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="op_edit_list"))
     return kb.as_markup()
 
 
@@ -384,15 +397,14 @@ ALL_MENU_BUTTONS = (
 
 def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="💬 Javob yozish", callback_data=f"opc:reply:{order_id}"),
+    kb.row(InlineKeyboardButton(text="💬 Javob", callback_data=f"opc:reply:{order_id}"),
            InlineKeyboardButton(text="📝 Tayyor javob", callback_data=f"opc:tpl:{order_id}"))
-    kb.row(InlineKeyboardButton(text="💊 Dori/retsept hisoblash", callback_data=f"opc:bill:{order_id}"))
-    kb.row(InlineKeyboardButton(text="🔄 Boshqa operatorga uzatish",
-                                callback_data=f"opc:transfer:{order_id}"))
+    kb.row(InlineKeyboardButton(text="💊 Hisoblash", callback_data=f"opc:bill:{order_id}"),
+           InlineKeyboardButton(text="🔄 Uzatish", callback_data=f"opc:transfer:{order_id}"))
     kb.row(InlineKeyboardButton(text="⏱ 10 daqiqada avto-yakunlash",
                                 callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"opc:done:{order_id}"),
-           InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"opc:cancel:{order_id}"))
+           InlineKeyboardButton(text="❌ Bekor", callback_data=f"opc:cancel:{order_id}"))
     return kb.as_markup()
 
 

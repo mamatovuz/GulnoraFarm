@@ -716,6 +716,62 @@ async def op_toggle(call: CallbackQuery):
     await call.answer()
 
 
+# --- Operatorni tahrirlash (ism/login/parol) ---
+@router.callback_query(F.data == "op_edit_list")
+async def op_edit_list(call: CallbackQuery):
+    ops = await q.list_operators()
+    if not ops:
+        await call.answer("Operator yo'q", show_alert=True)
+        return
+    await call.message.edit_text("Tahrirlanadigan operatorni tanlang:",
+                                 reply_markup=kb.operator_pick_kb(ops, "opedit_pick"))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opedit_pick:"))
+async def op_edit_pick(call: CallbackQuery):
+    op_id = int(call.data.split(":")[1])
+    op = await q.get_operator(op_id)
+    await call.message.edit_text(
+        f"👨‍⚕️ <b>{op['name']}</b>\n🔑 Login: <code>{op['login']}</code>\n\n"
+        "Qaysi maydonni tahrirlamoqchisiz?",
+        reply_markup=kb.operator_edit_fields_kb(op_id),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opedit:"))
+async def op_edit_field(call: CallbackQuery, state: FSMContext):
+    _, field, op_id = call.data.split(":")
+    await state.set_state(AdminFlow.op_edit_value)
+    await state.update_data(op_edit_id=int(op_id), op_edit_field=field)
+    labels = {"name": "yangi ismni", "login": "yangi loginni", "password": "yangi parolni"}
+    await call.message.answer(f"{labels[field].capitalize()} kiriting:")
+    await call.answer()
+
+
+@router.message(AdminFlow.op_edit_value)
+async def op_edit_value(message: Message, state: FSMContext):
+    d = await state.get_data()
+    op_id, field = d["op_edit_id"], d["op_edit_field"]
+    value = message.text.strip()
+    if field == "login":
+        existing = await q.get_operator_by_login(value)
+        if existing and existing["id"] != op_id:
+            await message.answer("⚠️ Bu login band. Boshqa login kiriting:")
+            return
+        await q.update_operator(op_id, "login", value)
+        msg = "✅ Login yangilandi."
+    elif field == "password":
+        await q.update_operator(op_id, "password_hash", q.hash_password(value))
+        msg = f"✅ Parol yangilandi. Yangi parol: <code>{value}</code>"
+    else:
+        await q.update_operator(op_id, "name", value)
+        msg = "✅ Ism yangilandi."
+    await state.clear()
+    await message.answer(msg, reply_markup=kb.admin_back_kb("adm:op"))
+
+
 @router.callback_query(F.data == "op_del_list")
 async def op_del_list(call: CallbackQuery):
     ops = await q.list_operators()

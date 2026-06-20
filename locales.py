@@ -15,7 +15,7 @@ B = {
     "register":    {"uz": "✅ Ro'yxatdan o'tish",            "ru": "✅ Регистрация"},
     "send_phone":  {"uz": "📲 Raqamni yuborish",             "ru": "📲 Отправить номер"},
     "order":       {"uz": "💊 Retsept yuborish",             "ru": "💊 Отправить рецепт"},
-    "faq":         {"uz": "❓ Ko'p beriladigan savollar",     "ru": "❓ Частые вопросы"},
+    "faq":         {"uz": "❓ Savollar",                     "ru": "❓ Вопросы"},
     "branches":    {"uz": "📍 Filiallar",                    "ru": "📍 Филиалы"},
     "contact":     {"uz": "☎️ Bog'lanish",                   "ru": "☎️ Связаться"},
     "admin":       {"uz": "👨‍💻 Admin panel",                 "ru": "👨‍💻 Админ-панель"},
@@ -27,6 +27,7 @@ B = {
     "send_location": {"uz": "📍 Lokatsiyani yuborish",        "ru": "📍 Отправить локацию"},
     "check_sub":   {"uz": "✅ Tekshirish",                   "ru": "✅ Проверить"},
     "map":         {"uz": "🗺 Xaritada ko'rish",             "ru": "🗺 Показать на карте"},
+    "select_branch": {"uz": "✅ Shu filialni tanlash",       "ru": "✅ Выбрать этот филиал"},
     "branches_back": {"uz": "🔙 Filiallar ro'yxatiga qaytish", "ru": "🔙 К списку филиалов"},
     "back":        {"uz": "🔙 Orqaga",                       "ru": "🔙 Назад"},
     "cancel":      {"uz": "🔙 Bekor qilish",                 "ru": "🔙 Отмена"},
@@ -155,19 +156,25 @@ T = {
     },
     "order_ok_photo": {
         "uz": "✅ Retsept rasmi qabul qilindi!\n\nOperatorlarimiz tez orada ko'rib chiqib, "
-              "siz bilan bog'lanadi ⏳\n\nMurojaat raqami: <b>#{id}</b>",
+              "siz bilan bog'lanadi ⏳\n\nMurojaat raqami: <b>#{id}</b>\n\n"
+              "Endi shu yerga qo'shimcha savol yozsangiz, to'g'ridan-to'g'ri operatorga yetib boradi.",
         "ru": "✅ Фото рецепта принято!\n\nНаши операторы скоро рассмотрят и свяжутся с вами ⏳\n\n"
-              "Номер обращения: <b>#{id}</b>",
+              "Номер обращения: <b>#{id}</b>\n\n"
+              "Теперь, если напишете сюда вопрос, он напрямую попадёт оператору.",
     },
     "order_ok_document": {
         "uz": "✅ Hujjat qabul qilindi!\n\nOperatorlarimiz tez orada ko'rib chiqadi ⏳\n\n"
-              "Murojaat raqami: <b>#{id}</b>",
-        "ru": "✅ Документ принят!\n\nНаши операторы скоро рассмотрят ⏳\n\nНомер обращения: <b>#{id}</b>",
+              "Murojaat raqami: <b>#{id}</b>\n\n"
+              "Endi shu yerga qo'shimcha savol yozsangiz, to'g'ridan-to'g'ri operatorga yetib boradi.",
+        "ru": "✅ Документ принят!\n\nНаши операторы скоро рассмотрят ⏳\n\nНомер обращения: <b>#{id}</b>\n\n"
+              "Теперь, если напишете сюда вопрос, он напрямую попадёт оператору.",
     },
     "order_ok_video": {
         "uz": "✅ Video qabul qilindi!\n\nOperatorlarimiz tez orada ko'rib chiqadi ⏳\n\n"
-              "Murojaat raqami: <b>#{id}</b>",
-        "ru": "✅ Видео принято!\n\nНаши операторы скоро рассмотрят ⏳\n\nНомер обращения: <b>#{id}</b>",
+              "Murojaat raqami: <b>#{id}</b>\n\n"
+              "Endi shu yerga qo'shimcha savol yozsangiz, to'g'ridan-to'g'ri operatorga yetib boradi.",
+        "ru": "✅ Видео принято!\n\nНаши операторы скоро рассмотрят ⏳\n\nНомер обращения: <b>#{id}</b>\n\n"
+              "Теперь, если напишете сюда вопрос, он напрямую попадёт оператору.",
     },
     "order_bad_format": {
         "uz": "⚠️ Afsuski, bu formatni qabul qila olmaymiz.\n\n"
@@ -188,8 +195,8 @@ T = {
               "нажмите «💊 Отправить рецепт».",
     },
     "operator_reply": {
-        "uz": "👨‍⚕️ <b>Operator javobi:</b>\n\n{text}",
-        "ru": "👨‍⚕️ <b>Ответ оператора:</b>\n\n{text}",
+        "uz": "👨‍⚕️ <b>{name}</b> (operator) javobi:\n\n{text}",
+        "ru": "👨‍⚕️ <b>{name}</b> (оператор) отвечает:\n\n{text}",
     },
     "rate_ask": {
         "uz": "\n\n⭐ Iltimos, ko'rsatilgan xizmatni baholang:",
@@ -277,6 +284,18 @@ T = {
         "uz": "📋 <b>Sizning murojaatlaringiz:</b>",
         "ru": "📋 <b>Ваши обращения:</b>",
     },
+    "my_order_detail": {
+        "uz": "📋 <b>Murojaat #{id}</b>\n\n🕐 Sana: {date}\nHolat: {status}{rating}",
+        "ru": "📋 <b>Обращение #{id}</b>\n\n🕐 Дата: {date}\nСтатус: {status}{rating}",
+    },
+    "rating_line": {
+        "uz": "\n⭐ Baho: {r}/5",
+        "ru": "\n⭐ Оценка: {r}/5",
+    },
+    "cancel_order_btn": {
+        "uz": "❌ Murojaatni bekor qilish",
+        "ru": "❌ Отменить обращение",
+    },
     "my_orders_empty": {
         "uz": "Sizda hali murojaatlar yo'q.\n\nYangi murojaat uchun \"💊 Retsept yuborish\" tugmasini bosing.",
         "ru": "У вас пока нет обращений.\n\nДля нового обращения нажмите «💊 Отправить рецепт».",
@@ -310,3 +329,16 @@ def t(key: str, lang: str = DEFAULT_LANG, **kw) -> str:
     item = T.get(key, {})
     text = item.get(lang) or item.get(DEFAULT_LANG) or key
     return text.format(**kw) if kw else text
+
+
+# Murojaat holatlari (ikki tilli)
+STATUS_T = {
+    "new":         {"uz": "🟡 Yangi",          "ru": "🟡 Новый"},
+    "in_progress": {"uz": "🔵 Jarayonda",      "ru": "🔵 В процессе"},
+    "done":        {"uz": "🟢 Yakunlangan",    "ru": "🟢 Завершён"},
+    "canceled":    {"uz": "🔴 Bekor qilingan", "ru": "🔴 Отменён"},
+}
+
+
+def status_label(status: str, lang: str = DEFAULT_LANG) -> str:
+    return STATUS_T.get(status, {}).get(lang, status)

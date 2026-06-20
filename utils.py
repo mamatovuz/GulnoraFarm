@@ -31,6 +31,17 @@ async def work_hours():
     return within, start, end
 
 
+def fmt_dt(s: str) -> str:
+    """'2026-06-20 15:37:13' -> '20.06.2026 15:37'."""
+    if not s:
+        return "—"
+    try:
+        from datetime import datetime
+        return datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return s
+
+
 def haversine_km(lat1, lon1, lat2, lon2) -> float:
     """Ikki nuqta orasidagi masofa (km)."""
     from math import radians, sin, cos, asin, sqrt
@@ -71,12 +82,14 @@ async def order_card_text(order) -> str:
     phone = user["phone"] if user else "—"
     branch_name = branch["name"] if branch else "—"
     header = "🆕" if order["status"] == "new" else "📋"
+    # Mijoz ismini bosiladigan (lichkasiga olib o'tadigan) qilamiz
+    name_link = f'<a href="tg://user?id={order["user_id"]}">{name}</a>'
     return (
         f"{header} <b>Murojaat — #{order['id']}</b>\n\n"
-        f"👤 Mijoz: {name}\n"
+        f"👤 Mijoz: {name_link}\n"
         f"📞 Telefon: {phone}\n"
         f"🏥 Filial: {branch_name}\n"
-        f"🕐 Sana: {order['created_at']}\n\n"
+        f"🕐 Sana: {fmt_dt(order['created_at'])}\n\n"
         f"Holat: {STATUS_LABEL.get(order['status'], order['status'])}"
     )
 
@@ -151,6 +164,11 @@ async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, 
         pass
     if sent:
         await q.set_order_group_msg(order_id, sent.message_id)
+        # Qabul qilinmagan murojaat kanalda pin (qadab) qo'yiladi
+        try:
+            await bot.pin_chat_message(OPERATORS_GROUP_ID, sent.message_id, disable_notification=True)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
 
 
 async def send_first_content_to_operators(bot: Bot, order_id: int, message):

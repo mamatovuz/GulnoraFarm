@@ -60,17 +60,17 @@ async def my_orders(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("myorder:"))
 async def my_order_detail(call: CallbackQuery):
-    from utils import STATUS_LABEL
+    from utils import fmt_dt
+    lang = await q.get_lang(call.from_user.id)
     order_id = int(call.data.split(":")[1])
     order = await q.get_order(order_id)
     if not order or order["user_id"] != call.from_user.id:
         await call.answer("Topilmadi", show_alert=True)
         return
-    rating = f"\n⭐ Baho: {order['rating']}/5" if order["rating"] else ""
-    text = (f"📋 <b>Murojaat #{order_id}</b>\n\n"
-            f"🕐 Sana: {order['created_at']}\n"
-            f"Holat: {STATUS_LABEL.get(order['status'], order['status'])}{rating}")
-    markup = kb.my_order_cancel_kb(order_id) if order["status"] in ("new", "in_progress") else None
+    rating = loc.t("rating_line", lang, r=order["rating"]) if order["rating"] else ""
+    text = loc.t("my_order_detail", lang, id=order_id, date=fmt_dt(order["created_at"]),
+                 status=loc.status_label(order["status"], lang), rating=rating)
+    markup = kb.my_order_cancel_kb(order_id, lang) if order["status"] in ("new", "in_progress") else None
     await call.message.answer(text, reply_markup=markup)
     await call.answer()
 
@@ -88,6 +88,12 @@ async def my_order_cancel(call: CallbackQuery, bot: Bot):
         return
     await q.set_order_status(order_id, "canceled", f"client:{call.from_user.id}")
     await q.set_user_active_order(call.from_user.id, None)
+    # Kanalda pin turgan bo'lsa — yechamiz
+    if order["group_msg_id"] and OPERATORS_GROUP_ID:
+        try:
+            await bot.unpin_chat_message(OPERATORS_GROUP_ID, order["group_msg_id"])
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
     # operatorni/guruhni xabardor qilamiz
     note = f"🔴 Murojaat #{order_id} ni mijoz o'zi bekor qildi."
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
@@ -183,6 +189,20 @@ async def branch_map(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data.startswith("branch_select:"))
+async def branch_select(call: CallbackQuery):
+    lang = await q.get_lang(call.from_user.id)
+    branch_id = int(call.data.split(":")[1])
+    b = await q.get_branch(branch_id)
+    if not b:
+        await call.answer("Filial topilmadi", show_alert=True)
+        return
+    await q.set_user_branch(call.from_user.id, branch_id)
+    await call.answer("✅", show_alert=False)
+    await call.message.answer(loc.t("branch_selected", lang, branch=b["name"]),
+                              reply_markup=await main_kb(call.from_user.id))
+
+
 @router.callback_query(F.data == "branches_back")
 async def branches_back(call: CallbackQuery):
     lang = await q.get_lang(call.from_user.id)
@@ -245,12 +265,11 @@ async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
                         data["c_file"], data["c_msgid"])
     await q.set_user_active_order(call.from_user.id, order_id)
     await state.clear()
-    await call.message.edit_text(loc.t("contact_sent", lang, id=order_id))
+    within, ws, we = await work_hours()
+    suffix = "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
+    await call.message.edit_text(loc.t("contact_sent", lang, id=order_id) + suffix)
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
     await deliver_order_to_operators(bot, order_id, data["c_type"], data["c_file"], data["c_text"])
-    within, ws, we = await work_hours()
-    if not within:
-        await call.message.answer(loc.t("out_of_hours", lang, start=ws, end=we))
     await call.answer()
 
 

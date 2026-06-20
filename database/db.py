@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS orders (
     bill         TEXT,
     rating       INTEGER,                        -- mijoz bahosi (1-5)
     feedback     TEXT,                           -- mijoz izohi (nega shunday baho)
-    group_msg_id INTEGER                          -- operatorlar guruhidagi xabar message_id
+    group_msg_id INTEGER,                         -- operatorlar guruhidagi xabar message_id
+    bill_photo   TEXT                             -- hisob-kitob rasmi (file_id)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -176,6 +177,9 @@ async def init_db():
         await db.commit()
     if "group_msg_id" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN group_msg_id INTEGER")
+        await db.commit()
+    if "bill_photo" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN bill_photo TEXT")
         await db.commit()
 
     # Migratsiya: operators.last_active va availability ustunlari

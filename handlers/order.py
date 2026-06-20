@@ -162,10 +162,10 @@ async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
         await q.add_message(order_id, "client", ct, cap, fid, mid)
     await q.set_user_active_order(message.from_user.id, order_id)
     await state.clear()
-    await message.answer(loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id),
-                         reply_markup=await main_kb(message.from_user.id))
+    await message.answer(
+        loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id) + await _hours_suffix(lang),
+        reply_markup=await main_kb(message.from_user.id))
     await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2])
-    await _out_of_hours_note(message, lang)
 
 
 @router.message(OrderFlow.waiting_content, F.text)
@@ -180,10 +180,9 @@ async def order_bad(message: Message):
                          reply_markup=kb.cancel_inline("cancel_order", lang))
 
 
-async def _out_of_hours_note(message: Message, lang: str):
+async def _hours_suffix(lang: str) -> str:
     within, ws, we = await work_hours()
-    if not within:
-        await message.answer(loc.t("out_of_hours", lang, start=ws, end=we))
+    return "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
 
 
 async def _create_order(message, state, bot, content_type):
@@ -193,10 +192,9 @@ async def _create_order(message, state, bot, content_type):
     await save_message_from_message(order_id, "client", message)
     await q.set_user_active_order(message.from_user.id, order_id)
     await state.clear()
-    await message.answer(loc.t(OK_KEYS[content_type], lang, id=order_id),
+    await message.answer(loc.t(OK_KEYS[content_type], lang, id=order_id) + await _hours_suffix(lang),
                          reply_markup=await main_kb(message.from_user.id))
     await send_first_content_to_operators(bot, order_id, message)
-    await _out_of_hours_note(message, lang)
 
 
 # -------- Proxy-chat: ochiq murojaati bor mijozning erkin xabari operatorga ketadi --------
