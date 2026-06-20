@@ -164,10 +164,11 @@ async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, 
         pass
     if sent:
         await q.set_order_group_msg(order_id, sent.message_id)
-        # Qabul qilinmagan murojaat kanalda pin (qadab) qo'yiladi
+        # Qabul qilinmagan murojaat kanalda pin (qadab) qo'yiladi. Xato bo'lsa ham jarayon to'xtamaydi.
         try:
-            await bot.pin_chat_message(OPERATORS_GROUP_ID, sent.message_id, disable_notification=True)
-        except (TelegramBadRequest, TelegramForbiddenError):
+            await bot.pin_chat_message(OPERATORS_GROUP_ID, message_id=sent.message_id,
+                                       disable_notification=True)
+        except Exception:
             pass
 
 

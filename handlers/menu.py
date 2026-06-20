@@ -92,7 +92,7 @@ async def my_order_cancel(call: CallbackQuery, bot: Bot):
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
         try:
             await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
-        except (TelegramBadRequest, TelegramForbiddenError):
+        except Exception:
             pass
     # operatorni/guruhni xabardor qilamiz
     note = f"🔴 Murojaat #{order_id} ni mijoz o'zi bekor qildi."

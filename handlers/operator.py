@@ -227,10 +227,10 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
 
     # 1) Guruhdagi xabarni YANGILAYMIZ: tugma olib tashlanadi, holat o'zgaradi, kim olgani yoziladi
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
-        # Qabul qilindi -> kanaldan pin yechiladi (unpin)
+        # Qabul qilindi -> kanaldan pin yechiladi (unpin). Xato bo'lsa ham jarayon to'xtamaydi.
         try:
             await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
-        except (TelegramBadRequest, TelegramForbiddenError):
+        except Exception:
             pass
         fresh = await q.get_order(order_id)            # endi holat 🔵 Jarayonda
         info = await order_card_text(fresh)
@@ -248,7 +248,7 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
                 await bot.edit_message_text(chat_id=OPERATORS_GROUP_ID,
                                             message_id=order["group_msg_id"],
                                             text=new_caption, reply_markup=None)
-        except (TelegramBadRequest, TelegramForbiddenError):
+        except Exception:
             pass
 
     # 2) Butun ish operatorning SHAXSIY chatiga — BITTA xabar bilan
