@@ -18,6 +18,28 @@ def is_admin(telegram_id: int) -> bool:
     return telegram_id in ADMIN_IDS
 
 
+async def work_hours():
+    """(ish_vaqtidami: bool, start: str, end: str)."""
+    from datetime import datetime
+    start = await q.get_setting("work_start", "08:00")
+    end = await q.get_setting("work_end", "23:00")
+    now_hm = datetime.now().strftime("%H:%M")
+    if start <= end:
+        within = start <= now_hm <= end
+    else:  # tунги rejim (masalan 22:00–06:00)
+        within = now_hm >= start or now_hm <= end
+    return within, start, end
+
+
+def haversine_km(lat1, lon1, lat2, lon2) -> float:
+    """Ikki nuqta orasidagi masofa (km)."""
+    from math import radians, sin, cos, asin, sqrt
+    lat1, lon1, lat2, lon2 = map(radians, (lat1, lon1, lat2, lon2))
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return round(2 * 6371 * asin(sqrt(a)), 1)
+
+
 async def main_kb(telegram_id: int):
     """Rolga va tilga mos asosiy menyu: admin va/yoki operator tugmalari bilan."""
     op = await q.get_operator_by_tg(telegram_id)

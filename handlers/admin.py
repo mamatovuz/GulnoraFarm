@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import keyboards as kb
 import texts as t
 import locales as loc
-from states import AdminFlow
+from states import AdminFlow, AdminTpl
 from database import queries as q
 from utils import is_admin, STATUS_LABEL, order_card_text
 
@@ -759,6 +759,42 @@ async def op_stat(call: CallbackQuery):
         reply_markup=kb.admin_back_kb("adm:op"),
     )
     await call.answer()
+
+
+# ---------------- Tayyor javob shablonlari ----------------
+@router.callback_query(F.data == "adm:tpl")
+async def tpl_admin(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    tpls = await q.list_templates()
+    lst = "\n".join(f"{i+1}. {t_['text']}" for i, t_ in enumerate(tpls)) or "(yo'q)"
+    await call.message.edit_text(
+        f"📝 <b>Tayyor javob shablonlari</b>\n\n{lst}\n\n"
+        "Operatorlar murojaatda shu javoblardan bir bosishda foydalanadi.",
+        reply_markup=kb.templates_admin_kb(tpls),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "tpl_add")
+async def tpl_add(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminTpl.add_text)
+    await call.message.edit_text("Yangi tayyor javob matnini kiriting:")
+    await call.answer()
+
+
+@router.message(AdminTpl.add_text)
+async def tpl_add_save(message: Message, state: FSMContext):
+    await q.add_template(message.text)
+    await state.clear()
+    await message.answer("✅ Tayyor javob qo'shildi.", reply_markup=kb.admin_back_kb("adm:tpl"))
+
+
+@router.callback_query(F.data.startswith("tpldel:"))
+async def tpl_del(call: CallbackQuery, state: FSMContext):
+    tpl_id = int(call.data.split(":")[1])
+    await q.delete_template(tpl_id)
+    await tpl_admin(call, state)
+    await call.answer("🗑 O'chirildi")
 
 
 # ---------------- Murojaatlar tarixi ----------------

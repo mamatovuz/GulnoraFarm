@@ -193,6 +193,14 @@ async def set_order_feedback(order_id, feedback):
     await db.commit()
 
 
+async def orders_by_user(user_id):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 30", (user_id,)
+    )
+    return await cur.fetchall()
+
+
 async def orders_by_status(status, operator_id=None):
     db = await get_db()
     if operator_id is not None:
@@ -388,6 +396,48 @@ async def update_operator(operator_id, field, value):
 async def delete_operator(operator_id):
     db = await get_db()
     await db.execute("DELETE FROM operators WHERE id = ?", (operator_id,))
+    await db.commit()
+
+
+async def set_operator_availability(operator_id, availability):
+    db = await get_db()
+    await db.execute("UPDATE operators SET availability = ? WHERE id = ?", (availability, operator_id))
+    await db.commit()
+
+
+async def active_operators(exclude_id=None):
+    """Faol (status=active) operatorlar ro'yxati — uzatish uchun."""
+    db = await get_db()
+    if exclude_id:
+        cur = await db.execute(
+            "SELECT * FROM operators WHERE status='active' AND id != ? ORDER BY name", (exclude_id,))
+    else:
+        cur = await db.execute("SELECT * FROM operators WHERE status='active' ORDER BY name")
+    return await cur.fetchall()
+
+
+# ============================ TEMPLATES (tayyor javoblar) ============================
+async def list_templates():
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM templates ORDER BY id")
+    return await cur.fetchall()
+
+
+async def get_template(template_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM templates WHERE id = ?", (template_id,))
+    return await cur.fetchone()
+
+
+async def add_template(text):
+    db = await get_db()
+    await db.execute("INSERT INTO templates (text) VALUES (?)", (text,))
+    await db.commit()
+
+
+async def delete_template(template_id):
+    db = await get_db()
+    await db.execute("DELETE FROM templates WHERE id = ?", (template_id,))
     await db.commit()
 
 

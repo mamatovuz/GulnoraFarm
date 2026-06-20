@@ -86,7 +86,13 @@ CREATE TABLE IF NOT EXISTS operators (
     telegram_id   INTEGER,
     status        TEXT DEFAULT 'active',        -- active | inactive
     active_order_id INTEGER,
-    last_active   TEXT                           -- oxirgi faollik vaqti (auto-logout uchun)
+    last_active   TEXT,                          -- oxirgi faollik vaqti (auto-logout uchun)
+    availability  TEXT DEFAULT 'free'            -- free | busy (Bo'sh / Band)
+);
+
+CREATE TABLE IF NOT EXISTS templates (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT
 );
 
 CREATE TABLE IF NOT EXISTS faqs (
@@ -142,6 +148,8 @@ DEFAULT_SETTINGS = {
         "Savolingiz bo'lsa, shu yerga yozishingiz ham mumkin — "
         "operatorimiz tez orada javob beradi."
     ),
+    "work_start": "08:00",
+    "work_end": "23:00",
 }
 
 
@@ -170,11 +178,25 @@ async def init_db():
         await db.execute("ALTER TABLE orders ADD COLUMN group_msg_id INTEGER")
         await db.commit()
 
-    # Migratsiya: operators.last_active ustuni
+    # Migratsiya: operators.last_active va availability ustunlari
     cur = await db.execute("PRAGMA table_info(operators)")
     opcols = [row[1] for row in await cur.fetchall()]
     if "last_active" not in opcols:
         await db.execute("ALTER TABLE operators ADD COLUMN last_active TEXT")
+        await db.commit()
+    if "availability" not in opcols:
+        await db.execute("ALTER TABLE operators ADD COLUMN availability TEXT DEFAULT 'free'")
+        await db.commit()
+
+    # Boshlang'ich tayyor javob shablonlari
+    cur = await db.execute("SELECT COUNT(*) FROM templates")
+    if (await cur.fetchone())[0] == 0:
+        await db.executemany("INSERT INTO templates (text) VALUES (?)", [
+            ("Assalomu alaykum! Sizga qanday yordam bera olaman?",),
+            ("Dori mavjud. Narxi va batafsil ma'lumot uchun yozaman.",),
+            ("Afsuski, bu dori hozircha mavjud emas.",),
+            ("Buyurtmangiz tayyor. Filialdan olib ketishingiz mumkin.",),
+        ])
         await db.commit()
 
     # Migratsiya: users.lang ustuni

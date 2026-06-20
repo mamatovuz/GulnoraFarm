@@ -19,6 +19,14 @@ class ContactFlow(StatesGroup):
     confirm = State()           # yuborishni tasdiqlash
 
 
+class NearestFlow(StatesGroup):
+    waiting_location = State()   # eng yaqin filial uchun lokatsiya kutilmoqda
+
+
+class AdminTpl(StatesGroup):
+    add_text = State()           # tayyor javob shabloni matni
+
+
 class AdminFlow(StatesGroup):
     # broadcast
     bc_content = State()

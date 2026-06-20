@@ -22,6 +22,9 @@ B = {
     "op_cabinet":  {"uz": "👨‍⚕️ Operator kabineti",           "ru": "👨‍⚕️ Кабинет оператора"},
     "join_team":   {"uz": "🤝 Jamoamizga qo'shilish",         "ru": "🤝 Присоединиться к команде"},
     "open_vacancy":{"uz": "👉 Vakansiyalar botiga o'tish",    "ru": "👉 Перейти в бот вакансий"},
+    "my_orders":   {"uz": "📋 Mening murojaatlarim",          "ru": "📋 Мои обращения"},
+    "nearest":     {"uz": "📍 Eng yaqin filial",              "ru": "📍 Ближайший филиал"},
+    "send_location": {"uz": "📍 Lokatsiyani yuborish",        "ru": "📍 Отправить локацию"},
     "check_sub":   {"uz": "✅ Tekshirish",                   "ru": "✅ Проверить"},
     "map":         {"uz": "🗺 Xaritada ko'rish",             "ru": "🗺 Показать на карте"},
     "branches_back": {"uz": "🔙 Filiallar ro'yxatiga qaytish", "ru": "🔙 К списку филиалов"},
@@ -269,6 +272,36 @@ T = {
     "bill_to_client": {
         "uz": "💊 <b>Hisob-kitob (#{id}):</b>\n\n{bill}",
         "ru": "💊 <b>Расчёт (#{id}):</b>\n\n{bill}",
+    },
+    "my_orders_header": {
+        "uz": "📋 <b>Sizning murojaatlaringiz:</b>",
+        "ru": "📋 <b>Ваши обращения:</b>",
+    },
+    "my_orders_empty": {
+        "uz": "Sizda hali murojaatlar yo'q.\n\nYangi murojaat uchun \"💊 Retsept yuborish\" tugmasini bosing.",
+        "ru": "У вас пока нет обращений.\n\nДля нового обращения нажмите «💊 Отправить рецепт».",
+    },
+    "order_canceled_by_user": {
+        "uz": "✅ Murojaat #{id} bekor qilindi.",
+        "ru": "✅ Обращение #{id} отменено.",
+    },
+    "nearest_ask": {
+        "uz": "📍 Eng yaqin filialni topish uchun joriy lokatsiyangizni yuboring 👇",
+        "ru": "📍 Чтобы найти ближайший филиал, отправьте свою текущую локацию 👇",
+    },
+    "nearest_none": {
+        "uz": "Hozircha lokatsiyasi kiritilgan filial yo'q.",
+        "ru": "Пока нет филиалов с указанной локацией.",
+    },
+    "nearest_result": {
+        "uz": "📍 Sizga eng yaqin filial — <b>{km} km</b>:",
+        "ru": "📍 Ближайший к вам филиал — <b>{km} км</b>:",
+    },
+    "out_of_hours": {
+        "uz": "🕐 Hozir ish vaqtimizdan tashqari (ish vaqti: {start}–{end}).\n"
+              "Murojaatingiz qabul qilindi — ish vaqti boshlanishi bilan javob beramiz.",
+        "ru": "🕐 Сейчас нерабочее время (рабочее время: {start}–{end}).\n"
+              "Ваше обращение принято — мы ответим с началом рабочего дня.",
     },
 }
 

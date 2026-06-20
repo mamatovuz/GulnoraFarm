@@ -2,18 +2,108 @@
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import keyboards as kb
 import locales as loc
-from states import ContactFlow
+from config import OPERATORS_GROUP_ID
+from states import ContactFlow, NearestFlow
 from database import queries as q
-from utils import main_kb, extract_content, deliver_order_to_operators
+from utils import main_kb, extract_content, deliver_order_to_operators, haversine_km, work_hours
 
 router = Router()
 
 
 def _branches_header(lang):
     return loc.t("branches_header", lang)
+
+
+# ---------------- Eng yaqin filial ----------------
+@router.callback_query(F.data == "nearest")
+async def nearest_ask(call: CallbackQuery, state: FSMContext):
+    lang = await q.get_lang(call.from_user.id)
+    await state.set_state(NearestFlow.waiting_location)
+    await call.message.answer(loc.t("nearest_ask", lang), reply_markup=kb.client_location_kb(lang))
+    await call.answer()
+
+
+@router.message(NearestFlow.waiting_location, F.location)
+async def nearest_result(message: Message, state: FSMContext):
+    lang = await q.get_lang(message.from_user.id)
+    await state.clear()
+    branches = [b for b in await q.list_branches() if b["lat"] is not None and b["lon"] is not None]
+    if not branches:
+        await message.answer(loc.t("nearest_none", lang), reply_markup=await main_kb(message.from_user.id))
+        return
+    ulat, ulon = message.location.latitude, message.location.longitude
+    nearest = min(branches, key=lambda b: haversine_km(ulat, ulon, b["lat"], b["lon"]))
+    km = haversine_km(ulat, ulon, nearest["lat"], nearest["lon"])
+    hours = f"{nearest['open_time'] or '08:00'} — {nearest['close_time'] or '23:00'}"
+    caption = loc.t("nearest_result", lang, km=km) + "\n\n" + loc.t(
+        "branch_card", lang, name=nearest["name"],
+        address=nearest["address"] or "—", phone=nearest["phone"] or "—", hours=hours)
+    await message.answer(caption, reply_markup=await main_kb(message.from_user.id))
+    await message.answer_location(latitude=nearest["lat"], longitude=nearest["lon"])
+
+
+# ---------------- Mening murojaatlarim ----------------
+@router.message(F.text.in_(loc.labels("my_orders")))
+async def my_orders(message: Message, state: FSMContext):
+    await state.clear()
+    lang = await q.get_lang(message.from_user.id)
+    orders = await q.orders_by_user(message.from_user.id)
+    if not orders:
+        await message.answer(loc.t("my_orders_empty", lang))
+        return
+    await message.answer(loc.t("my_orders_header", lang), reply_markup=kb.my_orders_kb(orders))
+
+
+@router.callback_query(F.data.startswith("myorder:"))
+async def my_order_detail(call: CallbackQuery):
+    from utils import STATUS_LABEL
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not order or order["user_id"] != call.from_user.id:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    rating = f"\n⭐ Baho: {order['rating']}/5" if order["rating"] else ""
+    text = (f"📋 <b>Murojaat #{order_id}</b>\n\n"
+            f"🕐 Sana: {order['created_at']}\n"
+            f"Holat: {STATUS_LABEL.get(order['status'], order['status'])}{rating}")
+    markup = kb.my_order_cancel_kb(order_id) if order["status"] in ("new", "in_progress") else None
+    await call.message.answer(text, reply_markup=markup)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("myordercancel:"))
+async def my_order_cancel(call: CallbackQuery, bot: Bot):
+    lang = await q.get_lang(call.from_user.id)
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not order or order["user_id"] != call.from_user.id:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    if order["status"] not in ("new", "in_progress"):
+        await call.answer("Bu murojaat allaqachon yopilgan.", show_alert=True)
+        return
+    await q.set_order_status(order_id, "canceled", f"client:{call.from_user.id}")
+    await q.set_user_active_order(call.from_user.id, None)
+    # operatorni/guruhni xabardor qilamiz
+    note = f"🔴 Murojaat #{order_id} ni mijoz o'zi bekor qildi."
+    op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    if op:
+        await q.set_operator_active_order(op["id"], None)
+    for chat_id in [op["telegram_id"] if op and op["telegram_id"] else None, OPERATORS_GROUP_ID]:
+        if chat_id:
+            try:
+                await bot.send_message(chat_id, note)
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+    try:
+        await call.message.edit_text(loc.t("order_canceled_by_user", lang, id=order_id))
+    except Exception:
+        pass
+    await call.answer("Bekor qilindi")
 
 
 # ---------------- FAQ ----------------
@@ -61,7 +151,7 @@ async def branches_menu(message: Message, state: FSMContext):
     if not branches:
         await message.answer(loc.t("no_branches", lang))
         return
-    await message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches))
+    await message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
 
 
 @router.callback_query(F.data.startswith("branch_info:"))
@@ -97,7 +187,7 @@ async def branch_map(call: CallbackQuery):
 async def branches_back(call: CallbackQuery):
     lang = await q.get_lang(call.from_user.id)
     branches = await q.list_branches()
-    await call.message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches))
+    await call.message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
     await call.answer()
 
 
@@ -158,6 +248,9 @@ async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
     await call.message.edit_text(loc.t("contact_sent", lang, id=order_id))
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
     await deliver_order_to_operators(bot, order_id, data["c_type"], data["c_file"], data["c_text"])
+    within, ws, we = await work_hours()
+    if not within:
+        await call.message.answer(loc.t("out_of_hours", lang, start=ws, end=we))
     await call.answer()
 
 

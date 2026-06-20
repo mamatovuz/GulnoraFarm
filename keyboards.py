@@ -31,7 +31,8 @@ def main_menu(lang="uz", is_admin: bool = False, is_operator: bool = False,
                      KeyboardButton(text=loc.btn("branches", lang))])
     else:
         rows.append([KeyboardButton(text=loc.btn("branches", lang))])
-    rows.append([KeyboardButton(text=loc.btn("contact", lang))])
+    rows.append([KeyboardButton(text=loc.btn("my_orders", lang)),
+                 KeyboardButton(text=loc.btn("contact", lang))])
     rows.append([KeyboardButton(text=loc.btn("join_team", lang))])
     if is_operator:
         rows.append([KeyboardButton(text=loc.btn("op_cabinet", lang))])
@@ -83,10 +84,34 @@ def branches_choose_kb(branches, prefix="pickbranch", lang="uz", show_skip=True)
 
 
 # ---- Inline: filiallar bo'limi ----
-def branches_list_kb(branches) -> InlineKeyboardMarkup:
+def branches_list_kb(branches, lang="uz") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"branch_info:{b['id']}"))
+    kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data="nearest"))
+    return kb.as_markup()
+
+
+def client_location_kb(lang="uz") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=loc.btn("send_location", lang), request_location=True)]],
+        resize_keyboard=True,
+    )
+
+
+def my_orders_kb(orders) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    marks = {"new": "🟡", "in_progress": "🔵", "done": "🟢", "canceled": "🔴"}
+    for o in orders:
+        m = marks.get(o["status"], "•")
+        kb.row(InlineKeyboardButton(text=f"{m} #{o['id']} — {o['created_at'][:10]}",
+                                    callback_data=f"myorder:{o['id']}"))
+    return kb.as_markup()
+
+
+def my_order_cancel_kb(order_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="❌ Murojaatni bekor qilish", callback_data=f"myordercancel:{order_id}"))
     return kb.as_markup()
 
 
@@ -163,8 +188,19 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="❓ FAQ boshqaruvi", callback_data="adm:faq"))
     kb.row(InlineKeyboardButton(text="🏥 Filiallar", callback_data="adm:br"))
     kb.row(InlineKeyboardButton(text="👨‍⚕️ Operatorlar", callback_data="adm:op"))
+    kb.row(InlineKeyboardButton(text="📝 Tayyor javoblar", callback_data="adm:tpl"))
     kb.row(InlineKeyboardButton(text="📁 Murojaatlar tarixi", callback_data="adm:hist"))
     kb.row(InlineKeyboardButton(text="✏️ Bog'lanish matnini tahrirlash", callback_data="adm:contact"))
+    return kb.as_markup()
+
+
+def templates_admin_kb(templates) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="➕ Shablon qo'shish", callback_data="tpl_add"))
+    for tpl in templates:
+        short = (tpl["text"][:35] + "…") if len(tpl["text"]) > 35 else tpl["text"]
+        kb.row(InlineKeyboardButton(text=f"🗑 {short}", callback_data=f"tpldel:{tpl['id']}"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
     return kb.as_markup()
 
 
@@ -319,13 +355,14 @@ def history_kb() -> InlineKeyboardMarkup:
 
 
 # ========================= OPERATOR KABINETI =========================
-def operator_menu() -> ReplyKeyboardMarkup:
+def operator_menu(availability="free") -> ReplyKeyboardMarkup:
+    status_btn = "🟢 Holatim: Bo'sh" if availability == "free" else "🔴 Holatim: Band"
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
             [KeyboardButton(text="✅ Yakunlanganlar"), KeyboardButton(text="📊 Mening statistikam")],
-            [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text="🚪 Chiqish (logout)")],
-            [KeyboardButton(text=BTN_OP_BACK)],
+            [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
+            [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
         ],
         resize_keyboard=True,
     )
@@ -337,19 +374,41 @@ OPERATOR_MENU_BUTTONS = {
     "📊 Mening statistikam", "🏆 Reyting", "🚪 Chiqish (logout)", BTN_OP_BACK,
 }
 ALL_MENU_BUTTONS = (
-    loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register", "join_team")
+    loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register",
+               "join_team", "my_orders", "nearest", "send_location")
     | OPERATOR_MENU_BUTTONS
+    | {"🟢 Holatim: Bo'sh", "🔴 Holatim: Band"}
 )
 
 
 def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="💬 Javob yozish", callback_data=f"opc:reply:{order_id}"))
+    kb.row(InlineKeyboardButton(text="💬 Javob yozish", callback_data=f"opc:reply:{order_id}"),
+           InlineKeyboardButton(text="📝 Tayyor javob", callback_data=f"opc:tpl:{order_id}"))
     kb.row(InlineKeyboardButton(text="💊 Dori/retsept hisoblash", callback_data=f"opc:bill:{order_id}"))
+    kb.row(InlineKeyboardButton(text="🔄 Boshqa operatorga uzatish",
+                                callback_data=f"opc:transfer:{order_id}"))
     kb.row(InlineKeyboardButton(text="⏱ 10 daqiqada avto-yakunlash",
                                 callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"opc:done:{order_id}"),
            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"opc:cancel:{order_id}"))
+    return kb.as_markup()
+
+
+def templates_pick_kb(templates, order_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for tpl in templates:
+        short = (tpl["text"][:40] + "…") if len(tpl["text"]) > 40 else tpl["text"]
+        kb.row(InlineKeyboardButton(text=short, callback_data=f"tplsend:{order_id}:{tpl['id']}"))
+    return kb.as_markup()
+
+
+def transfer_pick_kb(operators, order_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for o in operators:
+        mark = "🟢" if o["availability"] == "free" else "🔴"
+        kb.row(InlineKeyboardButton(text=f"{mark} {o['name']}",
+                                    callback_data=f"dotransfer:{order_id}:{o['id']}"))
     return kb.as_markup()
 
 

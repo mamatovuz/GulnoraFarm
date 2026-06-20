@@ -52,7 +52,7 @@ async def operator_cmd(message: Message, state: FSMContext):
         cnt = len(await q.orders_by_status("in_progress", op["id"]))
         await message.answer(
             f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
-            reply_markup=kb.operator_menu(),
+            reply_markup=kb.operator_menu(op["availability"]),
         )
         return
     await state.set_state(OperatorFlow.login)
@@ -83,7 +83,7 @@ async def op_password(message: Message, state: FSMContext):
     cnt = len(await q.orders_by_status("in_progress", op["id"]))
     await message.answer(
         f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
-        reply_markup=kb.operator_menu(),
+        reply_markup=kb.operator_menu(op["availability"]),
     )
     # Kanaldan "Qabul qilish" bosib kelgan bo'lsa — o'sha murojaatni avtomatik ochamiz
     pending = _pending_accept.pop(message.from_user.id, None)
@@ -100,8 +100,18 @@ async def op_open_cabinet(message: Message):
     await message.answer(
         f"👨‍⚕️ <b>Operator kabineti</b> — {op['name']}\n\n"
         f"Jarayondagi murojaatlaringiz: {cnt}",
-        reply_markup=kb.operator_menu(),
+        reply_markup=kb.operator_menu(op["availability"]),
     )
+
+
+@router.message(IsOperator(), F.text.in_({"🟢 Holatim: Bo'sh", "🔴 Holatim: Band"}))
+async def op_toggle_availability(message: Message):
+    op = await q.get_operator_by_tg(message.from_user.id)
+    new = "busy" if op["availability"] == "free" else "free"
+    await q.set_operator_availability(op["id"], new)
+    label = "🟢 Bo'sh — yangi murojaatlarga tayyorsiz" if new == "free" \
+        else "🔴 Band — hozircha yangi murojaat olmaysiz"
+    await message.answer(f"Holatingiz o'zgartirildi: {label}", reply_markup=kb.operator_menu(new))
 
 
 @router.message(IsOperator(), F.text == kb.BTN_OP_BACK)
@@ -380,6 +390,85 @@ async def op_cancel(call: CallbackQuery):
     await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
     await call.message.answer(f"🔴 Murojaat #{order_id} bekor qilindi.")
     await call.answer("Bekor qilindi")
+
+
+# ---------------- Tayyor javob shablonlari ----------------
+@router.callback_query(F.data.startswith("opc:tpl:"))
+async def op_templates(call: CallbackQuery):
+    op = await q.get_operator_by_tg(call.from_user.id)
+    order_id = int(call.data.split(":")[2])
+    if op:
+        await q.set_operator_active_order(op["id"], order_id)
+    tpls = await q.list_templates()
+    if not tpls:
+        await call.answer("Shablonlar yo'q. Admin qo'shishi kerak.", show_alert=True)
+        return
+    await call.message.answer("📝 Tayyor javobni tanlang:",
+                              reply_markup=kb.templates_pick_kb(tpls, order_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("tplsend:"))
+async def op_template_send(call: CallbackQuery, bot: Bot):
+    _, order_id, tpl_id = call.data.split(":")
+    order_id, tpl_id = int(order_id), int(tpl_id)
+    order = await q.get_order(order_id)
+    tpl = await q.get_template(tpl_id)
+    if not order or not tpl:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
+    clang = await q.get_lang(order["user_id"])
+    reply_to = await q.last_client_tg_msg(order_id)
+    try:
+        await bot.send_message(order["user_id"], loc.t("operator_reply", clang, text=tpl["text"]),
+                               reply_to_message_id=reply_to, allow_sending_without_reply=True)
+        await call.answer("✅ Mijozga yuborildi")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await call.answer("Yuborib bo'lmadi", show_alert=True)
+
+
+# ---------------- Murojaatni boshqa operatorga uzatish ----------------
+@router.callback_query(F.data.startswith("opc:transfer:"))
+async def op_transfer(call: CallbackQuery):
+    op = await q.get_operator_by_tg(call.from_user.id)
+    order_id = int(call.data.split(":")[2])
+    ops = await q.active_operators(exclude_id=op["id"] if op else None)
+    if not ops:
+        await call.answer("Uzatish uchun boshqa operator yo'q.", show_alert=True)
+        return
+    await call.message.answer("🔄 Qaysi operatorga uzatamiz?",
+                              reply_markup=kb.transfer_pick_kb(ops, order_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("dotransfer:"))
+async def op_do_transfer(call: CallbackQuery, bot: Bot):
+    _, order_id, newop_id = call.data.split(":")
+    order_id, newop_id = int(order_id), int(newop_id)
+    order = await q.get_order(order_id)
+    cur_op = await q.get_operator_by_tg(call.from_user.id)
+    new_op = await q.get_operator(newop_id)
+    if not order or not new_op:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    await q.assign_order(order_id, newop_id)
+    if cur_op:
+        await q.set_operator_active_order(cur_op["id"], None)
+    await q.set_operator_active_order(newop_id, order_id)
+    await call.message.edit_text(f"✅ Murojaat #{order_id} → {new_op['name']} ga uzatildi.")
+    if new_op["telegram_id"]:
+        try:
+            await bot.send_message(
+                new_op["telegram_id"],
+                f"🔄 Sizga murojaat #{order_id} uzatildi"
+                + (f" ({cur_op['name']} dan)." if cur_op else "."))
+            await _send_order_single(bot, new_op["telegram_id"], order_id,
+                                     f"Murojaat #{order_id} — amalni tanlang:",
+                                     kb.op_order_actions_kb(order_id))
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    await call.answer("Uzatildi ✅")
 
 
 # ---------------- 10 daqiqada avto-yakunlash ----------------

@@ -1,4 +1,5 @@
 """Retsept/murojaat yuborish va mijoz<->operator proxy-chat."""
+import asyncio
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -11,10 +12,13 @@ from states import OrderFlow
 from database import queries as q
 from utils import (
     send_first_content_to_operators, forward_client_to_operator, save_message_from_message,
-    main_kb,
+    main_kb, extract_content, deliver_order_to_operators, work_hours,
 )
 
 router = Router()
+
+# Albom (bir nechta rasm/hujjat birga) yig'gich
+_albums: dict[str, dict] = {}
 
 OK_KEYS = {"photo": "order_ok_photo", "document": "order_ok_document",
            "video": "order_ok_video", "text": "order_ok_text"}
@@ -108,17 +112,60 @@ async def cancel_order(call: CallbackQuery, state: FSMContext):
 
 @router.message(OrderFlow.waiting_content, F.photo)
 async def order_photo(message: Message, state: FSMContext, bot: Bot):
+    if message.media_group_id:
+        await _collect_album(message, state, bot)
+        return
     await _create_order(message, state, bot, "photo")
 
 
 @router.message(OrderFlow.waiting_content, F.document)
 async def order_document(message: Message, state: FSMContext, bot: Bot):
+    if message.media_group_id:
+        await _collect_album(message, state, bot)
+        return
     await _create_order(message, state, bot, "document")
 
 
 @router.message(OrderFlow.waiting_content, F.video)
 async def order_video(message: Message, state: FSMContext, bot: Bot):
+    if message.media_group_id:
+        await _collect_album(message, state, bot)
+        return
     await _create_order(message, state, bot, "video")
+
+
+async def _collect_album(message: Message, state: FSMContext, bot: Bot):
+    """Albomdagi har bir element yig'iladi; 1.5s jimlikdan so'ng bitta murojaat yaratiladi."""
+    gid = message.media_group_id
+    ct, fid, caption = extract_content(message)
+    data = _albums.setdefault(gid, {"items": [], "task": None})
+    data["items"].append((ct, fid, caption, message.message_id))
+    if data["task"]:
+        data["task"].cancel()
+    data["task"] = asyncio.create_task(_finalize_album(gid, message, state, bot))
+
+
+async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
+    try:
+        await asyncio.sleep(1.5)
+    except asyncio.CancelledError:
+        return
+    data = _albums.pop(gid, None)
+    if not data or not data["items"]:
+        return
+    lang = await q.get_lang(message.from_user.id)
+    user = await q.get_user(message.from_user.id)
+    items = data["items"]
+    first_ct = items[0][0]
+    order_id = await q.create_order(message.from_user.id, user["branch_id"], first_ct)
+    for (ct, fid, cap, mid) in items:
+        await q.add_message(order_id, "client", ct, cap, fid, mid)
+    await q.set_user_active_order(message.from_user.id, order_id)
+    await state.clear()
+    await message.answer(loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id),
+                         reply_markup=await main_kb(message.from_user.id))
+    await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2])
+    await _out_of_hours_note(message, lang)
 
 
 @router.message(OrderFlow.waiting_content, F.text)
@@ -133,6 +180,12 @@ async def order_bad(message: Message):
                          reply_markup=kb.cancel_inline("cancel_order", lang))
 
 
+async def _out_of_hours_note(message: Message, lang: str):
+    within, ws, we = await work_hours()
+    if not within:
+        await message.answer(loc.t("out_of_hours", lang, start=ws, end=we))
+
+
 async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
     user = await q.get_user(message.from_user.id)
@@ -143,6 +196,7 @@ async def _create_order(message, state, bot, content_type):
     await message.answer(loc.t(OK_KEYS[content_type], lang, id=order_id),
                          reply_markup=await main_kb(message.from_user.id))
     await send_first_content_to_operators(bot, order_id, message)
+    await _out_of_hours_note(message, lang)
 
 
 # -------- Proxy-chat: ochiq murojaati bor mijozning erkin xabari operatorga ketadi --------
