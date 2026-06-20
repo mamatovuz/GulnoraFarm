@@ -190,6 +190,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="👨‍⚕️ Operatorlar", callback_data="adm:op"))
     kb.row(InlineKeyboardButton(text="📝 Tayyor javoblar", callback_data="adm:tpl"))
     kb.row(InlineKeyboardButton(text="📁 Murojaatlar tarixi", callback_data="adm:hist"))
+    kb.row(InlineKeyboardButton(text="🕐 Umumiy ish vaqti", callback_data="adm:workhours"))
     kb.row(InlineKeyboardButton(text="✏️ Bog'lanish matnini tahrirlash", callback_data="adm:contact"))
     return kb.as_markup()
 

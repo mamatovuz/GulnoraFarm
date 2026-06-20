@@ -866,6 +866,34 @@ async def hist_search(message: Message, state: FSMContext):
         await message.answer("\n".join(lines), reply_markup=kb.admin_back_kb("adm:hist"))
 
 
+# ---------------- Umumiy ish vaqti ----------------
+@router.callback_query(F.data == "adm:workhours")
+async def workhours_start(call: CallbackQuery, state: FSMContext):
+    start = await q.get_setting("work_start", "08:00")
+    end = await q.get_setting("work_end", "23:00")
+    await state.set_state(AdminFlow.workhours)
+    await call.message.edit_text(
+        f"🕐 <b>Umumiy ish vaqti</b>\n\nHozirgi: <b>{start} — {end}</b>\n\n"
+        "Yangi ish vaqtini kiriting (boshlanish-tugash):\n"
+        "Masalan: <code>08:00-23:00</code>\n\n"
+        "<i>Ish vaqtidan tashqari kelgan murojaatlarga avto-javob beriladi.</i>"
+    )
+    await call.answer()
+
+
+@router.message(AdminFlow.workhours)
+async def workhours_save(message: Message, state: FSMContext):
+    hours = parse_hours(message.text)
+    if not hours:
+        await message.answer("⚠️ Noto'g'ri format. Masalan: <code>08:00-23:00</code>")
+        return
+    await q.set_setting("work_start", hours[0])
+    await q.set_setting("work_end", hours[1])
+    await state.clear()
+    await message.answer(f"✅ Umumiy ish vaqti yangilandi: <b>{hours[0]} — {hours[1]}</b>",
+                         reply_markup=kb.admin_back_kb())
+
+
 # ---------------- Bog'lanish matnini tahrirlash ----------------
 @router.callback_query(F.data == "adm:contact")
 async def contact_edit_start(call: CallbackQuery, state: FSMContext):
