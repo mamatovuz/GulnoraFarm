@@ -1,8 +1,17 @@
 """Bot konfiguratsiyasi — .env faylidan o'qiladi."""
 import os
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Vaqt zonasi (Toshkent = UTC+5). Server UTC bo'lsa ham to'g'ri ishlaydi.
+TZ_OFFSET = int(os.getenv("TZ_OFFSET", "5"))
+
+
+def now_local() -> datetime:
+    """Mahalliy (Toshkent) vaqt — server vaqt zonasidan qat'i nazar."""
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=TZ_OFFSET)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 

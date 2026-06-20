@@ -1,6 +1,6 @@
 """Operator kabineti: login, murojaatlar, javob, hisob-kitob, statistika, reyting."""
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, BaseFilter
 from aiogram.fsm.context import FSMContext
@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import keyboards as kb
 import texts as t
 import locales as loc
-from config import OPERATORS_GROUP_ID
+from config import OPERATORS_GROUP_ID, now_local
 from states import OperatorFlow
 from database import queries as q
 from utils import (
@@ -535,7 +535,7 @@ async def auto_logout_loop(bot: Bot):
     while True:
         await asyncio.sleep(60)
         try:
-            threshold = (datetime.now() - timedelta(minutes=IDLE_LOGOUT_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+            threshold = (now_local() - timedelta(minutes=IDLE_LOGOUT_MIN)).strftime("%Y-%m-%d %H:%M:%S")
             for op in await q.idle_operators(threshold):
                 tg = op["telegram_id"]
                 await q.logout_operator(tg)

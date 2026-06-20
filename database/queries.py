@@ -1,11 +1,12 @@
 """Barcha ma'lumotlar bazasi amallari."""
 import hashlib
-from datetime import datetime, timedelta
+from datetime import timedelta
+from config import now_local
 from database.db import get_db
 
 
 def now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def hash_password(password: str) -> str:
@@ -443,8 +444,8 @@ async def delete_template(template_id):
 
 async def operator_stats(operator_id):
     db = await get_db()
-    today = datetime.now().strftime("%Y-%m-%d")
-    month = datetime.now().strftime("%Y-%m")
+    today = now_local().strftime("%Y-%m-%d")
+    month = now_local().strftime("%Y-%m")
     cur = await db.execute(
         "SELECT COUNT(*) FROM orders WHERE operator_id = ?", (operator_id,)
     )
@@ -484,7 +485,7 @@ async def operator_stats(operator_id):
 async def operators_rating():
     """Shu oydagi reyting: yakunlangan + hisoblangan."""
     db = await get_db()
-    month = datetime.now().strftime("%Y-%m")
+    month = now_local().strftime("%Y-%m")
     cur = await db.execute("SELECT id, name FROM operators ORDER BY id")
     ops = await cur.fetchall()
     result = []
@@ -582,9 +583,9 @@ async def set_setting(key, value):
 # ============================ STATISTIKA ============================
 async def general_stats():
     db = await get_db()
-    today = datetime.now().strftime("%Y-%m-%d")
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    month = datetime.now().strftime("%Y-%m")
+    today = now_local().strftime("%Y-%m-%d")
+    week_ago = (now_local() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    month = now_local().strftime("%Y-%m")
 
     async def count(q, p=()):
         cur = await db.execute(q, p)

@@ -20,10 +20,10 @@ def is_admin(telegram_id: int) -> bool:
 
 async def work_hours():
     """(ish_vaqtidami: bool, start: str, end: str)."""
-    from datetime import datetime
+    from config import now_local
     start = await q.get_setting("work_start", "08:00")
     end = await q.get_setting("work_end", "23:00")
-    now_hm = datetime.now().strftime("%H:%M")
+    now_hm = now_local().strftime("%H:%M")
     if start <= end:
         within = start <= now_hm <= end
     else:  # tунги rejim (masalan 22:00–06:00)
