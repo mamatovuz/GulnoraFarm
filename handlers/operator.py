@@ -229,7 +229,7 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
         # Qabul qilindi -> kanaldan pin yechiladi (unpin)
         try:
-            await bot.unpin_chat_message(OPERATORS_GROUP_ID, order["group_msg_id"])
+            await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
         fresh = await q.get_order(order_id)            # endi holat 🔵 Jarayonda

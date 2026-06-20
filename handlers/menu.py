@@ -91,7 +91,7 @@ async def my_order_cancel(call: CallbackQuery, bot: Bot):
     # Kanalda pin turgan bo'lsa — yechamiz
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
         try:
-            await bot.unpin_chat_message(OPERATORS_GROUP_ID, order["group_msg_id"])
+            await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
     # operatorni/guruhni xabardor qilamiz
