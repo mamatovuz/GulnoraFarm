@@ -43,6 +43,16 @@ async def notify_client(bot: Bot, user_id: int, text: str):
         pass
 
 
+# ---------------- Kanaldagi "pinned a message" xizmat xabarlarini avtomatik o'chirish ----------------
+@router.message(F.pinned_message)
+async def remove_pin_service_msg(message: Message):
+    if OPERATORS_GROUP_ID and message.chat.id == OPERATORS_GROUP_ID:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+
 # ---------------- Login ----------------
 @router.message(Command("operator"))
 async def operator_cmd(message: Message, state: FSMContext):
