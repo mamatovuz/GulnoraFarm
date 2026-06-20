@@ -44,13 +44,23 @@ async def notify_client(bot: Bot, user_id: int, text: str):
 
 
 # ---------------- Kanaldagi "pinned a message" xizmat xabarlarini avtomatik o'chirish ----------------
-@router.message(F.pinned_message)
-async def remove_pin_service_msg(message: Message):
+async def _delete_pin_service(message: Message):
     if OPERATORS_GROUP_ID and message.chat.id == OPERATORS_GROUP_ID:
         try:
             await message.delete()
         except Exception:
             pass
+
+
+# Guruh (supergroup) bo'lsa — message; kanal (channel) bo'lsa — channel_post
+@router.message(F.pinned_message)
+async def remove_pin_service_msg(message: Message):
+    await _delete_pin_service(message)
+
+
+@router.channel_post(F.pinned_message)
+async def remove_pin_service_channel(message: Message):
+    await _delete_pin_service(message)
 
 
 # ---------------- Login ----------------
