@@ -200,8 +200,8 @@ async def forward_client_to_operator(bot: Bot, order, message):
         sent = await send_content_message(bot, op_tg, message, caption, reply_to=reply_to)
         if sent:
             await q.add_link(order["id"], message.message_id, sent.message_id, op_tg)
-    elif OPERATORS_GROUP_ID:
-        await send_content_message(bot, OPERATORS_GROUP_ID, message, caption)
+    # Aks holda (murojaat hali qabul qilinmagan) — kanalga yubormaymiz.
+    # Xabar saqlanadi va operator qabul qilganda hammasi ko'rsatiladi.
 
 
 async def save_message_from_message(order_id, sender, message):
