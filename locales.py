@@ -316,6 +316,34 @@ T = {
         "uz": "📍 Sizga eng yaqin filial — <b>{km} km</b>:",
         "ru": "📍 Ближайший к вам филиал — <b>{km} км</b>:",
     },
+    "canceled_state": {
+        "uz": "✅ Bekor qilindi. Asosiy menyu 👇",
+        "ru": "✅ Отменено. Главное меню 👇",
+    },
+    "help_text": {
+        "uz": ("ℹ️ <b>Yordam</b>\n\n"
+               "Bu bot orqali siz:\n"
+               "💊 <b>Retsept yuborish</b> — dori nomi, rasm yoki PDF yuborib, operatorga murojaat qilasiz\n"
+               "📋 <b>Mening murojaatlarim</b> — murojaatlaringiz holatini ko'rasiz\n"
+               "📍 <b>Filiallar</b> — manzil, ish vaqti, xarita\n"
+               "☎️ <b>Bog'lanish</b> — savolingizni yozasiz\n\n"
+               "<b>Buyruqlar:</b>\n"
+               "/start — boshlash / asosiy menyu\n"
+               "/bekor — joriy amalni bekor qilish\n"
+               "/til — tilni o'zgartirish\n"
+               "/yordam — shu yordam"),
+        "ru": ("ℹ️ <b>Помощь</b>\n\n"
+               "Через этот бот вы можете:\n"
+               "💊 <b>Отправить рецепт</b> — название лекарства, фото или PDF оператору\n"
+               "📋 <b>Мои обращения</b> — статус ваших обращений\n"
+               "📍 <b>Филиалы</b> — адрес, время работы, карта\n"
+               "☎️ <b>Связаться</b> — напишите свой вопрос\n\n"
+               "<b>Команды:</b>\n"
+               "/start — начать / главное меню\n"
+               "/bekor — отменить текущее действие\n"
+               "/til — сменить язык\n"
+               "/yordam — эта помощь"),
+    },
     "out_of_hours": {
         "uz": "🕐 Hozir ish vaqtimizdan tashqari (ish vaqti: {start}–{end}).\n"
               "Murojaatingiz qabul qilindi — ish vaqti boshlanishi bilan javob beramiz.",

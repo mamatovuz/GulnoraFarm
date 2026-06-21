@@ -15,7 +15,7 @@ from states import OperatorFlow
 from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
-    update_group_card, post_operator_to_channel, op_work_hours,
+    update_group_card, post_operator_to_channel, operator_in_hours,
 )
 
 router = Router()
@@ -84,31 +84,22 @@ async def _after_login(bot: Bot, tg_id: int, op):
             await bot.send_message(tg_id, f"⚠️ {err}")
 
 
-async def _op_hours_ok(message_or_call) -> bool:
-    """Operator ish vaqtida bo'lmasa, ogohlantiradi va False qaytaradi."""
-    within, ws, we = await op_work_hours()
-    if not within:
-        text = (f"🕐 Hozir operator ish vaqti emas.\n"
-                f"Ish vaqti: <b>{ws}–{we}</b>. Faqat shu oraliqda kira olasiz.")
-        if hasattr(message_or_call, "message"):   # CallbackQuery
-            await message_or_call.message.answer(text)
-            await message_or_call.answer()
-        else:
-            await message_or_call.answer(text)
-        return False
-    return True
+def _hours_warn(op) -> str:
+    _, ws, we = operator_in_hours(op)
+    return (f"🕐 Hozir sizning ish vaqtingiz emas.\n"
+            f"Ish vaqtingiz: <b>{ws}–{we}</b>. Faqat shu oraliqda kira olasiz.")
 
 
 @router.message(Command("operator"))
 async def operator_cmd(message: Message, state: FSMContext):
     await state.clear()
     op = await q.get_operator_by_tg(message.from_user.id)
-    # Ish vaqti tashqarisida — kirgan bo'lsa chiqaramiz, yangi kirishga ruxsat yo'q
-    if not await _op_hours_ok(message):
-        if op:
-            await q.logout_operator(message.from_user.id)
-        return
     if op and op["status"] == "active":
+        within, ws, we = operator_in_hours(op)
+        if not within:
+            await q.logout_operator(message.from_user.id)
+            await message.answer(_hours_warn(op))
+            return
         await _show_cabinet(message.bot, message.from_user.id, op)
         return
     # Saqlangan login bo'lsa — tezkor kirish taklif qilamiz
@@ -125,13 +116,16 @@ async def operator_cmd(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("quicklogin:"))
 async def quick_login(call: CallbackQuery, state: FSMContext):
-    if not await _op_hours_ok(call):
-        return
     op_id = int(call.data.split(":")[1])
     op = await q.get_operator(op_id)
     if not op or op["status"] != "active":
         await q.remove_saved_login(call.from_user.id, op_id)
         await call.answer("Bu hisob mavjud emas yoki bloklangan.", show_alert=True)
+        return
+    within, ws, we = operator_in_hours(op)
+    if not within:
+        await call.message.answer(_hours_warn(op))
+        await call.answer()
         return
     await q.login_operator(op_id, call.from_user.id)
     await state.clear()
@@ -159,9 +153,6 @@ async def op_login(message: Message, state: FSMContext):
 
 @router.message(OperatorFlow.password)
 async def op_password(message: Message, state: FSMContext):
-    if not await _op_hours_ok(message):
-        await state.clear()
-        return
     data = await state.get_data()
     op = await q.get_operator_by_login(data["login"])
     if not op or op["password_hash"] != q.hash_password(message.text.strip()):
@@ -171,6 +162,11 @@ async def op_password(message: Message, state: FSMContext):
     if op["status"] != "active":
         await state.clear()
         await message.answer("⛔ Hisobingiz bloklangan. Admin bilan bog'laning.")
+        return
+    within, ws, we = operator_in_hours(op)
+    if not within:
+        await state.clear()
+        await message.answer(_hours_warn(op))
         return
     await q.login_operator(op["id"], message.from_user.id)
     await state.clear()
@@ -647,22 +643,22 @@ async def op_autoclose(call: CallbackQuery):
     )
 
 
-# ---------------- Operator ish vaqti tugaganda avto-logout ----------------
+# ---------------- Har operatorni o'z ish vaqti tugaganda avto-logout ----------------
 async def op_workhours_loop(bot: Bot):
-    """Har daqiqada tekshiradi: operator ish vaqti tugagan bo'lsa, hamma operatorni chiqaradi."""
+    """Har daqiqada tekshiradi: kimning ish vaqti tugagan bo'lsa, o'shani chiqaradi."""
     while True:
         await asyncio.sleep(60)
         try:
-            within, ws, we = await op_work_hours()
-            if within:
-                continue
             for op in await q.logged_in_operators():
+                within, ws, we = operator_in_hours(op)
+                if within:
+                    continue
                 tg = op["telegram_id"]
                 await q.logout_operator(tg)
                 try:
                     await bot.send_message(
                         tg,
-                        f"🕐 Operator ish vaqti tugadi ({ws}–{we}).\n"
+                        f"🕐 Ish vaqtingiz tugadi ({ws}–{we}).\n"
                         f"Tizimdan chiqdingiz. Ish vaqti boshlanganda /operator orqali qayta kiring.",
                         reply_markup=await main_kb(tg),
                     )

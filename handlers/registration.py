@@ -88,6 +88,20 @@ async def cmd_lang(message: Message, state: FSMContext):
     await message.answer(loc.CHOOSE_LANG, reply_markup=kb.lang_kb())
 
 
+@router.message(Command("bekor", "cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    lang = await q.get_lang(message.from_user.id)
+    await message.answer(loc.t("canceled_state", lang),
+                         reply_markup=await main_kb(message.from_user.id))
+
+
+@router.message(Command("yordam", "help"))
+async def cmd_help(message: Message, state: FSMContext):
+    lang = await q.get_lang(message.from_user.id)
+    await message.answer(loc.t("help_text", lang))
+
+
 @router.callback_query(F.data.startswith("setlang:"))
 async def set_lang(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":")[1]

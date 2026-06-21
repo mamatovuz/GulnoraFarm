@@ -732,8 +732,10 @@ async def op_edit_list(call: CallbackQuery):
 async def op_edit_pick(call: CallbackQuery):
     op_id = int(call.data.split(":")[1])
     op = await q.get_operator(op_id)
+    hours = f"{op['work_start'] or '08:00'} — {op['work_end'] or '23:00'}"
     await call.message.edit_text(
-        f"👨‍⚕️ <b>{op['name']}</b>\n🔑 Login: <code>{op['login']}</code>\n\n"
+        f"👨‍⚕️ <b>{op['name']}</b>\n🔑 Login: <code>{op['login']}</code>\n"
+        f"🕐 Ish vaqti: {hours}\n\n"
         "Qaysi maydonni tahrirlamoqchisiz?",
         reply_markup=kb.operator_edit_fields_kb(op_id),
     )
@@ -745,8 +747,17 @@ async def op_edit_field(call: CallbackQuery, state: FSMContext):
     _, field, op_id = call.data.split(":")
     await state.set_state(AdminFlow.op_edit_value)
     await state.update_data(op_edit_id=int(op_id), op_edit_field=field)
-    labels = {"name": "yangi ismni", "login": "yangi loginni", "password": "yangi parolni"}
-    await call.message.answer(f"{labels[field].capitalize()} kiriting:")
+    if field == "hours":
+        op = await q.get_operator(int(op_id))
+        cur_h = f"{op['work_start'] or '08:00'} — {op['work_end'] or '23:00'}"
+        await call.message.answer(
+            f"🕐 <b>{op['name']}</b> ish vaqti\n\nHozirgi: <b>{cur_h}</b>\n\n"
+            "Yangi ish vaqtini kiriting (boshlanish-tugash). Masalan: <code>09:00-18:00</code>\n\n"
+            "<i>Operator faqat shu oraliqda /operator orqali kira oladi. "
+            "Ish vaqti tugaganda avtomatik chiqariladi.</i>")
+    else:
+        labels = {"name": "yangi ismni", "login": "yangi loginni", "password": "yangi parolni"}
+        await call.message.answer(f"{labels[field].capitalize()} kiriting:")
     await call.answer()
 
 
@@ -765,6 +776,14 @@ async def op_edit_value(message: Message, state: FSMContext):
     elif field == "password":
         await q.update_operator(op_id, "password_hash", q.hash_password(value))
         msg = f"✅ Parol yangilandi. Yangi parol: <code>{value}</code>"
+    elif field == "hours":
+        hours = parse_hours(value)
+        if not hours:
+            await message.answer("⚠️ Noto'g'ri format. Masalan: <code>09:00-18:00</code>")
+            return
+        await q.update_operator(op_id, "work_start", hours[0])
+        await q.update_operator(op_id, "work_end", hours[1])
+        msg = f"✅ Ish vaqti yangilandi: <b>{hours[0]} — {hours[1]}</b>"
     else:
         await q.update_operator(op_id, "name", value)
         msg = "✅ Ism yangilandi."
@@ -947,35 +966,6 @@ async def workhours_save(message: Message, state: FSMContext):
     await q.set_setting("work_end", hours[1])
     await state.clear()
     await message.answer(f"✅ Umumiy ish vaqti yangilandi: <b>{hours[0]} — {hours[1]}</b>",
-                         reply_markup=kb.admin_back_kb())
-
-
-# ---------------- Operator ish vaqti ----------------
-@router.callback_query(F.data == "adm:opworkhours")
-async def opworkhours_start(call: CallbackQuery, state: FSMContext):
-    start = await q.get_setting("op_work_start", "08:00")
-    end = await q.get_setting("op_work_end", "23:00")
-    await state.set_state(AdminFlow.op_workhours)
-    await call.message.edit_text(
-        f"👨‍⚕️ <b>Operator ish vaqti</b>\n\nHozirgi: <b>{start} — {end}</b>\n\n"
-        "Yangi ish vaqtini kiriting (boshlanish-tugash):\n"
-        "Masalan: <code>08:00-23:00</code>\n\n"
-        "<i>Operatorlar faqat shu oraliqda /operator orqali kira oladi. "
-        "Ish vaqti tugaganda avtomatik tizimdan chiqariladi.</i>"
-    )
-    await call.answer()
-
-
-@router.message(AdminFlow.op_workhours)
-async def opworkhours_save(message: Message, state: FSMContext):
-    hours = parse_hours(message.text)
-    if not hours:
-        await message.answer("⚠️ Noto'g'ri format. Masalan: <code>08:00-23:00</code>")
-        return
-    await q.set_setting("op_work_start", hours[0])
-    await q.set_setting("op_work_end", hours[1])
-    await state.clear()
-    await message.answer(f"✅ Operator ish vaqti yangilandi: <b>{hours[0]} — {hours[1]}</b>",
                          reply_markup=kb.admin_back_kb())
 
 

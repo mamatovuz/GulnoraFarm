@@ -32,11 +32,11 @@ async def work_hours():
     return _within(start, end, now_local().strftime("%H:%M")), start, end
 
 
-async def op_work_hours():
-    """Operatorlar uchun ish vaqti: (ish_vaqtidami, start, end)."""
+def operator_in_hours(op):
+    """Aniq operatorning shaxsiy ish vaqtida ekanini tekshiradi: (ichidami, start, end)."""
     from config import now_local
-    start = await q.get_setting("op_work_start", "08:00")
-    end = await q.get_setting("op_work_end", "23:00")
+    start = op["work_start"] or "08:00"
+    end = op["work_end"] or "23:00"
     return _within(start, end, now_local().strftime("%H:%M")), start, end
 
 

@@ -194,7 +194,6 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="📝 Tayyor javoblar", callback_data="adm:tpl"))
     kb.row(InlineKeyboardButton(text="📁 Murojaatlar tarixi", callback_data="adm:hist"))
     kb.row(InlineKeyboardButton(text="🕐 Umumiy ish vaqti", callback_data="adm:workhours"))
-    kb.row(InlineKeyboardButton(text="👨‍⚕️ Operator ish vaqti", callback_data="adm:opworkhours"))
     kb.row(InlineKeyboardButton(text="✏️ Bog'lanish matnini tahrirlash", callback_data="adm:contact"))
     return kb.as_markup()
 
@@ -347,6 +346,7 @@ def operator_edit_fields_kb(op_id) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="✏️ Ismi", callback_data=f"opedit:name:{op_id}"))
     kb.row(InlineKeyboardButton(text="✏️ Login", callback_data=f"opedit:login:{op_id}"))
     kb.row(InlineKeyboardButton(text="✏️ Parol", callback_data=f"opedit:password:{op_id}"))
+    kb.row(InlineKeyboardButton(text="🕐 Ish vaqti", callback_data=f"opedit:hours:{op_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="op_edit_list"))
     return kb.as_markup()
 

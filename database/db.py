@@ -88,7 +88,9 @@ CREATE TABLE IF NOT EXISTS operators (
     status        TEXT DEFAULT 'active',        -- active | inactive
     active_order_id INTEGER,
     last_active   TEXT,                          -- oxirgi faollik vaqti (auto-logout uchun)
-    availability  TEXT DEFAULT 'free'            -- free | busy (Bo'sh / Band)
+    availability  TEXT DEFAULT 'free',           -- free | busy (Bo'sh / Band)
+    work_start    TEXT DEFAULT '08:00',          -- shaxsiy ish vaqti boshlanishi
+    work_end      TEXT DEFAULT '23:00'           -- shaxsiy ish vaqti tugashi
 );
 
 CREATE TABLE IF NOT EXISTS templates (
@@ -199,6 +201,12 @@ async def init_db():
         await db.commit()
     if "availability" not in opcols:
         await db.execute("ALTER TABLE operators ADD COLUMN availability TEXT DEFAULT 'free'")
+        await db.commit()
+    if "work_start" not in opcols:
+        await db.execute("ALTER TABLE operators ADD COLUMN work_start TEXT DEFAULT '08:00'")
+        await db.commit()
+    if "work_end" not in opcols:
+        await db.execute("ALTER TABLE operators ADD COLUMN work_end TEXT DEFAULT '23:00'")
         await db.commit()
 
     # Boshlang'ich tayyor javob shablonlari
