@@ -40,8 +40,8 @@ async def main():
     me = await bot.get_me()
     logger.info("✅ Bot ishga tushdi: @%s", me.username)
     await bot.delete_webhook(drop_pending_updates=True)
-    # 30 daqiqa harakatsiz operatorlarni avtomatik chiqaruvchi fon vazifasi
-    asyncio.create_task(operator.auto_logout_loop(bot))
+    # Operator ish vaqti tugaganda avtomatik chiqaruvchi fon vazifasi
+    asyncio.create_task(operator.op_workhours_loop(bot))
     await dp.start_polling(bot, handle_signals=False)
 
 

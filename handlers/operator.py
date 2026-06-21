@@ -15,6 +15,7 @@ from states import OperatorFlow
 from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
+    update_group_card, post_operator_to_channel, op_work_hours,
 )
 
 router = Router()
@@ -83,10 +84,30 @@ async def _after_login(bot: Bot, tg_id: int, op):
             await bot.send_message(tg_id, f"⚠️ {err}")
 
 
+async def _op_hours_ok(message_or_call) -> bool:
+    """Operator ish vaqtida bo'lmasa, ogohlantiradi va False qaytaradi."""
+    within, ws, we = await op_work_hours()
+    if not within:
+        text = (f"🕐 Hozir operator ish vaqti emas.\n"
+                f"Ish vaqti: <b>{ws}–{we}</b>. Faqat shu oraliqda kira olasiz.")
+        if hasattr(message_or_call, "message"):   # CallbackQuery
+            await message_or_call.message.answer(text)
+            await message_or_call.answer()
+        else:
+            await message_or_call.answer(text)
+        return False
+    return True
+
+
 @router.message(Command("operator"))
 async def operator_cmd(message: Message, state: FSMContext):
     await state.clear()
     op = await q.get_operator_by_tg(message.from_user.id)
+    # Ish vaqti tashqarisida — kirgan bo'lsa chiqaramiz, yangi kirishga ruxsat yo'q
+    if not await _op_hours_ok(message):
+        if op:
+            await q.logout_operator(message.from_user.id)
+        return
     if op and op["status"] == "active":
         await _show_cabinet(message.bot, message.from_user.id, op)
         return
@@ -104,6 +125,8 @@ async def operator_cmd(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("quicklogin:"))
 async def quick_login(call: CallbackQuery, state: FSMContext):
+    if not await _op_hours_ok(call):
+        return
     op_id = int(call.data.split(":")[1])
     op = await q.get_operator(op_id)
     if not op or op["status"] != "active":
@@ -136,6 +159,9 @@ async def op_login(message: Message, state: FSMContext):
 
 @router.message(OperatorFlow.password)
 async def op_password(message: Message, state: FSMContext):
+    if not await _op_hours_ok(message):
+        await state.clear()
+        return
     data = await state.get_data()
     op = await q.get_operator_by_login(data["login"])
     if not op or op["password_hash"] != q.hash_password(message.text.strip()):
@@ -302,31 +328,13 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], order_id)
 
-    # 1) Guruhdagi xabarni YANGILAYMIZ: tugma olib tashlanadi, holat o'zgaradi, kim olgani yoziladi
+    # 1) Guruhdagi xabarni YANGILAYMIZ: pin yechiladi, holat 🔵 Jarayonda, kim olgani yoziladi
     if order["group_msg_id"] and OPERATORS_GROUP_ID:
-        # Qabul qilindi -> kanaldan pin yechiladi (unpin). Xato bo'lsa ham jarayon to'xtamaydi.
         try:
             await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
         except Exception:
             pass
-        fresh = await q.get_order(order_id)            # endi holat 🔵 Jarayonda
-        info = await order_card_text(fresh)
-        msgs = await q.order_messages(order_id)
-        note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
-        new_caption = (f"{note}\n\n{info}" if note else info) + \
-                      f"\n\n✅ <b>Qabul qildi:</b> {op['name']}"
-        is_media = (fresh["content_type"] in ("photo", "video", "document"))
-        try:
-            if is_media:
-                await bot.edit_message_caption(chat_id=OPERATORS_GROUP_ID,
-                                               message_id=order["group_msg_id"],
-                                               caption=new_caption, reply_markup=None)
-            else:
-                await bot.edit_message_text(chat_id=OPERATORS_GROUP_ID,
-                                            message_id=order["group_msg_id"],
-                                            text=new_caption, reply_markup=None)
-        except Exception:
-            pass
+        await update_group_card(bot, order_id)
 
     # 2) Butun ish operatorning SHAXSIY chatiga — BITTA xabar bilan
     assign_text = (f"🔵 Murojaat #{order_id} sizga biriktirildi.\n"
@@ -468,6 +476,7 @@ async def op_done(call: CallbackQuery):
     await q.set_order_status(order_id, "done", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], None)
     await q.set_user_active_order(order["user_id"], None)
+    await update_group_card(call.bot, order_id)   # kanalda 🟢 Yakunlangan bo'ladi
     # Mijozga yakunlash xabari + baholash tugmalari (mijoz tilida)
     clang = await q.get_lang(order["user_id"])
     try:
@@ -490,6 +499,7 @@ async def op_cancel(call: CallbackQuery):
     await q.set_order_status(order_id, "canceled", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], None)
     await q.set_user_active_order(order["user_id"], None)
+    await update_group_card(call.bot, order_id)   # kanalda 🔴 Bekor qilingan bo'ladi
     clang = await q.get_lang(order["user_id"])
     await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
     await call.message.answer(f"🔴 Murojaat #{order_id} bekor qilindi.")
@@ -529,6 +539,7 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
         await bot.send_message(order["user_id"],
                                loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
                                reply_to_message_id=reply_to, allow_sending_without_reply=True)
+        await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
         await call.answer("Yuborib bo'lmadi", show_alert=True)
@@ -585,6 +596,7 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
     if order["operator_id"]:
         await q.set_operator_active_order(order["operator_id"], None)
     await q.set_user_active_order(order["user_id"], None)
+    await update_group_card(bot, order_id)
     clang = await q.get_lang(order["user_id"])
     try:
         await bot.send_message(
@@ -635,21 +647,23 @@ async def op_autoclose(call: CallbackQuery):
     )
 
 
-# ---------------- Operatorlarni avto-logout (30 daqiqa harakatsizlik) ----------------
-async def auto_logout_loop(bot: Bot):
-    """Har daqiqada tekshiradi: 30 daqiqa harakatsiz operatorlarni tizimdan chiqaradi."""
+# ---------------- Operator ish vaqti tugaganda avto-logout ----------------
+async def op_workhours_loop(bot: Bot):
+    """Har daqiqada tekshiradi: operator ish vaqti tugagan bo'lsa, hamma operatorni chiqaradi."""
     while True:
         await asyncio.sleep(60)
         try:
-            threshold = (now_local() - timedelta(minutes=IDLE_LOGOUT_MIN)).strftime("%Y-%m-%d %H:%M:%S")
-            for op in await q.idle_operators(threshold):
+            within, ws, we = await op_work_hours()
+            if within:
+                continue
+            for op in await q.logged_in_operators():
                 tg = op["telegram_id"]
                 await q.logout_operator(tg)
                 try:
                     await bot.send_message(
                         tg,
-                        f"⏱ {IDLE_LOGOUT_MIN} daqiqa harakatsizlik tufayli tizimdan chiqdingiz.\n"
-                        f"Qayta kirish: /operator",
+                        f"🕐 Operator ish vaqti tugadi ({ws}–{we}).\n"
+                        f"Tizimdan chiqdingiz. Ish vaqti boshlanganda /operator orqali qayta kiring.",
                         reply_markup=await main_kb(tg),
                     )
                 except (TelegramBadRequest, TelegramForbiddenError):
@@ -738,6 +752,8 @@ async def operator_proxy(message: Message, bot: Bot):
     if sent:
         # operatorning bu xabarini bog'laymiz: mijoz keyin shunga reply qilsa ishlasin
         await q.add_link(active, sent.message_id, message.message_id, message.from_user.id)
+        # Kanalga ham reply qilib joylaymiz (mijozning savoliga javob sifatida)
+        await post_operator_to_channel(bot, order, op["name"], message=message)
         await message.answer(f"✅ Mijozga yuborildi (#{active}).")
     else:
         await message.answer("⚠️ Mijozga yuborib bo'lmadi (botni bloklagan bo'lishi mumkin).")

@@ -158,6 +158,8 @@ DEFAULT_SETTINGS = {
     ),
     "work_start": "08:00",
     "work_end": "23:00",
+    "op_work_start": "08:00",
+    "op_work_end": "23:00",
 }
 
 

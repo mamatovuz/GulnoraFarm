@@ -363,6 +363,13 @@ async def touch_operator(telegram_id):
     await db.commit()
 
 
+async def logged_in_operators():
+    """Hozir tizimga kirgan (telegram_id bog'langan) operatorlar."""
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators WHERE telegram_id IS NOT NULL")
+    return await cur.fetchall()
+
+
 async def idle_operators(threshold: str):
     """last_active berilgan vaqtdan eski bo'lgan (harakatsiz) login operatorlarni qaytaradi."""
     db = await get_db()

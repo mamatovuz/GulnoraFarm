@@ -58,6 +58,8 @@ class AdminFlow(StatesGroup):
     contact_edit = State()
     # umumiy ish vaqti
     workhours = State()
+    # operator ish vaqti
+    op_workhours = State()
 
 
 class OperatorFlow(StatesGroup):

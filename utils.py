@@ -18,17 +18,26 @@ def is_admin(telegram_id: int) -> bool:
     return telegram_id in ADMIN_IDS
 
 
+def _within(start: str, end: str, now_hm: str) -> bool:
+    if start <= end:
+        return start <= now_hm <= end
+    return now_hm >= start or now_hm <= end   # tungi rejim (masalan 22:00–06:00)
+
+
 async def work_hours():
-    """(ish_vaqtidami: bool, start: str, end: str)."""
+    """Mijoz uchun umumiy ish vaqti: (ish_vaqtidami, start, end)."""
     from config import now_local
     start = await q.get_setting("work_start", "08:00")
     end = await q.get_setting("work_end", "23:00")
-    now_hm = now_local().strftime("%H:%M")
-    if start <= end:
-        within = start <= now_hm <= end
-    else:  # tунги rejim (masalan 22:00–06:00)
-        within = now_hm >= start or now_hm <= end
-    return within, start, end
+    return _within(start, end, now_local().strftime("%H:%M")), start, end
+
+
+async def op_work_hours():
+    """Operatorlar uchun ish vaqti: (ish_vaqtidami, start, end)."""
+    from config import now_local
+    start = await q.get_setting("op_work_start", "08:00")
+    end = await q.get_setting("op_work_end", "23:00")
+    return _within(start, end, now_local().strftime("%H:%M")), start, end
 
 
 def fmt_dt(s: str) -> str:
@@ -200,8 +209,65 @@ async def forward_client_to_operator(bot: Bot, order, message):
         sent = await send_content_message(bot, op_tg, message, caption, reply_to=reply_to)
         if sent:
             await q.add_link(order["id"], message.message_id, sent.message_id, op_tg)
+        # Kanalga ham reply qilib joylaymiz (yozishma kanalda ko'rinib tursin)
+        await post_client_to_channel(bot, order, message)
     # Aks holda (murojaat hali qabul qilinmagan) — kanalga yubormaymiz.
     # Xabar saqlanadi va operator qabul qilganda hammasi ko'rsatiladi.
+
+
+# Kanaldagi yozishma uchun: order_id -> oxirgi mijoz savoli xabarining kanal message_id si
+_channel_thread: dict[int, int] = {}
+
+
+async def post_client_to_channel(bot: Bot, order, message):
+    """Mijoz xabarini kanalga murojaat kartasiga reply qilib joylaydi."""
+    if not (OPERATORS_GROUP_ID and order["group_msg_id"]):
+        return
+    note = _client_note(message) or "📎 (media)"
+    sent = await send_content_message(bot, OPERATORS_GROUP_ID, message,
+                                      f"💬 Mijoz: {note}", reply_to=order["group_msg_id"])
+    if sent:
+        _channel_thread[order["id"]] = sent.message_id
+
+
+async def post_operator_to_channel(bot: Bot, order, op_name, message=None, text=None):
+    """Operator javobini kanalga mijozning oxirgi savoliga reply qilib joylaydi."""
+    if not (OPERATORS_GROUP_ID and order["group_msg_id"]):
+        return
+    reply_to = _channel_thread.get(order["id"], order["group_msg_id"])
+    if message is not None:
+        note = (message.caption or message.text or "")
+        await send_content_message(bot, OPERATORS_GROUP_ID, message,
+                                   f"👨‍⚕️ {op_name}: {note}", reply_to=reply_to)
+    else:
+        try:
+            await bot.send_message(OPERATORS_GROUP_ID, f"👨‍⚕️ {op_name}: {text}",
+                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+
+async def update_group_card(bot: Bot, order_id):
+    """Kanaldagi murojaat kartasini joriy holatga ko'ra yangilaydi (Yangi/Jarayonda/Yakunlangan...)."""
+    order = await q.get_order(order_id)
+    if not (OPERATORS_GROUP_ID and order and order["group_msg_id"]):
+        return
+    info = await order_card_text(order)
+    msgs = await q.order_messages(order_id)
+    note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
+    op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    extra = f"\n\n✅ <b>Qabul qildi:</b> {op['name']}" if op else ""
+    caption = (f"{note}\n\n{info}" if note else info) + extra
+    is_media = order["content_type"] in ("photo", "video", "document")
+    try:
+        if is_media:
+            await bot.edit_message_caption(chat_id=OPERATORS_GROUP_ID, message_id=order["group_msg_id"],
+                                           caption=caption, reply_markup=None)
+        else:
+            await bot.edit_message_text(chat_id=OPERATORS_GROUP_ID, message_id=order["group_msg_id"],
+                                        text=caption, reply_markup=None)
+    except Exception:
+        pass
 
 
 async def save_message_from_message(order_id, sender, message):
