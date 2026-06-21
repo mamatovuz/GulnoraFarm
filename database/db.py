@@ -96,6 +96,13 @@ CREATE TABLE IF NOT EXISTS templates (
     text TEXT
 );
 
+-- Operator login/parolini "saqlash" (tezkor kirish uchun)
+CREATE TABLE IF NOT EXISTS saved_logins (
+    telegram_id INTEGER,
+    operator_id INTEGER,
+    UNIQUE(telegram_id, operator_id)
+);
+
 CREATE TABLE IF NOT EXISTS faqs (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     title  TEXT,

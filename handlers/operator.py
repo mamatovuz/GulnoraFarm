@@ -64,19 +64,67 @@ async def remove_pin_service_channel(message: Message):
 
 
 # ---------------- Login ----------------
+async def _show_cabinet(bot: Bot, chat_id: int, op):
+    cnt = len(await q.orders_by_status("in_progress", op["id"]))
+    await bot.send_message(
+        chat_id,
+        f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
+        reply_markup=kb.operator_menu(op["availability"]),
+    )
+
+
+async def _after_login(bot: Bot, tg_id: int, op):
+    """Login bo'lgach: kabinet + kutilayotgan murojaat (agar kanaldan kelgan bo'lsa)."""
+    await _show_cabinet(bot, tg_id, op)
+    pending = _pending_accept.pop(tg_id, None)
+    if pending:
+        ok, err = await do_accept(bot, op, pending, tg_id)
+        if not ok:
+            await bot.send_message(tg_id, f"⚠️ {err}")
+
+
 @router.message(Command("operator"))
 async def operator_cmd(message: Message, state: FSMContext):
     await state.clear()
     op = await q.get_operator_by_tg(message.from_user.id)
     if op and op["status"] == "active":
-        cnt = len(await q.orders_by_status("in_progress", op["id"]))
+        await _show_cabinet(message.bot, message.from_user.id, op)
+        return
+    # Saqlangan login bo'lsa — tezkor kirish taklif qilamiz
+    saved = await q.saved_logins_for(message.from_user.id)
+    if saved:
         await message.answer(
-            f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
-            reply_markup=kb.operator_menu(op["availability"]),
+            "👨‍⚕️ <b>Operator kabineti</b>\n\nQuyidagilardan birini tanlang:",
+            reply_markup=kb.quick_login_kb(saved),
         )
         return
     await state.set_state(OperatorFlow.login)
     await message.answer("👨‍⚕️ <b>Operator kabineti</b>\n\n🔑 Login:", reply_markup=kb.REMOVE)
+
+
+@router.callback_query(F.data.startswith("quicklogin:"))
+async def quick_login(call: CallbackQuery, state: FSMContext):
+    op_id = int(call.data.split(":")[1])
+    op = await q.get_operator(op_id)
+    if not op or op["status"] != "active":
+        await q.remove_saved_login(call.from_user.id, op_id)
+        await call.answer("Bu hisob mavjud emas yoki bloklangan.", show_alert=True)
+        return
+    await q.login_operator(op_id, call.from_user.id)
+    await state.clear()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await _after_login(call.bot, call.from_user.id, op)
+    await call.answer("✅ Kirildi")
+
+
+@router.callback_query(F.data == "newlogin")
+async def new_login(call: CallbackQuery, state: FSMContext):
+    await state.set_state(OperatorFlow.login)
+    await call.message.answer("🔑 Login:", reply_markup=kb.REMOVE)
+    await call.answer()
 
 
 @router.message(OperatorFlow.login)
@@ -100,17 +148,26 @@ async def op_password(message: Message, state: FSMContext):
         return
     await q.login_operator(op["id"], message.from_user.id)
     await state.clear()
-    cnt = len(await q.orders_by_status("in_progress", op["id"]))
-    await message.answer(
-        f"✅ Xush kelibsiz, <b>{op['name']}</b>!\n\nSizga biriktirilgan murojaatlar: {cnt}",
-        reply_markup=kb.operator_menu(op["availability"]),
-    )
-    # Kanaldan "Qabul qilish" bosib kelgan bo'lsa — o'sha murojaatni avtomatik ochamiz
-    pending = _pending_accept.pop(message.from_user.id, None)
-    if pending:
-        ok, err = await do_accept(message.bot, op, pending, message.from_user.id)
-        if not ok:
-            await message.answer(f"⚠️ {err}")
+    await _after_login(message.bot, message.from_user.id, op)
+    # Login/parolni saqlash taklifi (agar hali saqlanmagan bo'lsa)
+    if not await q.is_login_saved(message.from_user.id, op["id"]):
+        await message.answer(
+            "💾 Login va parolingizni saqlab qo'yasizmi?\n"
+            "Keyingi safar parolsiz, bir bosishda kirasiz.",
+            reply_markup=kb.save_login_kb(op["id"]),
+        )
+
+
+@router.callback_query(F.data.startswith("savelogin:"))
+async def save_login_cb(call: CallbackQuery):
+    op_id = int(call.data.split(":")[1])
+    await q.save_login(call.from_user.id, op_id)
+    try:
+        await call.message.edit_text(
+            "✅ Login va parol saqlandi.\nKeyingi safar /operator da bir bosishda kirasiz.")
+    except Exception:
+        pass
+    await call.answer("Saqlandi ✅")
 
 
 @router.message(IsOperator(), F.text.in_(loc.labels("op_cabinet")))

@@ -407,6 +407,36 @@ async def set_operator_availability(operator_id, availability):
     await db.commit()
 
 
+async def save_login(telegram_id, operator_id):
+    db = await get_db()
+    await db.execute("INSERT OR IGNORE INTO saved_logins (telegram_id, operator_id) VALUES (?, ?)",
+                     (telegram_id, operator_id))
+    await db.commit()
+
+
+async def saved_logins_for(telegram_id):
+    """Shu telegram uchun saqlangan (faol) operator hisoblari."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.name FROM saved_logins s JOIN operators o ON o.id = s.operator_id "
+        "WHERE s.telegram_id = ? AND o.status = 'active'", (telegram_id,))
+    return await cur.fetchall()
+
+
+async def is_login_saved(telegram_id, operator_id):
+    db = await get_db()
+    cur = await db.execute("SELECT 1 FROM saved_logins WHERE telegram_id = ? AND operator_id = ?",
+                           (telegram_id, operator_id))
+    return (await cur.fetchone()) is not None
+
+
+async def remove_saved_login(telegram_id, operator_id):
+    db = await get_db()
+    await db.execute("DELETE FROM saved_logins WHERE telegram_id = ? AND operator_id = ?",
+                     (telegram_id, operator_id))
+    await db.commit()
+
+
 async def active_operators(exclude_id=None):
     """Faol (status=active) operatorlar ro'yxati — uzatish uchun."""
     db = await get_db()

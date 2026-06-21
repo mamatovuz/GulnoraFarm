@@ -432,6 +432,22 @@ def op_orders_list_kb(orders, action) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def save_login_kb(operator_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="💾 Login va parolni saqlash",
+                                callback_data=f"savelogin:{operator_id}"))
+    return kb.as_markup()
+
+
+def quick_login_kb(saved) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for op in saved:
+        kb.row(InlineKeyboardButton(text=f"🔑 {op['name']} (saqlangan)",
+                                    callback_data=f"quicklogin:{op['id']}"))
+    kb.row(InlineKeyboardButton(text="➕ Boshqa hisob bilan kirish", callback_data="newlogin"))
+    return kb.as_markup()
+
+
 def bill_send_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="✅ Ha, yuborish", callback_data=f"bill_send:{order_id}"),
