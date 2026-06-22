@@ -252,7 +252,8 @@ async def op_view_new(call: CallbackQuery):
     await call.answer()
 
 
-_LABELS = {"photo": "📷 rasm", "video": "🎥 video", "document": "📄 hujjat"}
+_LABELS = {"photo": "📷 rasm", "video": "🎥 video", "document": "📄 hujjat",
+           "sticker": "🎭 stiker", "animation": "🎞 GIF", "voice": "🎤 ovozli xabar"}
 
 
 async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
@@ -262,6 +263,15 @@ async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
             return await bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
         if content_type == "video":
             return await bot.send_video(chat_id, file_id, caption=caption, reply_markup=markup)
+        if content_type == "animation":
+            return await bot.send_animation(chat_id, file_id, caption=caption, reply_markup=markup)
+        if content_type == "voice":
+            return await bot.send_voice(chat_id, file_id, caption=caption, reply_markup=markup)
+        if content_type == "sticker":
+            # stiker captionsiz — avval izoh, keyin stiker
+            if caption:
+                await bot.send_message(chat_id, caption)
+            return await bot.send_sticker(chat_id, file_id, reply_markup=markup)
         if content_type == "document":
             return await bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
         return await bot.send_message(chat_id, caption, reply_markup=markup)
@@ -528,17 +538,50 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
     if not order or not tpl or not op:
         await call.answer("Topilmadi", show_alert=True)
         return
-    await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
     clang = await q.get_lang(order["user_id"])
     reply_to = await q.last_client_tg_msg(order_id)
     try:
-        await bot.send_message(order["user_id"],
-                               loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
-                               reply_to_message_id=reply_to, allow_sending_without_reply=True)
-        await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
+        if tpl["sticker"]:
+            await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
+            await bot.send_sticker(order["user_id"], tpl["sticker"],
+                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            if OPERATORS_GROUP_ID and order["group_msg_id"]:
+                try:
+                    await bot.send_sticker(OPERATORS_GROUP_ID, tpl["sticker"],
+                                           reply_to_message_id=order["group_msg_id"],
+                                           allow_sending_without_reply=True)
+                except (TelegramBadRequest, TelegramForbiddenError):
+                    pass
+        else:
+            await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
+            await bot.send_message(order["user_id"],
+                                   loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
+                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
         await call.answer("Yuborib bo'lmadi", show_alert=True)
+
+
+# ---------------- Mijozdan filial tanlashni so'rash ----------------
+@router.callback_query(F.data.startswith("opc:askbranch:"))
+async def op_ask_branch(call: CallbackQuery, bot: Bot):
+    order_id = int(call.data.split(":")[2])
+    order = await q.get_order(order_id)
+    if not order:
+        await call.answer("Murojaat topilmadi", show_alert=True)
+        return
+    branches = await q.list_branches()
+    if not branches:
+        await call.answer("Filiallar qo'shilmagan", show_alert=True)
+        return
+    clang = await q.get_lang(order["user_id"])
+    try:
+        await bot.send_message(order["user_id"], loc.t("op_ask_branch", clang),
+                               reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+        await call.answer("✅ Mijozga filial tanlash so'rovi yuborildi", show_alert=True)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
 
 
 # ---------------- Murojaatni boshqa operatorga uzatish ----------------
@@ -722,7 +765,7 @@ async def op_rating(message: Message):
 
 # ---------------- Operator proxy: erkin xabar -> mijozga ----------------
 @router.message(IsOperator(), F.chat.type == "private",
-                F.content_type.in_({"text", "photo", "document", "video"}),
+                F.content_type.in_({"text", "photo", "document", "video", "sticker", "animation", "voice"}),
                 ~F.text.in_(kb.ALL_MENU_BUTTONS))
 async def operator_proxy(message: Message, bot: Bot):
     op = await q.get_operator_by_tg(message.from_user.id)

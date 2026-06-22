@@ -194,16 +194,17 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="📝 Tayyor javoblar", callback_data="adm:tpl"))
     kb.row(InlineKeyboardButton(text="📁 Murojaatlar tarixi", callback_data="adm:hist"))
     kb.row(InlineKeyboardButton(text="🕐 Umumiy ish vaqti", callback_data="adm:workhours"))
+    kb.row(InlineKeyboardButton(text="🔤 Operator tugmalari matni", callback_data="adm:opbtn"))
     kb.row(InlineKeyboardButton(text="✏️ Bog'lanish matnini tahrirlash", callback_data="adm:contact"))
     return kb.as_markup()
 
 
 def templates_admin_kb(templates) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="➕ Shablon qo'shish", callback_data="tpl_add"))
+    kb.row(InlineKeyboardButton(text="➕ Matn shablon", callback_data="tpl_add"),
+           InlineKeyboardButton(text="🎭 Stiker shablon", callback_data="tpl_add_sticker"))
     for tpl in templates:
-        short = (tpl["text"][:35] + "…") if len(tpl["text"]) > 35 else tpl["text"]
-        kb.row(InlineKeyboardButton(text=f"🗑 {short}", callback_data=f"tpldel:{tpl['id']}"))
+        kb.row(InlineKeyboardButton(text=f"🗑 {_tpl_label(tpl)}", callback_data=f"tpldel:{tpl['id']}"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
     return kb.as_markup()
 
@@ -397,24 +398,73 @@ ALL_MENU_BUTTONS = (
 )
 
 
+# Operator amal tugmalari matnlari (admin paneldan o'zgartirilishi mumkin)
+OP_BTN = {
+    "reply": "💬 Javob",
+    "tpl": "📝 Tayyor javob",
+    "bill": "💊 Hisoblash",
+    "transfer": "🔄 Uzatish",
+    "askbranch": "🏥 Filialni tanlatish",
+    "autoclose": "⏱ 10 daqiqada avto-yakunlash",
+    "done": "✅ Yakunlash",
+    "cancel": "❌ Bekor",
+}
+
+# Tugma kalitlari uchun chiroyli nomlar (admin ko'rishi uchun)
+OP_BTN_TITLES = {
+    "reply": "Javob yozish", "tpl": "Tayyor javob", "bill": "Hisoblash",
+    "transfer": "Uzatish", "askbranch": "Filialni tanlatish",
+    "autoclose": "10 daqiqada avto-yakunlash", "done": "Yakunlash", "cancel": "Bekor qilish",
+}
+
+
+def apply_op_buttons(overrides: dict):
+    """settings dan kelgan matnlarni OP_BTN ga qo'llaydi."""
+    for k, v in overrides.items():
+        if k in OP_BTN and v:
+            OP_BTN[k] = v
+
+
 def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="💬 Javob", callback_data=f"opc:reply:{order_id}"),
-           InlineKeyboardButton(text="📝 Tayyor javob", callback_data=f"opc:tpl:{order_id}"))
-    kb.row(InlineKeyboardButton(text="💊 Hisoblash", callback_data=f"opc:bill:{order_id}"),
-           InlineKeyboardButton(text="🔄 Uzatish", callback_data=f"opc:transfer:{order_id}"))
-    kb.row(InlineKeyboardButton(text="⏱ 10 daqiqada avto-yakunlash",
-                                callback_data=f"opc:autoclose:{order_id}"))
-    kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"opc:done:{order_id}"),
-           InlineKeyboardButton(text="❌ Bekor", callback_data=f"opc:cancel:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["reply"], callback_data=f"opc:reply:{order_id}"),
+           InlineKeyboardButton(text=OP_BTN["tpl"], callback_data=f"opc:tpl:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["bill"], callback_data=f"opc:bill:{order_id}"),
+           InlineKeyboardButton(text=OP_BTN["transfer"], callback_data=f"opc:transfer:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["askbranch"], callback_data=f"opc:askbranch:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["autoclose"], callback_data=f"opc:autoclose:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
+           InlineKeyboardButton(text=OP_BTN["cancel"], callback_data=f"opc:cancel:{order_id}"))
     return kb.as_markup()
+
+
+def op_buttons_admin_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for k, title in OP_BTN_TITLES.items():
+        kb.row(InlineKeyboardButton(text=f"{title} → {OP_BTN[k]}", callback_data=f"opbtn:{k}"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def op_ask_branch_kb(branches, order_id, lang="uz") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for b in branches:
+        kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"opbr:{order_id}:{b['id']}"))
+    kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data=f"opbrnear:{order_id}"))
+    return kb.as_markup()
+
+
+def _tpl_label(tpl) -> str:
+    if tpl["sticker"]:
+        return "🎭 Stiker"
+    txt = tpl["text"] or "—"
+    return (txt[:40] + "…") if len(txt) > 40 else txt
 
 
 def templates_pick_kb(templates, order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for tpl in templates:
-        short = (tpl["text"][:40] + "…") if len(tpl["text"]) > 40 else tpl["text"]
-        kb.row(InlineKeyboardButton(text=short, callback_data=f"tplsend:{order_id}:{tpl['id']}"))
+        kb.row(InlineKeyboardButton(text=_tpl_label(tpl), callback_data=f"tplsend:{order_id}:{tpl['id']}"))
     return kb.as_markup()
 
 

@@ -106,6 +106,7 @@ async def cmd_help(message: Message, state: FSMContext):
 async def set_lang(call: CallbackQuery, state: FSMContext):
     lang = call.data.split(":")[1]
     await q.set_user_lang(call.from_user.id, lang)
+    await q.set_user_username(call.from_user.id, call.from_user.username)
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:

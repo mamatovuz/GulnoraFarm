@@ -841,10 +841,13 @@ async def op_stat(call: CallbackQuery):
 async def tpl_admin(call: CallbackQuery, state: FSMContext):
     await state.clear()
     tpls = await q.list_templates()
-    lst = "\n".join(f"{i+1}. {t_['text']}" for i, t_ in enumerate(tpls)) or "(yo'q)"
+    lines = []
+    for i, t_ in enumerate(tpls):
+        lines.append(f"{i+1}. " + ("🎭 Stiker" if t_["sticker"] else (t_["text"] or "—")))
+    lst = "\n".join(lines) or "(yo'q)"
     await call.message.edit_text(
         f"📝 <b>Tayyor javob shablonlari</b>\n\n{lst}\n\n"
-        "Operatorlar murojaatda shu javoblardan bir bosishda foydalanadi.",
+        "Operatorlar murojaatda shu javoblardan (matn yoki stiker) bir bosishda foydalanadi.",
         reply_markup=kb.templates_admin_kb(tpls),
     )
     await call.answer()
@@ -853,15 +856,37 @@ async def tpl_admin(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "tpl_add")
 async def tpl_add(call: CallbackQuery, state: FSMContext):
     await state.set_state(AdminTpl.add_text)
-    await call.message.edit_text("Yangi tayyor javob matnini kiriting:")
+    await call.message.edit_text("Yangi tayyor javob <b>matnini</b> kiriting:")
+    await call.answer()
+
+
+@router.callback_query(F.data == "tpl_add_sticker")
+async def tpl_add_sticker(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminTpl.add_sticker)
+    await call.message.edit_text("Tayyor javob uchun <b>stiker</b> yuboring 🎭")
     await call.answer()
 
 
 @router.message(AdminTpl.add_text)
 async def tpl_add_save(message: Message, state: FSMContext):
-    await q.add_template(message.text)
+    if not message.text:
+        await message.answer("Iltimos, matn yuboring.")
+        return
+    await q.add_template(message.text, None)
     await state.clear()
-    await message.answer("✅ Tayyor javob qo'shildi.", reply_markup=kb.admin_back_kb("adm:tpl"))
+    await message.answer("✅ Matn shablon qo'shildi.", reply_markup=kb.admin_back_kb("adm:tpl"))
+
+
+@router.message(AdminTpl.add_sticker, F.sticker)
+async def tpl_add_sticker_save(message: Message, state: FSMContext):
+    await q.add_template(None, message.sticker.file_id)
+    await state.clear()
+    await message.answer("✅ Stiker shablon qo'shildi.", reply_markup=kb.admin_back_kb("adm:tpl"))
+
+
+@router.message(AdminTpl.add_sticker)
+async def tpl_add_sticker_bad(message: Message):
+    await message.answer("Iltimos, stiker yuboring 🎭")
 
 
 @router.callback_query(F.data.startswith("tpldel:"))
@@ -1007,6 +1032,41 @@ async def workhours_save(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(f"✅ Umumiy ish vaqti yangilandi: <b>{hours[0]} — {hours[1]}</b>",
                          reply_markup=kb.admin_back_kb())
+
+
+# ---------------- Operator tugmalari matni ----------------
+@router.callback_query(F.data == "adm:opbtn")
+async def opbtn_admin(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.message.edit_text(
+        "🔤 <b>Operator tugmalari matni</b>\n\n"
+        "Operator murojaatda ko'radigan tugmalar matnini o'zgartirish uchun birini tanlang:",
+        reply_markup=kb.op_buttons_admin_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opbtn:"))
+async def opbtn_pick(call: CallbackQuery, state: FSMContext):
+    key = call.data.split(":")[1]
+    await state.set_state(AdminFlow.opbtn_value)
+    await state.update_data(opbtn_key=key)
+    await call.message.answer(
+        f"«{kb.OP_BTN_TITLES.get(key, key)}» tugmasi uchun yangi matn kiriting:\n\n"
+        f"Hozirgi: <b>{kb.OP_BTN.get(key, '')}</b>")
+    await call.answer()
+
+
+@router.message(AdminFlow.opbtn_value)
+async def opbtn_save(message: Message, state: FSMContext):
+    d = await state.get_data()
+    key = d["opbtn_key"]
+    value = message.text.strip()
+    await q.set_setting(f"opbtn_{key}", value)
+    kb.apply_op_buttons({key: value})
+    await state.clear()
+    await message.answer(f"✅ Tugma matni yangilandi: <b>{value}</b>",
+                         reply_markup=kb.admin_back_kb("adm:opbtn"))
 
 
 # ---------------- Bog'lanish matnini tahrirlash ----------------

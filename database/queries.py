@@ -51,6 +51,14 @@ async def get_lang(telegram_id: int) -> str:
     return (row["lang"] if row and row["lang"] else "uz")
 
 
+async def set_user_username(telegram_id: int, username):
+    if not username:
+        return
+    db = await get_db()
+    await db.execute("UPDATE users SET username = ? WHERE telegram_id = ?", (username, telegram_id))
+    await db.commit()
+
+
 async def set_user_branch(telegram_id: int, branch_id: int):
     db = await get_db()
     await db.execute("UPDATE users SET branch_id = ? WHERE telegram_id = ?", (branch_id, telegram_id))
@@ -167,6 +175,12 @@ async def set_order_status(order_id, status, changed_by):
 async def assign_order(order_id, operator_id):
     db = await get_db()
     await db.execute("UPDATE orders SET operator_id = ? WHERE id = ?", (operator_id, order_id))
+    await db.commit()
+
+
+async def set_order_branch(order_id, branch_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET branch_id = ? WHERE id = ?", (branch_id, order_id))
     await db.commit()
 
 
@@ -477,9 +491,9 @@ async def get_template(template_id):
     return await cur.fetchone()
 
 
-async def add_template(text):
+async def add_template(text, sticker=None):
     db = await get_db()
-    await db.execute("INSERT INTO templates (text) VALUES (?)", (text,))
+    await db.execute("INSERT INTO templates (text, sticker) VALUES (?, ?)", (text, sticker))
     await db.commit()
 
 

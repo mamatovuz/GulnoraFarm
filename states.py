@@ -25,6 +25,7 @@ class NearestFlow(StatesGroup):
 
 class AdminTpl(StatesGroup):
     add_text = State()           # tayyor javob shabloni matni
+    add_sticker = State()        # tayyor javob shabloni stikeri
 
 
 class AdminFlow(StatesGroup):
@@ -60,6 +61,8 @@ class AdminFlow(StatesGroup):
     workhours = State()
     # operator ish vaqti
     op_workhours = State()
+    # operator tugmalari matni
+    opbtn_value = State()
 
 
 class OperatorFlow(StatesGroup):

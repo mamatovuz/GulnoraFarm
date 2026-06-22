@@ -9,7 +9,8 @@ import locales as loc
 from config import OPERATORS_GROUP_ID
 from states import ContactFlow, NearestFlow
 from database import queries as q
-from utils import main_kb, extract_content, deliver_order_to_operators, haversine_km, work_hours
+from utils import (main_kb, extract_content, deliver_order_to_operators, haversine_km, work_hours,
+                   update_group_card)
 
 router = Router()
 
@@ -27,9 +28,29 @@ async def nearest_ask(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+async def _select_branch_for_order(bot, user_id, order_id, branch_id):
+    """Operator so'rovi bo'yicha tanlangan filialni murojaatga (va bo'sh bo'lsa profilga) yozadi."""
+    await q.set_order_branch(order_id, branch_id)
+    user = await q.get_user(user_id)
+    if user and not user["branch_id"]:        # faqat ro'yxatda tanlanmagan bo'lsa saqlanadi
+        await q.set_user_branch(user_id, branch_id)
+    await update_group_card(bot, order_id)
+    order = await q.get_order(order_id)
+    op = await q.get_operator(order["operator_id"]) if order and order["operator_id"] else None
+    b = await q.get_branch(branch_id)
+    if op and op["telegram_id"]:
+        try:
+            await bot.send_message(op["telegram_id"],
+                                   f"🏥 Mijoz #{order_id} uchun filial tanladi: <b>{b['name']}</b>")
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+
 @router.message(NearestFlow.waiting_location, F.location)
-async def nearest_result(message: Message, state: FSMContext):
+async def nearest_result(message: Message, state: FSMContext, bot: Bot):
     lang = await q.get_lang(message.from_user.id)
+    data = await state.get_data()
+    branch_order = data.get("branch_order")
     await state.clear()
     branches = [b for b in await q.list_branches() if b["lat"] is not None and b["lon"] is not None]
     if not branches:
@@ -38,12 +59,47 @@ async def nearest_result(message: Message, state: FSMContext):
     ulat, ulon = message.location.latitude, message.location.longitude
     nearest = min(branches, key=lambda b: haversine_km(ulat, ulon, b["lat"], b["lon"]))
     km = haversine_km(ulat, ulon, nearest["lat"], nearest["lon"])
+    # Operator so'rovi bo'yicha — eng yaqinni murojaatga tanlaymiz
+    if branch_order:
+        await _select_branch_for_order(bot, message.from_user.id, branch_order, nearest["id"])
+        await message.answer(loc.t("op_branch_chosen", lang, branch=nearest["name"]),
+                             reply_markup=await main_kb(message.from_user.id))
+        return
     hours = f"{nearest['open_time'] or '08:00'} — {nearest['close_time'] or '23:00'}"
     caption = loc.t("nearest_result", lang, km=km) + "\n\n" + loc.t(
         "branch_card", lang, name=nearest["name"],
         address=nearest["address"] or "—", phone=nearest["phone"] or "—", hours=hours)
     await message.answer(caption, reply_markup=await main_kb(message.from_user.id))
     await message.answer_location(latitude=nearest["lat"], longitude=nearest["lon"])
+
+
+# ---------------- Operator so'rovi bo'yicha filial tanlash ----------------
+@router.callback_query(F.data.startswith("opbr:"))
+async def op_branch_pick(call: CallbackQuery, bot: Bot):
+    _, oid, bid = call.data.split(":")
+    oid, bid = int(oid), int(bid)
+    lang = await q.get_lang(call.from_user.id)
+    b = await q.get_branch(bid)
+    order = await q.get_order(oid)
+    if not b or not order:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    await _select_branch_for_order(bot, call.from_user.id, oid, bid)
+    try:
+        await call.message.edit_text(loc.t("op_branch_chosen", lang, branch=b["name"]))
+    except Exception:
+        pass
+    await call.answer("✅")
+
+
+@router.callback_query(F.data.startswith("opbrnear:"))
+async def op_branch_near(call: CallbackQuery, state: FSMContext):
+    oid = int(call.data.split(":")[1])
+    lang = await q.get_lang(call.from_user.id)
+    await state.set_state(NearestFlow.waiting_location)
+    await state.update_data(branch_order=oid)
+    await call.message.answer(loc.t("nearest_ask", lang), reply_markup=kb.client_location_kb(lang))
+    await call.answer()
 
 
 # ---------------- Mening murojaatlarim ----------------
@@ -253,6 +309,7 @@ async def contact_bad_format(message: Message):
 @router.callback_query(ContactFlow.confirm, F.data == "contact_send")
 async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
     lang = await q.get_lang(call.from_user.id)
+    await q.set_user_username(call.from_user.id, call.from_user.username)
     data = await state.get_data()
     user = await q.get_user(call.from_user.id)
     if not user or not user["phone"]:

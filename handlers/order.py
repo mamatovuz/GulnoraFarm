@@ -154,6 +154,7 @@ async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
     if not data or not data["items"]:
         return
     lang = await q.get_lang(message.from_user.id)
+    await q.set_user_username(message.from_user.id, message.from_user.username)
     user = await q.get_user(message.from_user.id)
     items = data["items"]
     first_ct = items[0][0]
@@ -187,6 +188,7 @@ async def _hours_suffix(lang: str) -> str:
 
 async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
+    await q.set_user_username(message.from_user.id, message.from_user.username)
     user = await q.get_user(message.from_user.id)
     order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
     await save_message_from_message(order_id, "client", message)
@@ -198,7 +200,8 @@ async def _create_order(message, state, bot, content_type):
 
 
 # -------- Proxy-chat: ochiq murojaati bor mijozning erkin xabari operatorga ketadi --------
-@router.message(F.chat.type == "private", F.content_type.in_({"text", "photo", "document", "video"}))
+@router.message(F.chat.type == "private",
+                F.content_type.in_({"text", "photo", "document", "video"}))
 async def client_proxy(message: Message, state: FSMContext, bot: Bot):
     # FSM holatda bo'lsa, bu handlerga tushmaydi (yuqoridagilar ushlaydi)
     user = await q.get_user(message.from_user.id)

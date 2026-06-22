@@ -91,8 +91,12 @@ async def order_card_text(order) -> str:
     phone = user["phone"] if user else "—"
     branch_name = branch["name"] if branch else "—"
     header = "🆕" if order["status"] == "new" else "📋"
-    # Mijoz ismini bosiladigan (lichkasiga olib o'tadigan) qilamiz
-    name_link = f'<a href="tg://user?id={order["user_id"]}">{name}</a>'
+    # Mijoz ismini bosiladigan qilamiz: @username bo'lsa undan (ishonchli), aks holda tg://user
+    uname = user["username"] if user and "username" in user.keys() else None
+    if uname:
+        name_link = f'<a href="https://t.me/{uname}">{name}</a>'
+    else:
+        name_link = f'<a href="tg://user?id={order["user_id"]}">{name}</a>'
     return (
         f"{header} <b>Murojaat — #{order['id']}</b>\n\n"
         f"👤 Mijoz: {name_link}\n"
@@ -105,7 +109,7 @@ async def order_card_text(order) -> str:
 
 async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=None,
                                reply_to=None):
-    """Mijoz kontentini (rasm/video/hujjat/matn) BITTA xabar qilib yuboradi.
+    """Mijoz/operator kontentini (rasm/video/hujjat/stiker/GIF/matn) yuboradi.
     Yuborilgan Message obyektini qaytaradi (xato bo'lsa None)."""
     kwargs = {"reply_markup": markup}
     if reply_to:
@@ -116,6 +120,12 @@ async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=
             return await bot.send_photo(chat_id, message.photo[-1].file_id, caption=caption, **kwargs)
         if message.video:
             return await bot.send_video(chat_id, message.video.file_id, caption=caption, **kwargs)
+        if message.animation:   # GIF
+            return await bot.send_animation(chat_id, message.animation.file_id, caption=caption, **kwargs)
+        if message.sticker:     # stiker (caption qo'llanmaydi)
+            return await bot.send_sticker(chat_id, message.sticker.file_id, **kwargs)
+        if message.voice:       # ovozli xabar
+            return await bot.send_voice(chat_id, message.voice.file_id, caption=caption, **kwargs)
         if message.document:
             return await bot.send_document(chat_id, message.document.file_id, caption=caption, **kwargs)
         return await bot.send_message(chat_id, caption, **kwargs)
@@ -133,6 +143,12 @@ def extract_content(message):
         return "photo", message.photo[-1].file_id, message.caption
     if message.video:
         return "video", message.video.file_id, message.caption
+    if message.animation:
+        return "animation", message.animation.file_id, message.caption
+    if message.sticker:
+        return "sticker", message.sticker.file_id, None
+    if message.voice:
+        return "voice", message.voice.file_id, message.caption
     if message.document:
         return "document", message.document.file_id, message.caption
     return "text", None, message.text
@@ -271,14 +287,5 @@ async def update_group_card(bot: Bot, order_id):
 
 
 async def save_message_from_message(order_id, sender, message):
-    tg_id = message.message_id
-    if message.photo:
-        await q.add_message(order_id, sender, "photo", message.caption,
-                            message.photo[-1].file_id, tg_id)
-    elif message.video:
-        await q.add_message(order_id, sender, "video", message.caption, message.video.file_id, tg_id)
-    elif message.document:
-        await q.add_message(order_id, sender, "document", message.caption,
-                            message.document.file_id, tg_id)
-    else:
-        await q.add_message(order_id, sender, "text", message.text, None, tg_id)
+    ct, fid, txt = extract_content(message)
+    await q.add_message(order_id, sender, ct, txt, fid, message.message_id)

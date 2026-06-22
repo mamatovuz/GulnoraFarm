@@ -344,6 +344,16 @@ T = {
                "/til — сменить язык\n"
                "/yordam — эта помощь"),
     },
+    "op_ask_branch": {
+        "uz": "🏥 Iltimos, o'zingizga yaqin filialni tanlang.\n\n"
+              "Yoki pastdagi «📍 Eng yaqin filial» tugmasi bilan o'zingizga yaqinini toping.",
+        "ru": "🏥 Пожалуйста, выберите ближайший к вам филиал.\n\n"
+              "Или найдите ближайший кнопкой «📍 Ближайший филиал» ниже.",
+    },
+    "op_branch_chosen": {
+        "uz": "✅ Siz <b>{branch}</b> filialini tanladingiz.\n\nOperator tez orada javob beradi.",
+        "ru": "✅ Вы выбрали филиал <b>{branch}</b>.\n\nОператор скоро ответит.",
+    },
     "auto_close_warning": {
         "uz": "⏱ Agar {min} daqiqa ichida javob bermasangiz, suhbatimiz yakunlanadi.\n\n"
               "Savolingiz bo'lsa, istalgan vaqtda qayta yozishingiz mumkin.",

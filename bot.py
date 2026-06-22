@@ -9,6 +9,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN
 from database.db import init_db
+from database import queries as q
+import keyboards as kb
 from handlers import registration, admin, operator, menu, order
 from middlewares import ActivityMiddleware
 
@@ -22,6 +24,14 @@ logger = logging.getLogger("bot")
 
 async def main():
     await init_db()
+
+    # Operator tugmalari matnini bazadan yuklaymiz (admin o'zgartirgan bo'lsa)
+    overrides = {}
+    for key in list(kb.OP_BTN.keys()):
+        val = await q.get_setting(f"opbtn_{key}", "")
+        if val:
+            overrides[key] = val
+    kb.apply_op_buttons(overrides)
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())

@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
     registered_at TEXT,
     status        TEXT DEFAULT 'active',      -- active | blocked
     active_order_id INTEGER,                   -- ochiq murojaat (proxy-chat uchun)
-    lang          TEXT DEFAULT 'uz'            -- til: uz | ru
+    lang          TEXT DEFAULT 'uz',           -- til: uz | ru
+    username      TEXT                          -- @username (profilga havola uchun)
 );
 
 CREATE TABLE IF NOT EXISTS branches (
@@ -94,8 +95,9 @@ CREATE TABLE IF NOT EXISTS operators (
 );
 
 CREATE TABLE IF NOT EXISTS templates (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    text TEXT
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    text    TEXT,
+    sticker TEXT                                -- stiker file_id (matn o'rniga)
 );
 
 -- Operator login/parolini "saqlash" (tezkor kirish uchun)
@@ -225,6 +227,16 @@ async def init_db():
     ucols = [row[1] for row in await cur.fetchall()]
     if "lang" not in ucols:
         await db.execute("ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'uz'")
+        await db.commit()
+    if "username" not in ucols:
+        await db.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        await db.commit()
+
+    # Migratsiya: templates.sticker ustuni
+    cur = await db.execute("PRAGMA table_info(templates)")
+    tcols = [row[1] for row in await cur.fetchall()]
+    if "sticker" not in tcols:
+        await db.execute("ALTER TABLE templates ADD COLUMN sticker TEXT")
         await db.commit()
 
     # Migratsiya: branches ish vaqti ustunlari
