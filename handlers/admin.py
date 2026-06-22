@@ -12,7 +12,7 @@ import texts as t
 import locales as loc
 from states import AdminFlow, AdminTpl
 from database import queries as q
-from utils import is_admin, STATUS_LABEL, order_card_text
+from utils import is_admin, STATUS_LABEL, order_card_text, fmt_dt
 
 router = Router()
 
@@ -884,6 +884,18 @@ async def hist_menu(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("hist:"))
 async def hist_pick(call: CallbackQuery, state: FSMContext):
     mode = call.data.split(":")[1]
+    # Operator bo'yicha — operatorlar ro'yxatidan tanlaymiz
+    if mode == "operator":
+        await state.clear()
+        ops = await q.list_operators()
+        if not ops:
+            await call.answer("Hozircha operator yo'q", show_alert=True)
+            return
+        await call.message.edit_text(
+            "👨‍⚕️ Murojaatlarini ko'rish uchun operatorni tanlang:",
+            reply_markup=kb.operator_pick_kb(ops, "histop", back="adm:hist"))
+        await call.answer()
+        return
     await state.set_state(AdminFlow.search_value)
     await state.update_data(hist_mode=mode)
     prompts = {
@@ -892,6 +904,34 @@ async def hist_pick(call: CallbackQuery, state: FSMContext):
         "branch": "🏥 Filial nomini (yoki bir qismini) kiriting:",
     }
     await call.message.edit_text(prompts[mode])
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("histop:"))
+async def hist_operator(call: CallbackQuery):
+    op_id = int(call.data.split(":")[1])
+    op = await q.get_operator(op_id)
+    if not op:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    s = await q.operator_stats(op_id)
+    orders = await q.orders_by_operator(op_id)
+    lines = [
+        f"👨‍⚕️ <b>{op['name']}</b> — murojaatlari\n",
+        f"📥 Qabul qilingan: {s['accepted']}",
+        f"✅ Yakunlangan: {s['done']}    💊 Hisoblangan: {s['billed']}",
+        f"⭐ O'rtacha baho: {s['avg_rating']} ({s['rated_count']} ta baho)",
+        f"📆 Bugun: {s['today_done']}    Oylik: {s['month_done']}\n",
+        "🧾 <b>Oxirgi murojaatlar:</b>",
+    ]
+    if orders:
+        for o in orders[:20]:
+            star = f" ⭐{o['rating']}" if o["rating"] else ""
+            lines.append(f"#{o['id']} — {o['full_name'] or '—'} — "
+                         f"{STATUS_LABEL.get(o['status'], o['status'])} — {fmt_dt(o['created_at'])}{star}")
+    else:
+        lines.append("(murojaat yo'q)")
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.admin_back_kb("adm:hist"))
     await call.answer()
 
 
@@ -928,7 +968,7 @@ async def hist_search(message: Message, state: FSMContext):
             f"📋 <b>Murojaat #{r['id']}</b>\n\n"
             f"👤 Mijoz: {r['full_name']}, {r['phone']}\n"
             f"🏥 Filial: {r['branch']}\n👨‍⚕️ Operator: {r['operator'] or '—'}\n"
-            f"🕐 Boshlangan: {r['created_at']}\n🕐 Yakunlangan: {r['closed_at'] or '—'}\n"
+            f"🕐 Boshlangan: {fmt_dt(r['created_at'])}\n🕐 Yakunlangan: {fmt_dt(r['closed_at'])}\n"
             f"Holat: {STATUS_LABEL.get(r['status'], r['status'])}\n"
             f"{rating_line}{feedback_line}\n"
             f"💬 <b>Yozishma:</b>\n{chat}",

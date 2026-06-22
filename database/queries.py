@@ -203,6 +203,15 @@ async def orders_by_user(user_id):
     return await cur.fetchall()
 
 
+async def orders_by_operator(operator_id):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, u.full_name, o.status, o.created_at, o.rating "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "WHERE o.operator_id = ? ORDER BY o.id DESC", (operator_id,))
+    return await cur.fetchall()
+
+
 async def orders_by_status(status, operator_id=None):
     db = await get_db()
     if operator_id is not None:

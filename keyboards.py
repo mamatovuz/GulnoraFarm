@@ -351,12 +351,12 @@ def operator_edit_fields_kb(op_id) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def operator_pick_kb(operators, action) -> InlineKeyboardMarkup:
+def operator_pick_kb(operators, action, back="adm:op") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for o in operators:
         mark = "🟢" if o["status"] == "active" else "🔴"
         kb.row(InlineKeyboardButton(text=f"{mark} {o['name']}", callback_data=f"{action}:{o['id']}"))
-    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:op"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data=back))
     return kb.as_markup()
 
 
@@ -365,6 +365,7 @@ def history_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="🔎 Murojaat raqami bo'yicha", callback_data="hist:id"))
     kb.row(InlineKeyboardButton(text="👤 Foydalanuvchi bo'yicha", callback_data="hist:user"))
     kb.row(InlineKeyboardButton(text="🏥 Filial bo'yicha", callback_data="hist:branch"))
+    kb.row(InlineKeyboardButton(text="👨‍⚕️ Operator bo'yicha", callback_data="hist:operator"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
     return kb.as_markup()
 
