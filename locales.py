@@ -344,6 +344,12 @@ T = {
                "/til — сменить язык\n"
                "/yordam — эта помощь"),
     },
+    "auto_close_warning": {
+        "uz": "⏱ Agar {min} daqiqa ichida javob bermasangiz, suhbatimiz yakunlanadi.\n\n"
+              "Savolingiz bo'lsa, istalgan vaqtda qayta yozishingiz mumkin.",
+        "ru": "⏱ Если вы не ответите в течение {min} минут, наш диалог будет завершён.\n\n"
+              "Если есть вопросы, вы можете написать снова в любое время.",
+    },
     "out_of_hours": {
         "uz": "🕐 Hozir ish vaqtimizdan tashqari (ish vaqti: {start}–{end}).\n"
               "Murojaatingiz qabul qilindi — ish vaqti boshlanishi bilan javob beramiz.",

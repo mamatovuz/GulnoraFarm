@@ -636,9 +636,16 @@ async def op_autoclose(call: CallbackQuery):
         return
     armed_at = q.now()
     asyncio.create_task(_auto_close_task(call.bot, order_id, armed_at, call.from_user.id))
+    # Mijozni darhol ogohlantiramiz (uning tilida)
+    clang = await q.get_lang(order["user_id"])
+    try:
+        await call.bot.send_message(order["user_id"],
+                                    loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
     await call.answer(
-        f"⏱ Yoqildi! Agar mijoz {AUTO_CLOSE_MIN} daqiqa ichida javob bermasa, "
-        f"murojaat avtomatik yakunlanadi.",
+        f"⏱ Yoqildi! Mijozga ogohlantirish yuborildi. "
+        f"Agar {AUTO_CLOSE_MIN} daqiqa ichida javob bermasa, murojaat avtomatik yakunlanadi.",
         show_alert=True,
     )
 
