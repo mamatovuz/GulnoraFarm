@@ -29,11 +29,10 @@ async def nearest_ask(call: CallbackQuery, state: FSMContext):
 
 
 async def _select_branch_for_order(bot, user_id, order_id, branch_id):
-    """Operator so'rovi bo'yicha tanlangan filialni murojaatga (va bo'sh bo'lsa profilga) yozadi."""
+    """Operator so'rovi bo'yicha tanlangan filialni murojaatga va profilga yozadi.
+    Filial oldin bo'lgan bo'lsa ham, har doim yangisiga o'zgaradi."""
     await q.set_order_branch(order_id, branch_id)
-    user = await q.get_user(user_id)
-    if user and not user["branch_id"]:        # faqat ro'yxatda tanlanmagan bo'lsa saqlanadi
-        await q.set_user_branch(user_id, branch_id)
+    await q.set_user_branch(user_id, branch_id)   # har doim yangisiga almashadi
     await update_group_card(bot, order_id)
     order = await q.get_order(order_id)
     op = await q.get_operator(order["operator_id"]) if order and order["operator_id"] else None
