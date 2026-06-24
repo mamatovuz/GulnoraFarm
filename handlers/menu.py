@@ -19,13 +19,13 @@ def _branches_header(lang):
     return loc.t("branches_header", lang)
 
 
-# ---------------- Eng yaqin filial ----------------
-@router.callback_query(F.data == "nearest")
-async def nearest_ask(call: CallbackQuery, state: FSMContext):
-    lang = await q.get_lang(call.from_user.id)
+# ---------------- Eng yaqin filial (asosiy menyu tugmasi) ----------------
+@router.message(F.text.in_(loc.labels("nearest")))
+async def nearest_ask(message: Message, state: FSMContext):
+    await state.clear()
+    lang = await q.get_lang(message.from_user.id)
     await state.set_state(NearestFlow.waiting_location)
-    await call.message.answer(loc.t("nearest_ask", lang), reply_markup=kb.client_location_kb(lang))
-    await call.answer()
+    await message.answer(loc.t("nearest_ask", lang), reply_markup=kb.client_location_kb(lang))
 
 
 async def _select_branch_for_order(bot, user_id, order_id, branch_id):

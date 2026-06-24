@@ -26,13 +26,15 @@ def lang_kb() -> InlineKeyboardMarkup:
 def main_menu(lang="uz", is_admin: bool = False, is_operator: bool = False,
               show_faq: bool = True) -> ReplyKeyboardMarkup:
     rows = [[KeyboardButton(text=loc.btn("order", lang))]]
+    # Filiallar | Eng yaqin filial — yonma-yon
+    rows.append([KeyboardButton(text=loc.btn("branches", lang)),
+                 KeyboardButton(text=loc.btn("nearest", lang))])
+    third = []
     if show_faq:
-        rows.append([KeyboardButton(text=loc.btn("faq", lang)),
-                     KeyboardButton(text=loc.btn("branches", lang))])
-    else:
-        rows.append([KeyboardButton(text=loc.btn("branches", lang))])
-    rows.append([KeyboardButton(text=loc.btn("my_orders", lang)),
-                 KeyboardButton(text=loc.btn("contact", lang))])
+        third.append(KeyboardButton(text=loc.btn("faq", lang)))
+    third.append(KeyboardButton(text=loc.btn("my_orders", lang)))
+    rows.append(third)
+    rows.append([KeyboardButton(text=loc.btn("contact", lang))])
     rows.append([KeyboardButton(text=loc.btn("join_team", lang))])
     if is_operator:
         rows.append([KeyboardButton(text=loc.btn("op_cabinet", lang))])
@@ -88,7 +90,6 @@ def branches_list_kb(branches, lang="uz") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"branch_info:{b['id']}"))
-    kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data="nearest"))
     return kb.as_markup()
 
 
