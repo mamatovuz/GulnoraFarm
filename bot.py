@@ -11,7 +11,7 @@ from config import BOT_TOKEN
 from database.db import init_db
 from database import queries as q
 import keyboards as kb
-from handlers import registration, admin, operator, menu, order
+from handlers import registration, admin, operator, menu, order, unfinished
 from middlewares import ActivityMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -44,6 +44,7 @@ async def main():
     dp.include_router(registration.router)
     dp.include_router(admin.router)
     dp.include_router(operator.router)
+    dp.include_router(unfinished.router)
     dp.include_router(menu.router)
     dp.include_router(order.router)
 

@@ -187,6 +187,7 @@ def order_accept_link_kb(order_id, bot_username) -> InlineKeyboardMarkup:
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data="adm:stats"))
+    kb.row(InlineKeyboardButton(text="📌 Yakunlanmagan murojaatlar", callback_data="adm:unfin"))
     kb.row(InlineKeyboardButton(text="📨 Ommaviy xabar", callback_data="adm:bc"))
     kb.row(InlineKeyboardButton(text="📢 Kanal boshqaruvi", callback_data="adm:ch"))
     kb.row(InlineKeyboardButton(text="❓ FAQ boshqaruvi", callback_data="adm:faq"))
@@ -378,6 +379,7 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
+            [KeyboardButton(text="📌 Yakunlanmagan murojaatlar")],
             [KeyboardButton(text="✅ Yakunlanganlar"), KeyboardButton(text="📊 Mening statistikam")],
             [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
             [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
@@ -388,8 +390,9 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
 
 # Bot taniydigan barcha menyu tugmalari (proxy-chat ularni yutib yubormasligi uchun)
 OPERATOR_MENU_BUTTONS = {
-    "📥 Yangi murojaatlar", "📂 Mening murojaatlarim", "✅ Yakunlanganlar",
-    "📊 Mening statistikam", "🏆 Reyting", "🚪 Chiqish (logout)", BTN_OP_BACK,
+    "📥 Yangi murojaatlar", "📂 Mening murojaatlarim", "📌 Yakunlanmagan murojaatlar",
+    "✅ Yakunlanganlar", "📊 Mening statistikam", "🏆 Reyting",
+    "🚪 Chiqish (logout)", BTN_OP_BACK,
 }
 ALL_MENU_BUTTONS = (
     loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register",

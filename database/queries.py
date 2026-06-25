@@ -217,6 +217,21 @@ async def orders_by_user(user_id):
     return await cur.fetchall()
 
 
+async def unfinished_orders():
+    """Yakunlanmagan (yangi yoki jarayonda) murojaatlar — eng eskisi tepada."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.user_id, o.status, o.created_at, o.operator_id, o.content_type, "
+        "u.full_name, u.phone, u.username, b.name AS branch, op.name AS operator "
+        "FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "LEFT JOIN branches b ON b.id = o.branch_id "
+        "LEFT JOIN operators op ON op.id = o.operator_id "
+        "WHERE o.status IN ('new','in_progress') "
+        "ORDER BY o.created_at ASC")
+    return await cur.fetchall()
+
+
 async def orders_by_operator(operator_id):
     db = await get_db()
     cur = await db.execute(

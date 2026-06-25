@@ -218,6 +218,12 @@ async def op_back_to_main(message: Message):
     await message.answer("🏠 Bosh menyu", reply_markup=await main_kb(message.from_user.id))
 
 
+@router.message(IsOperator(), F.text == "📌 Yakunlanmagan murojaatlar")
+async def op_unfinished(message: Message):
+    from handlers.unfinished import open_for_message
+    await open_for_message(message)
+
+
 @router.message(IsOperator(), F.text == "🚪 Chiqish (logout)")
 async def op_logout(message: Message):
     await q.logout_operator(message.from_user.id)
