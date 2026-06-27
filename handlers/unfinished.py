@@ -119,6 +119,25 @@ async def unfin_page(call: CallbackQuery):
     await show_list(call, page)
 
 
+# ---- Admin: murojaatni yakunlash (mijozga baholash chiqadi) ----
+@router.callback_query(F.data.startswith("unfdone:"))
+async def unfin_done(call: CallbackQuery, bot: Bot):
+    if not is_admin(call.from_user.id):
+        await call.answer("⛔ Sizda ruxsat yo'q", show_alert=True)
+        return
+    _, oid, page = call.data.split(":")
+    oid, page = int(oid), int(page)
+    order = await q.get_order(oid)
+    if not order or order["status"] not in ("new", "in_progress"):
+        await call.answer("Bu murojaat allaqachon yopilgan.", show_alert=True)
+        await show_list(call, page)
+        return
+    from handlers.operator import _finish_with_rating
+    await _finish_with_rating(bot, oid, f"admin:{call.from_user.id}")
+    await call.answer("🟢 Yakunlandi — mijozga baholash yuborildi", show_alert=True)
+    await show_list(call, page)
+
+
 # ---- Murojaat tafsiloti ----
 @router.callback_query(F.data.startswith("unford:"))
 async def unfin_detail(call: CallbackQuery):
@@ -155,13 +174,16 @@ async def unfin_detail(call: CallbackQuery):
             f"{preview}")
 
     kb = InlineKeyboardBuilder()
-    # Operator bo'lsa — amal tugmalari
+    # Operator bo'lsa — qabul/ochish tugmalari
     op = await q.get_operator_by_tg(call.from_user.id)
     if op and op["status"] == "active":
         if not row["operator_id"]:
             kb.row(InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"op_accept:{oid}"))
         elif row["operator_id"] == op["id"]:
             kb.row(InlineKeyboardButton(text="💬 Ochish", callback_data=f"opmine:{oid}"))
+    # Admin bo'lsa — yakunlash tugmasi
+    if is_admin(call.from_user.id):
+        kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"unfdone:{oid}:{page}"))
     kb.row(InlineKeyboardButton(text="🔙 Ro'yxatga", callback_data=f"unfin:{page}"))
     try:
         await call.message.edit_text(text, reply_markup=kb.as_markup(), disable_web_page_preview=True)
