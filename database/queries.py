@@ -554,6 +554,23 @@ async def delete_operator(operator_id):
     await db.commit()
 
 
+async def update_operator_password(operator_id, password):
+    db = await get_db()
+    await db.execute("UPDATE operators SET password_hash = ? WHERE id = ?",
+                     (hash_password(password), operator_id))
+    await db.commit()
+
+
+async def clear_operator_session(operator_id):
+    """Login/parol o'zgartirilganda: operatorni tizimdan chiqaradi va
+    saqlangan (tezkor) loginlarini o'chiradi — eski egasi kira olmaydi."""
+    db = await get_db()
+    await db.execute(
+        "UPDATE operators SET telegram_id = NULL, active_order_id = NULL WHERE id = ?", (operator_id,))
+    await db.execute("DELETE FROM saved_logins WHERE operator_id = ?", (operator_id,))
+    await db.commit()
+
+
 async def set_operator_availability(operator_id, availability):
     db = await get_db()
     await db.execute("UPDATE operators SET availability = ? WHERE id = ?", (availability, operator_id))

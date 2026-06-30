@@ -1,6 +1,7 @@
 """Umumiy yordamchi funksiyalar."""
 import asyncio
 from aiogram import Bot
+from aiogram.types import BufferedInputFile
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import keyboards as kb
@@ -14,12 +15,62 @@ def cbot() -> Bot:
     return botreg.client_bot
 
 
-async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=None, reply_to=None):
-    """Kontent turini berib yuboradi (rasm/video/hujjat/GIF/ovoz/matn)."""
+async def _download_file(src_bot: Bot, file_id):
+    """file_id egasi (src_bot) orqali fayl baytlarini yuklab oladi."""
+    try:
+        f = await src_bot.get_file(file_id)
+        buf = await src_bot.download_file(f.file_path)
+        return buf.read()
+    except Exception:
+        return None
+
+
+async def _send_media_bytes(bot: Bot, chat_id, content_type, raw, caption, kw):
+    """Bayt (raw) sifatida media yuboradi — cross-bot uchun (file_id ishlamaganda)."""
+    try:
+        inp = BufferedInputFile(raw, filename="file")
+        if content_type == "photo":
+            return await bot.send_photo(chat_id, inp, caption=caption, **kw)
+        if content_type == "video":
+            return await bot.send_video(chat_id, inp, caption=caption, **kw)
+        if content_type == "document":
+            return await bot.send_document(chat_id, inp, caption=caption, **kw)
+        if content_type == "animation":
+            return await bot.send_animation(chat_id, inp, caption=caption, **kw)
+        if content_type == "voice":
+            return await bot.send_voice(chat_id, inp, **kw)
+        if content_type == "audio":
+            return await bot.send_audio(chat_id, inp, caption=caption, **kw)
+        if content_type == "sticker":
+            return await bot.send_sticker(chat_id, inp, **kw)
+        return await bot.send_message(chat_id, caption or "—", **kw)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return None
+
+
+async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=None,
+                   reply_to=None, raw=None):
+    """Kontent turini berib yuboradi. file_id boshqa botniki bo'lsa (cross-bot),
+    mijoz boti orqali yuklab, shu bot orqali qayta yuboradi."""
     kw = {"reply_markup": markup}
     if reply_to:
         kw["reply_to_message_id"] = reply_to
         kw["allow_sending_without_reply"] = True
+    if content_type == "text" or not file_id:
+        try:
+            return await bot.send_message(chat_id, caption or "—", **kw)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            return None
+    # Media: agar yuborayotgan bot file_id egasi (mijoz boti) bo'lmasa — yuklab qayta yuboramiz
+    client = cbot()
+    same_owner = bool(client and bot.id == client.id)
+    if not same_owner:
+        if raw is None and client:
+            raw = await _download_file(client, file_id)
+        if raw is not None:
+            cap = None if content_type == "sticker" else caption
+            return await _send_media_bytes(bot, chat_id, content_type, raw, cap, kw)
+        # yuklab bo'lmadi — pastda file_id bilan urinib ko'ramiz (fallback)
     try:
         if content_type == "photo":
             return await bot.send_photo(chat_id, file_id, caption=caption, **kw)
@@ -30,10 +81,10 @@ async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=Non
         if content_type == "animation":
             return await bot.send_animation(chat_id, file_id, caption=caption, **kw)
         if content_type == "voice":
-            return await bot.send_voice(chat_id, file_id, caption=caption, **kw)
+            return await bot.send_voice(chat_id, file_id, **kw)
         if content_type == "sticker":
             return await bot.send_sticker(chat_id, file_id, **kw)
-        return await bot.send_message(chat_id, caption, **kw)
+        return await bot.send_message(chat_id, caption or "—", **kw)
     except (TelegramBadRequest, TelegramForbiddenError):
         return None
 
@@ -142,25 +193,45 @@ async def order_card_text(order) -> str:
 async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=None,
                                reply_to=None):
     """Mijoz/operator kontentini (rasm/video/hujjat/stiker/GIF/matn) yuboradi.
+    file_id boshqa botniki bo'lsa (cross-bot), xabar kelgan bot orqali yuklab qayta yuboradi.
     Yuborilgan Message obyektini qaytaradi (xato bo'lsa None)."""
     kwargs = {"reply_markup": markup}
     if reply_to:
         kwargs["reply_to_message_id"] = reply_to
         kwargs["allow_sending_without_reply"] = True
+    ct, fid, _ = extract_content(message)
+    if ct == "text" or not fid:
+        try:
+            return await bot.send_message(chat_id, caption or "—", **kwargs)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            return None
+    # cross-bot: yuborayotgan bot xabar egasi emas -> yuklab qayta yuboramiz
+    src = message.bot
+    if src and src.id != bot.id:
+        raw = await _download_file(src, fid)
+        if raw is not None:
+            if ct == "sticker" and caption:
+                try:
+                    await bot.send_message(chat_id, caption)
+                except (TelegramBadRequest, TelegramForbiddenError):
+                    pass
+            cap = None if ct == "sticker" else caption
+            return await _send_media_bytes(bot, chat_id, ct, raw, cap, kwargs)
+    # same-bot — to'g'ridan-to'g'ri file_id bilan
     try:
         if message.photo:
             return await bot.send_photo(chat_id, message.photo[-1].file_id, caption=caption, **kwargs)
         if message.video:
             return await bot.send_video(chat_id, message.video.file_id, caption=caption, **kwargs)
-        if message.animation:   # GIF
+        if message.animation:
             return await bot.send_animation(chat_id, message.animation.file_id, caption=caption, **kwargs)
-        if message.sticker:     # stiker (caption qo'llanmaydi)
+        if message.sticker:
             return await bot.send_sticker(chat_id, message.sticker.file_id, **kwargs)
-        if message.voice:       # ovozli xabar
-            return await bot.send_voice(chat_id, message.voice.file_id, caption=caption, **kwargs)
+        if message.voice:
+            return await bot.send_voice(chat_id, message.voice.file_id, **kwargs)
         if message.document:
             return await bot.send_document(chat_id, message.document.file_id, caption=caption, **kwargs)
-        return await bot.send_message(chat_id, caption, **kwargs)
+        return await bot.send_message(chat_id, caption or "—", **kwargs)
     except (TelegramBadRequest, TelegramForbiddenError):
         return None
 
@@ -256,7 +327,13 @@ def schedule_escalation(order_id):
 
 
 async def push_to_operator_bots(order_id, content_type, file_id, caption):
-    """Operator botlaridagi 🟢 bo'sh, login qilgan operatorlarga Qabul tugmasi bilan yuboradi."""
+    """Operator botlaridagi 🟢 bo'sh, login qilgan operatorlarga Qabul tugmasi bilan yuboradi.
+    Media file_id boshqa botniki bo'lgani uchun bir marta yuklab olamiz va qayta yuboramiz."""
+    raw = None
+    if content_type != "text" and file_id:
+        client = cbot()
+        if client:
+            raw = await _download_file(client, file_id)
     for brow in await q.list_operator_bots(only_enabled=True):
         opbot = botreg.get_operator_bot(brow["id"])
         if not opbot:
@@ -264,7 +341,7 @@ async def push_to_operator_bots(order_id, content_type, file_id, caption):
         for op in await q.operators_by_bot(brow["id"]):
             if op["telegram_id"] and op["status"] == "active" and op["availability"] == "free":
                 sent = await send_raw(opbot, op["telegram_id"], content_type, file_id, caption,
-                                      markup=kb.order_accept_kb(order_id))
+                                      markup=kb.order_accept_kb(order_id), raw=raw)
                 if sent:
                     await q.add_order_notif(order_id, brow["id"], op["telegram_id"], sent.message_id)
 

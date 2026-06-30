@@ -16,7 +16,7 @@ from states import OperatorFlow
 from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
-    update_group_card, post_operator_to_channel, operator_in_hours, cbot,
+    update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw,
 )
 
 router = Router()
@@ -293,26 +293,16 @@ _LABELS = {"photo": "📷 rasm", "video": "🎥 video", "document": "📄 hujjat
 
 
 async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
-    """Bitta kontentni (media yoki matn) yuboradi, Message qaytaradi."""
-    try:
-        if content_type == "photo":
-            return await bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
-        if content_type == "video":
-            return await bot.send_video(chat_id, file_id, caption=caption, reply_markup=markup)
-        if content_type == "animation":
-            return await bot.send_animation(chat_id, file_id, caption=caption, reply_markup=markup)
-        if content_type == "voice":
-            return await bot.send_voice(chat_id, file_id, caption=caption, reply_markup=markup)
-        if content_type == "sticker":
-            # stiker captionsiz — avval izoh, keyin stiker
-            if caption:
-                await bot.send_message(chat_id, caption)
-            return await bot.send_sticker(chat_id, file_id, reply_markup=markup)
-        if content_type == "document":
-            return await bot.send_document(chat_id, file_id, caption=caption, reply_markup=markup)
-        return await bot.send_message(chat_id, caption, reply_markup=markup)
-    except (TelegramBadRequest, TelegramForbiddenError):
-        return None
+    """Bitta kontentni (media yoki matn) yuboradi, Message qaytaradi.
+    send_raw cross-bot (operator boti mijoz file_id'sini) avtomatik hal qiladi."""
+    if content_type == "sticker" and caption:
+        # stiker captionsiz — avval izoh, keyin stiker
+        try:
+            await bot.send_message(chat_id, caption)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+        return await send_raw(bot, chat_id, "sticker", file_id, None, markup=markup)
+    return await send_raw(bot, chat_id, content_type, file_id, caption, markup=markup)
 
 
 async def _send_order_single(bot, chat_id, order_id, extra_text, markup):

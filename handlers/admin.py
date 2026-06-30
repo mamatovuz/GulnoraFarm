@@ -968,6 +968,66 @@ async def bot_stat(call: CallbackQuery):
     await call.answer()
 
 
+# ---------------- Operator bot login/parolini o'zgartirish ----------------
+@router.callback_query(F.data.startswith("botcred:"))
+async def bot_cred(call: CallbackQuery, state: FSMContext):
+    bot_id = int(call.data.split(":")[1])
+    ops = await q.operators_by_bot(bot_id)
+    if not ops:
+        await call.answer("Bu botda operator yo'q.", show_alert=True)
+        return
+    op = ops[0]
+    await state.set_state(AdminFlow.botcred_login)
+    await state.update_data(cred_op_id=op["id"], cred_bot_id=bot_id, cred_login=op["login"])
+    await call.message.edit_text(
+        f"🔑 <b>Login/parol o'zgartirish</b>\n\n"
+        f"Operator: <b>{op['name']}</b>\n"
+        f"Joriy login: <code>{op['login']}</code>\n\n"
+        f"Yangi <b>login</b> kiriting (eskisini saqlash uchun <code>-</code> yuboring):")
+    await call.answer()
+
+
+@router.message(AdminFlow.botcred_login)
+async def bot_cred_login(message: Message, state: FSMContext):
+    d = await state.get_data()
+    login = message.text.strip()
+    if login != "-":
+        existing = await q.get_operator_by_login(login)
+        if existing and existing["id"] != d["cred_op_id"]:
+            await message.answer("⚠️ Bu login band. Boshqa login kiriting (yoki /bekor):")
+            return
+        await q.update_operator(d["cred_op_id"], "login", login)
+        await state.update_data(cred_login=login)
+    await state.set_state(AdminFlow.botcred_password)
+    await message.answer(
+        "Endi yangi <b>parol</b> kiriting:\n"
+        "• tasodifiy parol uchun <code>avto</code>\n"
+        "• eski parolni saqlash uchun <code>-</code>")
+
+
+@router.message(AdminFlow.botcred_password)
+async def bot_cred_password(message: Message, state: FSMContext):
+    d = await state.get_data()
+    pwd = message.text.strip()
+    if pwd == "-":
+        pwd_show = "(o'zgarmadi)"
+    else:
+        if pwd.lower() == "avto":
+            pwd = secrets.token_urlsafe(6)
+        await q.update_operator_password(d["cred_op_id"], pwd)
+        pwd_show = f"<code>{pwd}</code>"
+    # Eski sessiyani tozalaymiz: operator yangi ma'lumotlar bilan qayta kiradi
+    await q.clear_operator_session(d["cred_op_id"])
+    await state.clear()
+    await message.answer(
+        f"✅ <b>Yangilandi!</b>\n\n"
+        f"🔑 Login: <code>{d['cred_login']}</code>\n"
+        f"🔐 Parol: {pwd_show}\n\n"
+        f"Operator tizimdan chiqarildi — u qayta <code>/operator</code> orqali "
+        f"yangi ma'lumotlar bilan kiradi.",
+        reply_markup=kb.admin_back_kb(f"botinfo:{d['cred_bot_id']}"))
+
+
 @router.callback_query(F.data.startswith("bottoggle:"))
 async def bot_toggle(call: CallbackQuery):
     bot_id = int(call.data.split(":")[1])

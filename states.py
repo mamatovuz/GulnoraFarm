@@ -57,6 +57,9 @@ class AdminFlow(StatesGroup):
     bot_token = State()
     bot_login = State()
     bot_password = State()
+    # operator boti login/parolini o'zgartirish
+    botcred_login = State()
+    botcred_password = State()
     # murojaat tarixi qidiruv
     search_value = State()
     # kontakt matnini tahrirlash

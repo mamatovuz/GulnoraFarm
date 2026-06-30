@@ -462,6 +462,7 @@ def bot_info_kb(bot_id, enabled) -> InlineKeyboardMarkup:
     else:
         kb.row(InlineKeyboardButton(text="🔔 Yoqish", callback_data=f"bottoggle:{bot_id}"))
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data=f"botstat:{bot_id}"))
+    kb.row(InlineKeyboardButton(text="🔑 Login/parolni o'zgartirish", callback_data=f"botcred:{bot_id}"))
     kb.row(InlineKeyboardButton(text="🗑 Botni o'chirish", callback_data=f"botdel:{bot_id}"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:bots"))
     return kb.as_markup()
