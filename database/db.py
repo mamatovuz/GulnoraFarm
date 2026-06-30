@@ -107,6 +107,25 @@ CREATE TABLE IF NOT EXISTS saved_logins (
     UNIQUE(telegram_id, operator_id)
 );
 
+-- Admin qo'shgan operator botlari (har biri alohida token)
+CREATE TABLE IF NOT EXISTS operator_bots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    token      TEXT UNIQUE,
+    username   TEXT,
+    title      TEXT,
+    enabled    INTEGER DEFAULT 1,
+    created_at TEXT
+);
+
+-- Operator botlariga yuborilgan murojaat bildirishnomalari (qabul qilingach o'chirish uchun)
+CREATE TABLE IF NOT EXISTS order_notifs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id   INTEGER,
+    bot_id     INTEGER,
+    chat_id    INTEGER,
+    message_id INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS faqs (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     title  TEXT,
@@ -209,6 +228,10 @@ async def init_db():
         await db.commit()
     if "work_end" not in opcols:
         await db.execute("ALTER TABLE operators ADD COLUMN work_end TEXT DEFAULT '23:00'")
+        await db.commit()
+    if "bot_id" not in opcols:
+        # bot_id = NULL -> asosiy botga tegishli (eski operatorlar)
+        await db.execute("ALTER TABLE operators ADD COLUMN bot_id INTEGER")
         await db.commit()
 
     # Boshlang'ich tayyor javob shablonlari

@@ -53,6 +53,10 @@ class AdminFlow(StatesGroup):
     op_login = State()
     op_password = State()
     op_edit_value = State()   # operatorni tahrirlash (ism/login/parol)
+    # operator boti qo'shish
+    bot_token = State()
+    bot_login = State()
+    bot_password = State()
     # murojaat tarixi qidiruv
     search_value = State()
     # kontakt matnini tahrirlash

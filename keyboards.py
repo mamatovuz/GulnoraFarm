@@ -194,6 +194,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="❓ FAQ boshqaruvi", callback_data="adm:faq"))
     kb.row(InlineKeyboardButton(text="🏥 Filiallar", callback_data="adm:br"))
     kb.row(InlineKeyboardButton(text="👨‍⚕️ Operatorlar", callback_data="adm:op"))
+    kb.row(InlineKeyboardButton(text="🤖 Operator botlari", callback_data="adm:bots"))
     kb.row(InlineKeyboardButton(text="📝 Tayyor javoblar", callback_data="adm:tpl"))
     kb.row(InlineKeyboardButton(text="📁 Murojaatlar tarixi", callback_data="adm:hist"))
     kb.row(InlineKeyboardButton(text="🕐 Umumiy ish vaqti", callback_data="adm:workhours"))
@@ -440,6 +441,29 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text=OP_BTN["autoclose"], callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
            InlineKeyboardButton(text=OP_BTN["cancel"], callback_data=f"opc:cancel:{order_id}"))
+    return kb.as_markup()
+
+
+def operator_bots_admin_kb(bots) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="➕ Operator bot qo'shish", callback_data="bot_add"))
+    for b in bots:
+        mark = "🟢" if b["enabled"] else "🔴"
+        kb.row(InlineKeyboardButton(text=f"{mark} {b['title']} (@{b['username']})",
+                                    callback_data=f"botinfo:{b['id']}"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def bot_info_kb(bot_id, enabled) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if enabled:
+        kb.row(InlineKeyboardButton(text="🔕 O'chirib qo'yish", callback_data=f"bottoggle:{bot_id}"))
+    else:
+        kb.row(InlineKeyboardButton(text="🔔 Yoqish", callback_data=f"bottoggle:{bot_id}"))
+    kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data=f"botstat:{bot_id}"))
+    kb.row(InlineKeyboardButton(text="🗑 Botni o'chirish", callback_data=f"botdel:{bot_id}"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:bots"))
     return kb.as_markup()
 
 

@@ -11,6 +11,7 @@ from config import BOT_TOKEN
 from database.db import init_db
 from database import queries as q
 import keyboards as kb
+import botreg
 from handlers import registration, admin, operator, menu, order, unfinished
 from middlewares import ActivityMiddleware
 
@@ -51,6 +52,16 @@ async def main():
     me = await bot.get_me()
     logger.info("✅ Bot ishga tushdi: @%s", me.username)
     await bot.delete_webhook(drop_pending_updates=True)
+
+    # Registr: mijoz boti + operator botlari uchun umumiy dispatcher
+    botreg.set_client_bot(bot)
+    botreg.set_operator_dp(dp)
+    # Bazadagi qo'shilgan operator botlarini ishga tushiramiz
+    try:
+        await botreg.load_all(await q.list_operator_bots())
+    except Exception as e:
+        logger.info("Operator botlarini yuklashda xato: %s", e)
+
     # Operator ish vaqti tugaganda avtomatik chiqaruvchi fon vazifasi
     asyncio.create_task(operator.op_workhours_loop(bot))
     await dp.start_polling(bot, handle_signals=False)

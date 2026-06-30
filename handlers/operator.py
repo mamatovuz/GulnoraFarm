@@ -15,7 +15,7 @@ from states import OperatorFlow
 from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
-    update_group_card, post_operator_to_channel, operator_in_hours,
+    update_group_card, post_operator_to_channel, operator_in_hours, cbot,
 )
 
 router = Router()
@@ -38,8 +38,9 @@ class IsOperator(BaseFilter):
 
 
 async def notify_client(bot: Bot, user_id: int, text: str):
+    client = cbot() or bot     # mijozga doim asosiy bot yozadi
     try:
-        await bot.send_message(user_id, text, reply_markup=await main_kb(user_id))
+        await client.send_message(user_id, text, reply_markup=await main_kb(user_id))
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
 
@@ -162,6 +163,11 @@ async def op_password(message: Message, state: FSMContext):
     if op["status"] != "active":
         await state.clear()
         await message.answer("⛔ Hisobingiz bloklangan. Admin bilan bog'laning.")
+        return
+    import botreg
+    if op["bot_id"] != botreg.bot_id_of(message.bot):
+        await state.clear()
+        await message.answer("⛔ Bu login boshqa botga tegishli. Iltimos, o'z botingizdan kiring.")
         return
     within, ws, we = operator_in_hours(op)
     if not within:
@@ -340,10 +346,22 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], order_id)
 
-    # 1) Guruhdagi xabarni YANGILAYMIZ: pin yechiladi, holat 🔵 Jarayonda, kim olgani yoziladi
-    if order["group_msg_id"] and OPERATORS_GROUP_ID:
+    # 0) Boshqa operator botlaridagi bu murojaat bildirishnomasini o'chiramiz
+    import botreg
+    for n in await q.order_notifs(order_id):
+        nb = botreg.get_operator_bot(n["bot_id"])
+        if nb:
+            try:
+                await nb.delete_message(n["chat_id"], n["message_id"])
+            except Exception:
+                pass
+    await q.clear_order_notifs(order_id)
+
+    # 1) Kanaldagi xabarni YANGILAYMIZ (asosiy bot orqali): pin yechiladi, holat 🔵 Jarayonda
+    client = cbot() or bot
+    if order["group_msg_id"] and OPERATORS_GROUP_ID and client:
         try:
-            await bot.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
+            await client.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
         except Exception:
             pass
         await update_group_card(bot, order_id)
@@ -463,11 +481,12 @@ async def bill_send(call: CallbackQuery):
     order = await q.get_order(order_id)
     clang = await q.get_lang(order["user_id"])
     caption = loc.t("bill_to_client", clang, id=order_id, bill=order["bill"] or "")
+    client = cbot() or call.bot
     try:
         if order["bill_photo"]:
-            await call.bot.send_photo(order["user_id"], order["bill_photo"], caption=caption)
+            await client.send_photo(order["user_id"], order["bill_photo"], caption=caption)
         else:
-            await call.bot.send_message(order["user_id"], caption)
+            await client.send_message(order["user_id"], caption)
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
     await call.message.edit_text("✅ Hisob-kitob mijozga yuborildi.")
@@ -489,10 +508,11 @@ async def op_done(call: CallbackQuery):
     await q.set_operator_active_order(op["id"], None)
     await q.set_user_active_order(order["user_id"], None)
     await update_group_card(call.bot, order_id)   # kanalda 🟢 Yakunlangan bo'ladi
-    # Mijozga yakunlash xabari + baholash tugmalari (mijoz tilida)
+    # Mijozga yakunlash xabari + baholash tugmalari (asosiy bot orqali, mijoz tilida)
     clang = await q.get_lang(order["user_id"])
+    client = cbot() or call.bot
     try:
-        await call.bot.send_message(
+        await client.send_message(
             order["user_id"],
             loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
             reply_markup=kb.rating_kb(order_id),
@@ -546,23 +566,24 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
         return
     clang = await q.get_lang(order["user_id"])
     reply_to = await q.last_client_tg_msg(order_id)
+    client = cbot() or bot
     try:
         if tpl["sticker"]:
             await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
-            await bot.send_sticker(order["user_id"], tpl["sticker"],
-                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await client.send_sticker(order["user_id"], tpl["sticker"],
+                                      reply_to_message_id=reply_to, allow_sending_without_reply=True)
             if OPERATORS_GROUP_ID and order["group_msg_id"]:
                 try:
-                    await bot.send_sticker(OPERATORS_GROUP_ID, tpl["sticker"],
-                                           reply_to_message_id=order["group_msg_id"],
-                                           allow_sending_without_reply=True)
+                    await client.send_sticker(OPERATORS_GROUP_ID, tpl["sticker"],
+                                              reply_to_message_id=order["group_msg_id"],
+                                              allow_sending_without_reply=True)
                 except (TelegramBadRequest, TelegramForbiddenError):
                     pass
         else:
             await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
-            await bot.send_message(order["user_id"],
-                                   loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
-                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await client.send_message(order["user_id"],
+                                      loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
+                                      reply_to_message_id=reply_to, allow_sending_without_reply=True)
             await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
@@ -582,9 +603,10 @@ async def op_ask_branch(call: CallbackQuery, bot: Bot):
         await call.answer("Filiallar qo'shilmagan", show_alert=True)
         return
     clang = await q.get_lang(order["user_id"])
+    client = cbot() or bot
     try:
-        await bot.send_message(order["user_id"], loc.t("op_ask_branch", clang),
-                               reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+        await client.send_message(order["user_id"], loc.t("op_ask_branch", clang),
+                                  reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
         await call.answer("✅ Mijozga filial tanlash so'rovi yuborildi", show_alert=True)
     except (TelegramBadRequest, TelegramForbiddenError):
         await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
@@ -619,13 +641,18 @@ async def op_do_transfer(call: CallbackQuery, bot: Bot):
         await q.set_operator_active_order(cur_op["id"], None)
     await q.set_operator_active_order(newop_id, order_id)
     await call.message.edit_text(f"✅ Murojaat #{order_id} → {new_op['name']} ga uzatildi.")
+    await update_group_card(bot, order_id)
     if new_op["telegram_id"]:
+        # Yangi operatorga UNING O'Z BOTI orqali yuboramiz
+        import botreg
+        nb = botreg.get_operator_bot(new_op["bot_id"]) if new_op["bot_id"] else (cbot() or bot)
+        nb = nb or (cbot() or bot)
         try:
-            await bot.send_message(
+            await nb.send_message(
                 new_op["telegram_id"],
                 f"🔄 Sizga murojaat #{order_id} uzatildi"
                 + (f" ({cur_op['name']} dan)." if cur_op else "."))
-            await _send_order_single(bot, new_op["telegram_id"], order_id,
+            await _send_order_single(nb, new_op["telegram_id"], order_id,
                                      f"Murojaat #{order_id} — amalni tanlang:",
                                      kb.op_order_actions_kb(order_id))
         except (TelegramBadRequest, TelegramForbiddenError):
@@ -643,8 +670,9 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
     await q.set_user_active_order(order["user_id"], None)
     await update_group_card(bot, order_id)
     clang = await q.get_lang(order["user_id"])
+    client = cbot() or bot
     try:
-        await bot.send_message(
+        await client.send_message(
             order["user_id"],
             loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
             reply_markup=kb.rating_kb(order_id),
@@ -800,7 +828,8 @@ async def operator_proxy(message: Message, bot: Bot):
     if reply_to is None:
         reply_to = await q.last_client_tg_msg(active)
 
-    sent = await send_content_message(bot, order["user_id"], message, caption, reply_to=reply_to)
+    client = cbot() or bot
+    sent = await send_content_message(client, order["user_id"], message, caption, reply_to=reply_to)
     if sent:
         # operatorning bu xabarini bog'laymiz: mijoz keyin shunga reply qilsa ishlasin
         await q.add_link(active, sent.message_id, message.message_id, message.from_user.id)

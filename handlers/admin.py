@@ -10,6 +10,8 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import keyboards as kb
 import texts as t
 import locales as loc
+import botreg
+from aiogram import Bot
 from states import AdminFlow, AdminTpl
 from database import queries as q
 from utils import is_admin, STATUS_LABEL, order_card_text, fmt_dt
@@ -834,6 +836,147 @@ async def op_stat(call: CallbackQuery):
         reply_markup=kb.admin_back_kb("adm:op"),
     )
     await call.answer()
+
+
+# ---------------- Operator botlari boshqaruvi ----------------
+@router.callback_query(F.data == "adm:bots")
+async def bots_admin(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    bots = await q.list_operator_bots()
+    lst = "\n".join(f"{'🟢' if b['enabled'] else '🔴'} {b['title']} (@{b['username']})"
+                    for b in bots) or "(hozircha bot yo'q)"
+    await call.message.edit_text(
+        f"🤖 <b>Operator botlari</b>\n\n{lst}\n\n"
+        "Har bir operator alohida botda ishlaydi. Yangi bot qo'shish uchun pastdagi tugma.",
+        reply_markup=kb.operator_bots_admin_kb(bots),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "bot_add")
+async def bot_add(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminFlow.bot_token)
+    await call.message.edit_text(
+        "🤖 <b>Yangi operator bot</b>\n\n"
+        "1) @BotFather'ga kiring → <b>/newbot</b> → yangi bot yarating\n"
+        "2) Olingan <b>tokenni</b> shu yerga yuboring\n\n"
+        "Token shunga o'xshaydi:\n<code>123456789:AAExxxxxxxxxxxxxxxxxxxxxxxx</code>"
+    )
+    await call.answer()
+
+
+@router.message(AdminFlow.bot_token)
+async def bot_token_save(message: Message, state: FSMContext):
+    token = message.text.strip()
+    # Tokenni tekshiramiz
+    try:
+        test = Bot(token)
+        me = await test.get_me()
+        await test.session.close()
+    except Exception:
+        await message.answer("⚠️ Token noto'g'ri yoki bot topilmadi. Qayta yuboring "
+                             "(yoki /bekor):")
+        return
+    if await q.get_operator_bot_by_token(token):
+        await message.answer("⚠️ Bu bot allaqachon qo'shilgan. Boshqa token yuboring:")
+        return
+    await state.update_data(bot_token=token, bot_username=me.username, bot_title=me.first_name)
+    await state.set_state(AdminFlow.bot_login)
+    await message.answer(
+        f"✅ Bot topildi: <b>{me.first_name}</b> (@{me.username})\n\n"
+        "Endi bu bot uchun <b>login</b> yarating (operator shu login bilan kiradi):")
+
+
+@router.message(AdminFlow.bot_login)
+async def bot_login_save(message: Message, state: FSMContext):
+    login = message.text.strip()
+    if await q.get_operator_by_login(login):
+        await message.answer("⚠️ Bu login band. Boshqa login kiriting:")
+        return
+    await state.update_data(bot_login=login)
+    await state.set_state(AdminFlow.bot_password)
+    await message.answer("Endi <b>parol</b> yarating (yoki <code>avto</code> deb yozing):")
+
+
+@router.message(AdminFlow.bot_password)
+async def bot_password_save(message: Message, state: FSMContext):
+    d = await state.get_data()
+    pwd = message.text.strip()
+    if pwd.lower() == "avto":
+        pwd = secrets.token_urlsafe(6)
+    bot_id = await q.add_operator_bot(d["bot_token"], d["bot_username"], d["bot_title"])
+    # Botga biriktirilgan operator hisobi (login/parol)
+    await q.add_operator(d["bot_title"], d["bot_login"], pwd, bot_id=bot_id)
+    await state.clear()
+    # Botni darhol ishga tushiramiz
+    try:
+        await botreg.start_operator_bot(bot_id, d["bot_token"])
+        run_note = "✅ Bot ishga tushdi."
+    except Exception:
+        run_note = "⚠️ Bot saqlandi, lekin ishga tushirishda muammo (keyingi deploydan keyin ishlaydi)."
+    await message.answer(
+        f"🤖 <b>Operator bot tayyor!</b>\n\n"
+        f"Bot: @{d['bot_username']}\n🔑 Login: <code>{d['bot_login']}</code>\n"
+        f"🔐 Parol: <code>{pwd}</code>\n\n"
+        f"{run_note}\n\nOperator @{d['bot_username']} ga kirib /operator yozadi va shu login/parol bilan kiradi.",
+        reply_markup=kb.admin_back_kb("adm:bots"))
+
+
+@router.callback_query(F.data.startswith("botinfo:"))
+async def bot_info(call: CallbackQuery):
+    bot_id = int(call.data.split(":")[1])
+    b = await q.get_operator_bot(bot_id)
+    if not b:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    ops = await q.operators_by_bot(bot_id)
+    op_lines = "\n".join(f"• {o['name']} ({o['login']}) — "
+                         f"{'🟢' if o['telegram_id'] else '⚪'}" for o in ops) or "(operator yo'q)"
+    await call.message.edit_text(
+        f"🤖 <b>{b['title']}</b> (@{b['username']})\n"
+        f"Holat: {'🟢 Yoqilgan' if b['enabled'] else '🔴 O‘chirilgan'}\n"
+        f"Qo'shilgan: {b['created_at']}\n\n"
+        f"👨‍⚕️ Operatorlar:\n{op_lines}",
+        reply_markup=kb.bot_info_kb(bot_id, b["enabled"]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("botstat:"))
+async def bot_stat(call: CallbackQuery):
+    bot_id = int(call.data.split(":")[1])
+    b = await q.get_operator_bot(bot_id)
+    ops = await q.operators_by_bot(bot_id)
+    lines = [f"📊 <b>{b['title']}</b> statistikasi\n"]
+    for o in ops:
+        s = await q.operator_stats(o["id"])
+        lines.append(f"👨‍⚕️ {o['name']}: ✅ {s['done']} ta, ⭐ {s['avg_rating']}")
+    if not ops:
+        lines.append("(operator yo'q)")
+    await call.message.edit_text("\n".join(lines), reply_markup=kb.bot_info_kb(bot_id, b["enabled"]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("bottoggle:"))
+async def bot_toggle(call: CallbackQuery):
+    bot_id = int(call.data.split(":")[1])
+    b = await q.get_operator_bot(bot_id)
+    new = not b["enabled"]
+    await q.set_operator_bot_enabled(bot_id, new)
+    if new:
+        await botreg.start_operator_bot(bot_id, b["token"])
+    else:
+        await botreg.stop_operator_bot(bot_id)
+    b = await q.get_operator_bot(bot_id)
+    await bot_info(call)
+
+
+@router.callback_query(F.data.startswith("botdel:"))
+async def bot_del(call: CallbackQuery, state: FSMContext):
+    bot_id = int(call.data.split(":")[1])
+    await botreg.stop_operator_bot(bot_id)
+    await q.delete_operator_bot(bot_id)
+    await call.answer("🗑 Bot o'chirildi", show_alert=True)
+    await bots_admin(call, state)
 
 
 # ---------------- Tayyor javob shablonlari ----------------

@@ -350,14 +350,91 @@ async def link_by_client_msg(client_msg_id, order_id):
 
 
 # ============================ OPERATORS ============================
-async def add_operator(name, login, password):
+async def add_operator(name, login, password, bot_id=None):
     db = await get_db()
     cur = await db.execute(
-        "INSERT INTO operators (name, login, password_hash, status) VALUES (?, ?, ?, 'active')",
-        (name, login, hash_password(password)),
+        "INSERT INTO operators (name, login, password_hash, status, bot_id) "
+        "VALUES (?, ?, ?, 'active', ?)",
+        (name, login, hash_password(password), bot_id),
     )
     await db.commit()
     return cur.lastrowid
+
+
+async def operators_by_bot(bot_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operators WHERE bot_id = ? ORDER BY id", (bot_id,))
+    return await cur.fetchall()
+
+
+# ============================ OPERATOR BOTLARI ============================
+async def add_operator_bot(token, username, title):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO operator_bots (token, username, title, enabled, created_at) "
+        "VALUES (?, ?, ?, 1, ?)",
+        (token, username, title, now()),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def list_operator_bots(only_enabled=False):
+    db = await get_db()
+    q_ = "SELECT * FROM operator_bots"
+    if only_enabled:
+        q_ += " WHERE enabled = 1"
+    q_ += " ORDER BY id"
+    cur = await db.execute(q_)
+    return await cur.fetchall()
+
+
+async def get_operator_bot(bot_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operator_bots WHERE id = ?", (bot_id,))
+    return await cur.fetchone()
+
+
+async def get_operator_bot_by_token(token):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM operator_bots WHERE token = ?", (token,))
+    return await cur.fetchone()
+
+
+async def set_operator_bot_enabled(bot_id, enabled):
+    db = await get_db()
+    await db.execute("UPDATE operator_bots SET enabled = ? WHERE id = ?",
+                     (1 if enabled else 0, bot_id))
+    await db.commit()
+
+
+async def delete_operator_bot(bot_id):
+    db = await get_db()
+    await db.execute("DELETE FROM operator_bots WHERE id = ?", (bot_id,))
+    # Botga biriktirilgan operatorlarni ham o'chiramiz
+    await db.execute("DELETE FROM operators WHERE bot_id = ?", (bot_id,))
+    await db.commit()
+
+
+# ============================ BILDIRISHNOMALAR ============================
+async def add_order_notif(order_id, bot_id, chat_id, message_id):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO order_notifs (order_id, bot_id, chat_id, message_id) VALUES (?, ?, ?, ?)",
+        (order_id, bot_id, chat_id, message_id))
+    await db.commit()
+
+
+async def order_notifs(order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM order_notifs WHERE order_id = ?", (order_id,))
+    return await cur.fetchall()
+
+
+async def clear_order_notifs(order_id):
+    db = await get_db()
+    await db.execute("DELETE FROM order_notifs WHERE order_id = ?", (order_id,))
+    await db.commit()
 
 
 async def list_operators():

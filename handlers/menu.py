@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import keyboards as kb
 import locales as loc
+import botreg
 from config import OPERATORS_GROUP_ID
 from states import ContactFlow, NearestFlow
 from database import queries as q
@@ -38,9 +39,11 @@ async def _select_branch_for_order(bot, user_id, order_id, branch_id):
     op = await q.get_operator(order["operator_id"]) if order and order["operator_id"] else None
     b = await q.get_branch(branch_id)
     if op and op["telegram_id"]:
+        ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
+        ob = ob or bot
         try:
-            await bot.send_message(op["telegram_id"],
-                                   f"🏥 Mijoz #{order_id} uchun filial tanladi: <b>{b['name']}</b>")
+            await ob.send_message(op["telegram_id"],
+                                  f"🏥 Mijoz #{order_id} uchun filial tanladi: <b>{b['name']}</b>")
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
 
@@ -154,12 +157,21 @@ async def my_order_cancel(call: CallbackQuery, bot: Bot):
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
     if op:
         await q.set_operator_active_order(op["id"], None)
-    for chat_id in [op["telegram_id"] if op and op["telegram_id"] else None, OPERATORS_GROUP_ID]:
-        if chat_id:
-            try:
-                await bot.send_message(chat_id, note)
-            except (TelegramBadRequest, TelegramForbiddenError):
-                pass
+    # operatorga — uning boti orqali
+    if op and op["telegram_id"]:
+        ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
+        try:
+            await (ob or bot).send_message(op["telegram_id"], note)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    # kanalga — asosiy bot orqali
+    if OPERATORS_GROUP_ID:
+        try:
+            await bot.send_message(OPERATORS_GROUP_ID, note)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    # bekor qilingach kanaldagi kartani yangilaymiz
+    await update_group_card(bot, order_id)
     try:
         await call.message.edit_text(loc.t("order_canceled_by_user", lang, id=order_id))
     except Exception:

@@ -3,8 +3,38 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import keyboards as kb
+import botreg
 from config import ADMIN_IDS, OPERATORS_GROUP_ID
 from database import queries as q
+
+
+def cbot() -> Bot:
+    """Mijoz/asosiy bot — kanal va mijozga yozish uchun (cross-bot)."""
+    return botreg.client_bot
+
+
+async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=None, reply_to=None):
+    """Kontent turini berib yuboradi (rasm/video/hujjat/GIF/ovoz/matn)."""
+    kw = {"reply_markup": markup}
+    if reply_to:
+        kw["reply_to_message_id"] = reply_to
+        kw["allow_sending_without_reply"] = True
+    try:
+        if content_type == "photo":
+            return await bot.send_photo(chat_id, file_id, caption=caption, **kw)
+        if content_type == "video":
+            return await bot.send_video(chat_id, file_id, caption=caption, **kw)
+        if content_type == "document":
+            return await bot.send_document(chat_id, file_id, caption=caption, **kw)
+        if content_type == "animation":
+            return await bot.send_animation(chat_id, file_id, caption=caption, **kw)
+        if content_type == "voice":
+            return await bot.send_voice(chat_id, file_id, caption=caption, **kw)
+        if content_type == "sticker":
+            return await bot.send_sticker(chat_id, file_id, **kw)
+        return await bot.send_message(chat_id, caption, **kw)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return None
 
 STATUS_LABEL = {
     "new": "🟡 Yangi",
@@ -166,35 +196,39 @@ async def get_bot_username(bot: Bot) -> str:
 
 
 async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, text):
-    """Murojaatni operatorlar guruhiga BITTA xabar (kontent + caption + Qabul havolasi) qilib yuboradi."""
-    if not OPERATORS_GROUP_ID:
-        return
+    """Kanalga (tugmasiz) joylaydi + pin qiladi, hamda har bir operator botiga
+    (Qabul qilish tugmasi bilan) push qiladi."""
     order = await q.get_order(order_id)
     info = await order_card_text(order)
     note = (text or "").strip()
     caption = f"{note}\n\n{info}" if note else info
-    username = await get_bot_username(bot)
-    markup = kb.order_accept_link_kb(order_id, username)
-    sent = None
-    try:
-        if content_type == "photo":
-            sent = await bot.send_photo(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
-        elif content_type == "video":
-            sent = await bot.send_video(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
-        elif content_type == "document":
-            sent = await bot.send_document(OPERATORS_GROUP_ID, file_id, caption=caption, reply_markup=markup)
-        else:
-            sent = await bot.send_message(OPERATORS_GROUP_ID, caption, reply_markup=markup)
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
-    if sent:
-        await q.set_order_group_msg(order_id, sent.message_id)
-        # Qabul qilinmagan murojaat kanalda pin (qadab) qo'yiladi. Xato bo'lsa ham jarayon to'xtamaydi.
-        try:
-            await bot.pin_chat_message(OPERATORS_GROUP_ID, message_id=sent.message_id,
-                                       disable_notification=True)
-        except Exception:
-            pass
+    # 1) Kanalga — TUGMASIZ + pin (mijoz/asosiy bot orqali)
+    client = cbot() or bot
+    if OPERATORS_GROUP_ID and client:
+        sent = await send_raw(client, OPERATORS_GROUP_ID, content_type, file_id, caption)
+        if sent:
+            await q.set_order_group_msg(order_id, sent.message_id)
+            try:
+                await client.pin_chat_message(OPERATORS_GROUP_ID, message_id=sent.message_id,
+                                              disable_notification=True)
+            except Exception:
+                pass
+    # 2) Har bir operator botiga push (bo'sh, login qilgan operatorlarga)
+    await push_to_operator_bots(order_id, content_type, file_id, caption)
+
+
+async def push_to_operator_bots(order_id, content_type, file_id, caption):
+    """Operator botlaridagi 🟢 bo'sh, login qilgan operatorlarga Qabul tugmasi bilan yuboradi."""
+    for brow in await q.list_operator_bots(only_enabled=True):
+        opbot = botreg.get_operator_bot(brow["id"])
+        if not opbot:
+            continue
+        for op in await q.operators_by_bot(brow["id"]):
+            if op["telegram_id"] and op["status"] == "active" and op["availability"] == "free":
+                sent = await send_raw(opbot, op["telegram_id"], content_type, file_id, caption,
+                                      markup=kb.order_accept_kb(order_id))
+                if sent:
+                    await q.add_order_notif(order_id, brow["id"], op["telegram_id"], sent.message_id)
 
 
 async def send_first_content_to_operators(bot: Bot, order_id: int, message):
@@ -213,19 +247,21 @@ async def forward_client_to_operator(bot: Bot, order, message):
 
     if operator and operator["telegram_id"]:
         op_tg = operator["telegram_id"]
-        # 1) mijoz biror xabarga reply qilganmi? -> operator chatidagi mos xabarni topamiz
+        # Operatorga UNING O'Z BOTI orqali yuboramiz
+        op_bot = botreg.get_operator_bot(operator["bot_id"]) if operator["bot_id"] else (cbot() or bot)
+        if not op_bot:
+            op_bot = cbot() or bot
         reply_to = None
         if message.reply_to_message:
             link = await q.link_by_client_msg(message.reply_to_message.message_id, order["id"])
             if link:
                 reply_to = link["operator_msg_id"]
-        # 2) aks holda operatorning oxirgi xabariga avtomatik tirkaymiz (kontekst uchun)
         if reply_to is None:
             reply_to = await q.last_operator_tg_msg(order["id"])
-        sent = await send_content_message(bot, op_tg, message, caption, reply_to=reply_to)
+        sent = await send_content_message(op_bot, op_tg, message, caption, reply_to=reply_to)
         if sent:
             await q.add_link(order["id"], message.message_id, sent.message_id, op_tg)
-        # Kanalga ham reply qilib joylaymiz (yozishma kanalda ko'rinib tursin)
+        # Kanalga ham reply qilib joylaymiz (mijoz/asosiy bot orqali)
         await post_client_to_channel(bot, order, message)
     # Aks holda (murojaat hali qabul qilinmagan) — kanalga yubormaymiz.
     # Xabar saqlanadi va operator qabul qilganda hammasi ko'rsatiladi.
@@ -236,37 +272,40 @@ _channel_thread: dict[int, int] = {}
 
 
 async def post_client_to_channel(bot: Bot, order, message):
-    """Mijoz xabarini kanalga murojaat kartasiga reply qilib joylaydi."""
-    if not (OPERATORS_GROUP_ID and order["group_msg_id"]):
+    """Mijoz xabarini kanalga murojaat kartasiga reply qilib joylaydi (asosiy bot orqali)."""
+    client = cbot() or bot
+    if not (OPERATORS_GROUP_ID and order["group_msg_id"] and client):
         return
     note = _client_note(message) or "📎 (media)"
-    sent = await send_content_message(bot, OPERATORS_GROUP_ID, message,
+    sent = await send_content_message(client, OPERATORS_GROUP_ID, message,
                                       f"💬 Mijoz: {note}", reply_to=order["group_msg_id"])
     if sent:
         _channel_thread[order["id"]] = sent.message_id
 
 
 async def post_operator_to_channel(bot: Bot, order, op_name, message=None, text=None):
-    """Operator javobini kanalga mijozning oxirgi savoliga reply qilib joylaydi."""
-    if not (OPERATORS_GROUP_ID and order["group_msg_id"]):
+    """Operator javobini kanalga mijozning oxirgi savoliga reply qilib joylaydi (asosiy bot orqali)."""
+    client = cbot() or bot
+    if not (OPERATORS_GROUP_ID and order["group_msg_id"] and client):
         return
     reply_to = _channel_thread.get(order["id"], order["group_msg_id"])
     if message is not None:
         note = (message.caption or message.text or "")
-        await send_content_message(bot, OPERATORS_GROUP_ID, message,
+        await send_content_message(client, OPERATORS_GROUP_ID, message,
                                    f"👨‍⚕️ {op_name}: {note}", reply_to=reply_to)
     else:
         try:
-            await bot.send_message(OPERATORS_GROUP_ID, f"👨‍⚕️ {op_name}: {text}",
-                                   reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await client.send_message(OPERATORS_GROUP_ID, f"👨‍⚕️ {op_name}: {text}",
+                                      reply_to_message_id=reply_to, allow_sending_without_reply=True)
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
 
 
 async def update_group_card(bot: Bot, order_id):
-    """Kanaldagi murojaat kartasini joriy holatga ko'ra yangilaydi (Yangi/Jarayonda/Yakunlangan...)."""
+    """Kanaldagi murojaat kartasini joriy holatga ko'ra yangilaydi (asosiy bot orqali)."""
+    bot = cbot() or bot
     order = await q.get_order(order_id)
-    if not (OPERATORS_GROUP_ID and order and order["group_msg_id"]):
+    if not (OPERATORS_GROUP_ID and order and order["group_msg_id"] and bot):
         return
     info = await order_card_text(order)
     msgs = await q.order_messages(order_id)
