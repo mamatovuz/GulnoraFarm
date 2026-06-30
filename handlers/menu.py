@@ -176,6 +176,7 @@ async def my_order_cancel(call: CallbackQuery, bot: Bot):
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
     if op:
         await q.set_operator_active_order(op["id"], None)
+        await q.set_operator_availability(op["id"], "free")
     # operatorga — uning boti orqali
     if op and op["telegram_id"]:
         ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot

@@ -25,10 +25,17 @@ async def _download_file(src_bot: Bot, file_id):
         return None
 
 
-async def _send_media_bytes(bot: Bot, chat_id, content_type, raw, caption, kw):
-    """Bayt (raw) sifatida media yuboradi — cross-bot uchun (file_id ishlamaganda)."""
+_MEDIA_FNAME = {
+    "photo": "photo.jpg", "video": "video.mp4", "document": "document",
+    "animation": "animation.mp4", "voice": "voice.ogg", "audio": "audio.mp3",
+}
+
+
+async def _send_media_bytes(bot: Bot, chat_id, content_type, raw, caption, kw, filename=None):
+    """Bayt (raw) sifatida media yuboradi — cross-bot uchun (file_id ishlamaganda).
+    To'g'ri fayl nomi/kengaytma berilmasa — turga mos default (ovoz .ogg, video .mp4 ...)."""
     try:
-        inp = BufferedInputFile(raw, filename="file")
+        inp = BufferedInputFile(raw, filename=filename or _MEDIA_FNAME.get(content_type, "file"))
         if content_type == "photo":
             return await bot.send_photo(chat_id, inp, caption=caption, **kw)
         if content_type == "video":
@@ -216,7 +223,8 @@ async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=
                 except (TelegramBadRequest, TelegramForbiddenError):
                     pass
             cap = None if ct == "sticker" else caption
-            return await _send_media_bytes(bot, chat_id, ct, raw, cap, kwargs)
+            fname = message.document.file_name if (ct == "document" and message.document) else None
+            return await _send_media_bytes(bot, chat_id, ct, raw, cap, kwargs, filename=fname)
     # same-bot — to'g'ridan-to'g'ri file_id bilan
     try:
         if message.photo:

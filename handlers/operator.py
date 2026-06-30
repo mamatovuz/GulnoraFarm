@@ -11,7 +11,7 @@ import keyboards as kb
 import texts as t
 import locales as loc
 import botreg
-from config import OPERATORS_GROUP_ID, now_local
+from config import OPERATORS_GROUP_ID, now_local, ADMIN_IDS
 from states import OperatorFlow
 from database import queries as q
 from utils import (
@@ -75,6 +75,34 @@ async def _show_cabinet(bot: Bot, chat_id: int, op):
     )
 
 
+async def _notify_admins_login(from_user, op, old_tg):
+    """Operator botiga YANGI (boshqa) odam kirganда admin'larga xabar beradi.
+    Kirgan foydalanuvchi ismi bosilса profili ochiladi."""
+    if op["bot_id"] is None:
+        return  # faqat operator botlari uchun
+    if old_tg == from_user.id:
+        return  # o'sha odam qayta kirdi — bildirmaymiz
+    client = cbot()
+    if not client:
+        return
+    brow = await q.get_operator_bot(op["bot_id"])
+    bot_title = brow["title"] if brow else "Operator bot"
+    name = from_user.full_name or "Foydalanuvchi"
+    if from_user.username:
+        who = f'<a href="https://t.me/{from_user.username}">{name}</a> (@{from_user.username})'
+    else:
+        who = f'<a href="tg://user?id={from_user.id}">{name}</a>'
+    text = (f"🔓 <b>{bot_title}</b> botiga yangi kirish\n\n"
+            f"👤 Operator hisobi: {op['name']}\n"
+            f"🙍 Kim kirdi: {who}\n"
+            f"🆔 <code>{from_user.id}</code>")
+    for aid in ADMIN_IDS:
+        try:
+            await client.send_message(aid, text, disable_web_page_preview=True)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+
 async def _after_login(bot: Bot, tg_id: int, op):
     """Login bo'lgach: kabinet + kutilayotgan murojaat (agar kanaldan kelgan bo'lsa)."""
     await _show_cabinet(bot, tg_id, op)
@@ -132,12 +160,14 @@ async def quick_login(call: CallbackQuery, state: FSMContext):
         await call.message.answer(_hours_warn(op))
         await call.answer()
         return
+    old_tg = op["telegram_id"]
     await q.login_operator(op_id, call.from_user.id)
     await state.clear()
     try:
         await call.message.delete()
     except Exception:
         pass
+    await _notify_admins_login(call.from_user, op, old_tg)
     await _after_login(call.bot, call.from_user.id, op)
     await call.answer("✅ Kirildi")
 
@@ -198,8 +228,10 @@ async def op_password(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(_hours_warn(op))
         return
+    old_tg = op["telegram_id"]
     await q.login_operator(op["id"], message.from_user.id)
     await state.clear()
+    await _notify_admins_login(message.from_user, op, old_tg)
     await _after_login(message.bot, message.from_user.id, op)
     # Login/parolni saqlash taklifi (agar hali saqlanmagan bo'lsa)
     if not await q.is_login_saved(message.from_user.id, op["id"]):
@@ -360,6 +392,9 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     if not await q.claim_order(order_id, op["id"]):
         return False, f"Murojaat #{order_id} allaqachon qabul qilingan yoki yopilgan."
     await q.set_operator_active_order(op["id"], order_id)
+    # Qabul qilgач operator avtomatik "Band" bo'ladi — yangi murojaat push qilinmaydi
+    # (shunda javob doim shu bitta mijozga to'g'ri ketadi)
+    await q.set_operator_availability(op["id"], "busy")
 
     # 0) Boshqa operator botlaridagi bu murojaat bildirishnomasini o'chiramiz
     import botreg
@@ -521,6 +556,7 @@ async def op_done(call: CallbackQuery):
     order = await q.get_order(order_id)
     await q.set_order_status(order_id, "done", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], None)
+    await q.set_operator_availability(op["id"], "free")   # yana bo'sh — yangi murojaat oladi
     await q.set_user_active_order(order["user_id"], None)
     await update_group_card(call.bot, order_id)   # kanalda 🟢 Yakunlangan bo'ladi
     # Mijozga yakunlash xabari + baholash tugmalari (asosiy bot orqali, mijoz tilida)
@@ -654,7 +690,9 @@ async def op_do_transfer(call: CallbackQuery, bot: Bot):
     await q.assign_order(order_id, newop_id)
     if cur_op:
         await q.set_operator_active_order(cur_op["id"], None)
+        await q.set_operator_availability(cur_op["id"], "free")
     await q.set_operator_active_order(newop_id, order_id)
+    await q.set_operator_availability(newop_id, "busy")
     await call.message.edit_text(f"✅ Murojaat #{order_id} → {new_op['name']} ga uzatildi.")
     await update_group_card(bot, order_id)
     if new_op["telegram_id"]:
@@ -682,6 +720,7 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
     await q.set_order_status(order_id, "done", by)
     if order["operator_id"]:
         await q.set_operator_active_order(order["operator_id"], None)
+        await q.set_operator_availability(order["operator_id"], "free")
     await q.set_user_active_order(order["user_id"], None)
     await update_group_card(bot, order_id)
     clang = await q.get_lang(order["user_id"])
@@ -728,11 +767,12 @@ async def op_autoclose(call: CallbackQuery):
         return
     armed_at = q.now()
     asyncio.create_task(_auto_close_task(call.bot, order_id, armed_at, call.from_user.id))
-    # Mijozni darhol ogohlantiramiz (uning tilida)
+    # Mijozni darhol ogohlantiramiz (uning tilida, asosiy bot orqali)
     clang = await q.get_lang(order["user_id"])
+    client = cbot() or call.bot
     try:
-        await call.bot.send_message(order["user_id"],
-                                    loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
+        await client.send_message(order["user_id"],
+                                  loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
     await call.answer(
