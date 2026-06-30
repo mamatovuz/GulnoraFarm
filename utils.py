@@ -56,22 +56,27 @@ async def _send_media_bytes(bot: Bot, chat_id, content_type, raw, caption, kw, f
 
 
 async def send_file_from(target_bot: Bot, chat_id, content_type, file_id, src_bot: Bot,
-                         caption=None, markup=None, filename=None):
+                         caption=None, markup=None, filename=None, reply_to=None):
     """file_id egasi src_bot bo'lib, uni target_bot orqali yuboradi.
-    Masalan: operator hisob-kitob rasmini (operator boti olgan) mijozga (asosiy bot) yuborish."""
+    Masalan: operator hisob-kitob rasmini (operator boti olgan) mijozga/kanalga (asosiy bot) yuborish."""
     kw = {"reply_markup": markup}
+    if reply_to:
+        kw["reply_to_message_id"] = reply_to
+        kw["allow_sending_without_reply"] = True
     if content_type == "text" or not file_id:
         try:
-            return await target_bot.send_message(chat_id, caption or "—", reply_markup=markup)
+            return await target_bot.send_message(chat_id, caption or "—", **kw)
         except (TelegramBadRequest, TelegramForbiddenError):
             return None
     if src_bot and target_bot.id == src_bot.id:
         # bir xil bot — to'g'ridan-to'g'ri file_id bilan
-        return await send_raw(target_bot, chat_id, content_type, file_id, caption, markup=markup)
+        return await send_raw(target_bot, chat_id, content_type, file_id, caption,
+                              markup=markup, reply_to=reply_to)
     raw = await _download_file(src_bot, file_id) if src_bot else None
     if raw is None:
         # yuklab bo'lmadi — file_id bilan urinib ko'ramiz (fallback)
-        return await send_raw(target_bot, chat_id, content_type, file_id, caption, markup=markup)
+        return await send_raw(target_bot, chat_id, content_type, file_id, caption,
+                              markup=markup, reply_to=reply_to)
     cap = None if content_type == "sticker" else caption
     return await _send_media_bytes(target_bot, chat_id, content_type, raw, cap, kw, filename)
 
@@ -427,8 +432,12 @@ async def post_client_to_channel(bot: Bot, order, message):
         _channel_thread[order["id"]] = sent.message_id
 
 
-async def post_operator_to_channel(bot: Bot, order, op_name, message=None, text=None):
-    """Operator javobini kanalga mijozning oxirgi savoliga reply qilib joylaydi (asosiy bot orqali)."""
+async def post_operator_to_channel(bot: Bot, order, op_name, message=None, text=None,
+                                   content_type=None, file_id=None, src_bot=None):
+    """Operator javobini kanalga mijozning oxirgi savoliga reply qilib joylaydi (asosiy bot orqali).
+    - message berilsa: jonli xabar
+    - content_type+file_id berilsa: saqlangan media (masalan hisob-kitob rasmi, cross-bot)
+    - text berilsa: oddiy matn."""
     client = cbot() or bot
     if not (OPERATORS_GROUP_ID and order["group_msg_id"] and client):
         return
@@ -437,6 +446,10 @@ async def post_operator_to_channel(bot: Bot, order, op_name, message=None, text=
         note = (message.caption or message.text or "")
         await send_content_message(client, OPERATORS_GROUP_ID, message,
                                    f"👨‍⚕️ {op_name}: {note}", reply_to=reply_to)
+    elif file_id and content_type:
+        cap = f"👨‍⚕️ {op_name}: {text}" if text else f"👨‍⚕️ {op_name}:"
+        await send_file_from(client, OPERATORS_GROUP_ID, content_type, file_id,
+                             src_bot or client, caption=cap, reply_to=reply_to)
     else:
         try:
             await client.send_message(OPERATORS_GROUP_ID, f"👨‍⚕️ {op_name}: {text}",

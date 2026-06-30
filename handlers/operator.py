@@ -589,6 +589,16 @@ async def bill_send(call: CallbackQuery):
             await client.send_message(order["user_id"], caption)
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
+    # Operator kanaliga ham joylaymiz (yozishuv ko'rinib tursin)
+    op = await _op_of(call)
+    op_name = op["name"] if op else "Operator"
+    if order["bill_photo"]:
+        await post_operator_to_channel(call.bot, order, op_name, content_type="photo",
+                                       file_id=order["bill_photo"], src_bot=call.bot,
+                                       text=f"🧾 Hisob-kitob: {order['bill'] or ''}")
+    else:
+        await post_operator_to_channel(call.bot, order, op_name,
+                                       text=f"🧾 Hisob-kitob: {order['bill'] or ''}")
     await call.message.edit_text("✅ Hisob-kitob mijozga yuborildi.")
     await call.answer()
 
