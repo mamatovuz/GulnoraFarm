@@ -183,6 +183,7 @@ DEFAULT_SETTINGS = {
     "work_end": "23:00",
     "op_work_start": "08:00",
     "op_work_end": "23:00",
+    "escalate_min": "5",   # necha daqiqada javobsiz murojaat admin'ga eslatilsin (0 = o'chiq)
 }
 
 

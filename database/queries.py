@@ -750,6 +750,8 @@ async def general_stats():
         "users_week": await count("SELECT COUNT(*) FROM users WHERE registered_at >= ?", (week_ago,)),
         "users_month": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (month + "%",)),
         "orders_total": await count("SELECT COUNT(*) FROM orders"),
+        "orders_today": await count("SELECT COUNT(*) FROM orders WHERE created_at LIKE ?", (today + "%",)),
+        "orders_week": await count("SELECT COUNT(*) FROM orders WHERE created_at >= ?", (week_ago,)),
         "orders_new": await count("SELECT COUNT(*) FROM orders WHERE status = 'new'"),
         "orders_progress": await count("SELECT COUNT(*) FROM orders WHERE status = 'in_progress'"),
         "orders_done": await count("SELECT COUNT(*) FROM orders WHERE status = 'done'"),
@@ -760,6 +762,23 @@ async def general_stats():
     row = await cur.fetchone()
     stats["avg_rating"] = round(row[0], 1) if row[0] else 0
     stats["rated_count"] = row[1] or 0
+
+    # o'rtacha javob vaqti (murojaat -> qabul qilingan, daqiqa)
+    cur = await db.execute(
+        "SELECT AVG(resp) FROM ("
+        "  SELECT (julianday(MIN(sl.changed_at)) - julianday(o.created_at)) * 1440 AS resp"
+        "  FROM orders o JOIN status_log sl ON sl.order_id = o.id "
+        "  WHERE sl.new_status = 'in_progress' GROUP BY o.id)"
+    )
+    r = (await cur.fetchone())[0]
+    stats["avg_response_min"] = round(r, 1) if r else 0
+    # o'rtacha yakunlash vaqti (murojaat -> yopilgan, daqiqa)
+    cur = await db.execute(
+        "SELECT AVG((julianday(closed_at) - julianday(created_at)) * 1440) "
+        "FROM orders WHERE status = 'done' AND closed_at IS NOT NULL"
+    )
+    r = (await cur.fetchone())[0]
+    stats["avg_resolve_min"] = round(r, 1) if r else 0
 
     # filiallar kesimida
     cur = await db.execute(

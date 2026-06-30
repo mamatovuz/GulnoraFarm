@@ -60,6 +60,15 @@ async def admin_menu(call: CallbackQuery, state: FSMContext):
 async def admin_stats(call: CallbackQuery):
     s = await q.general_stats()
     branch_lines = "\n".join(f"— {b['name']}: {b['cnt']} murojaat" for b in s["branches"]) or "—"
+
+    def _dur(m):
+        m = m or 0
+        if m <= 0:
+            return "—"
+        if m < 60:
+            return f"{round(m)} daq"
+        return f"{int(m // 60)} soat {round(m % 60)} daq"
+
     text = (
         "📊 <b>Umumiy statistika</b>\n\n"
         f"👥 Jami foydalanuvchilar: {s['users_total']}\n"
@@ -67,8 +76,11 @@ async def admin_stats(call: CallbackQuery):
         f"📅 Haftalik yangi: {s['users_week']}\n"
         f"📆 Oylik yangi: {s['users_month']}\n\n"
         f"💊 Jami murojaatlar: {s['orders_total']}\n"
+        f"📨 Bugun: {s['orders_today']}   📅 Hafta: {s['orders_week']}\n"
         f"🟡 Yangi: {s['orders_new']}   🔵 Jarayonda: {s['orders_progress']}\n"
         f"🟢 Yakunlangan: {s['orders_done']}   🔴 Bekor: {s['orders_canceled']}\n\n"
+        f"⏱ O'rtacha javob vaqti: {_dur(s['avg_response_min'])}\n"
+        f"✅ O'rtacha yakunlash vaqti: {_dur(s['avg_resolve_min'])}\n"
         f"⭐ O'rtacha baho: {s['avg_rating']} ({s['rated_count']} ta baho)\n\n"
         f"🏥 <b>Filiallar kesimida:</b>\n{branch_lines}"
     )

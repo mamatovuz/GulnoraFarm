@@ -1,4 +1,5 @@
 """Umumiy yordamchi funksiyalar."""
+import asyncio
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
@@ -215,6 +216,42 @@ async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, 
                 pass
     # 2) Har bir operator botiga push (bo'sh, login qilgan operatorlarga)
     await push_to_operator_bots(order_id, content_type, file_id, caption)
+    # 3) Eskalatsiya: belgilangan vaqtda qabul qilinmasa — admin'ga eslatma
+    schedule_escalation(order_id)
+
+
+# ---------------- Eskalatsiya: javobsiz murojaatni admin'ga eslatish ----------------
+async def _escalation_watch(order_id):
+    try:
+        mins = int(await q.get_setting("escalate_min", "5") or "5")
+    except (TypeError, ValueError):
+        mins = 5
+    if mins <= 0:
+        return
+    await asyncio.sleep(mins * 60)
+    order = await q.get_order(order_id)
+    if not order or order["status"] != "new":
+        return  # allaqachon qabul qilingan yoki yopilgan
+    client = cbot()
+    if not client:
+        return
+    info = await order_card_text(order)
+    text = (f"⚠️ <b>Javobsiz murojaat!</b>\n\n"
+            f"#{order_id} — {mins} daqiqada hech bir operator qabul qilmadi.\n\n{info}\n\n"
+            f"📌 «Yakunlanmagan murojaatlar» bo'limidan ko'rishingiz mumkin.")
+    for aid in ADMIN_IDS:
+        try:
+            await client.send_message(aid, text, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+
+def schedule_escalation(order_id):
+    """Murojaat uchun fon kuzatuvchini ishga tushiradi (javobsiz qolsa admin'ga eslatadi)."""
+    try:
+        asyncio.create_task(_escalation_watch(order_id))
+    except RuntimeError:
+        pass  # event loop yo'q (masalan test)
 
 
 async def push_to_operator_bots(order_id, content_type, file_id, caption):

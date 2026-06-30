@@ -523,8 +523,11 @@ def save_login_kb(operator_id) -> InlineKeyboardMarkup:
 def quick_login_kb(saved) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for op in saved:
-        kb.row(InlineKeyboardButton(text=f"🔑 {op['name']} (saqlangan)",
-                                    callback_data=f"quicklogin:{op['id']}"))
+        kb.row(
+            InlineKeyboardButton(text=f"🔑 {op['name']} (saqlangan)",
+                                 callback_data=f"quicklogin:{op['id']}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"forgetlogin:{op['id']}"),
+        )
     kb.row(InlineKeyboardButton(text="➕ Boshqa hisob bilan kirish", callback_data="newlogin"))
     return kb.as_markup()
 

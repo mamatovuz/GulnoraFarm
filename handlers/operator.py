@@ -129,6 +129,26 @@ async def quick_login(call: CallbackQuery, state: FSMContext):
     await call.answer("✅ Kirildi")
 
 
+@router.callback_query(F.data.startswith("forgetlogin:"))
+async def forget_login(call: CallbackQuery, state: FSMContext):
+    op_id = int(call.data.split(":")[1])
+    await q.remove_saved_login(call.from_user.id, op_id)
+    saved = await q.saved_logins_for(call.from_user.id)
+    if saved:
+        try:
+            await call.message.edit_reply_markup(reply_markup=kb.quick_login_kb(saved))
+        except Exception:
+            pass
+        await call.answer("Saqlangan login o'chirildi 🗑", show_alert=True)
+    else:
+        await state.set_state(OperatorFlow.login)
+        try:
+            await call.message.edit_text("🗑 Saqlangan login o'chirildi.\n\n🔑 Login:")
+        except Exception:
+            await call.message.answer("🔑 Login:")
+        await call.answer("O'chirildi 🗑")
+
+
 @router.callback_query(F.data == "newlogin")
 async def new_login(call: CallbackQuery, state: FSMContext):
     await state.set_state(OperatorFlow.login)
