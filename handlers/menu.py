@@ -16,6 +16,25 @@ from utils import (main_kb, extract_content, deliver_order_to_operators, haversi
 router = Router()
 
 
+# ---------------- Kanaldagi "pinned a message" xizmat xabarlarini avtomatik o'chirish ----------------
+async def _delete_pin_service(message: Message):
+    if OPERATORS_GROUP_ID and message.chat.id == OPERATORS_GROUP_ID:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+
+@router.message(F.pinned_message)
+async def remove_pin_service_msg(message: Message):
+    await _delete_pin_service(message)
+
+
+@router.channel_post(F.pinned_message)
+async def remove_pin_service_channel(message: Message):
+    await _delete_pin_service(message)
+
+
 def _branches_header(lang):
     return loc.t("branches_header", lang)
 

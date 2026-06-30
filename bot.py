@@ -35,28 +35,29 @@ async def main():
     kb.apply_op_buttons(overrides)
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+    # MIJOZ (asosiy) dispatcher — mijoz + admin (operator paneli YO'Q)
     dp = Dispatcher(storage=MemoryStorage())
-
-    # Operator faolligini kuzatish (avto-logout uchun)
-    dp.message.middleware(ActivityMiddleware())
-    dp.callback_query.middleware(ActivityMiddleware())
-
-    # Routerlar tartibi muhim: avval aniqroq (FSM/rol asosidagi) handlerlar
     dp.include_router(registration.router)
     dp.include_router(admin.router)
-    dp.include_router(operator.router)
-    dp.include_router(unfinished.router)
+    dp.include_router(unfinished.build_router())   # admin: Yakunlanmagan murojaatlar
     dp.include_router(menu.router)
     dp.include_router(order.router)
+
+    # OPERATOR botlari uchun ALOHIDA dispatcher — faqat operator paneli
+    op_dp = Dispatcher(storage=MemoryStorage())
+    op_dp.message.middleware(ActivityMiddleware())
+    op_dp.callback_query.middleware(ActivityMiddleware())
+    op_dp.include_router(operator.router)
+    op_dp.include_router(unfinished.build_router())
 
     me = await bot.get_me()
     logger.info("✅ Bot ishga tushdi: @%s", me.username)
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Registr: mijoz boti + operator botlari uchun umumiy dispatcher
+    # Registr: mijoz boti + operator botlari dispatcheri
     botreg.set_client_bot(bot)
-    botreg.set_operator_dp(dp)
-    # Bazadagi qo'shilgan operator botlarini ishga tushiramiz
+    botreg.set_operator_dp(op_dp)
     try:
         await botreg.load_all(await q.list_operator_bots())
     except Exception as e:

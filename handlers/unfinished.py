@@ -9,8 +9,6 @@ from config import now_local
 from database import queries as q
 from utils import STATUS_LABEL, fmt_dt, is_admin
 
-router = Router()
-
 PAGE_SIZE = 8
 MARK = {"new": "🟡", "in_progress": "🔵"}
 
@@ -107,20 +105,17 @@ async def open_for_message(message):
 
 
 # ---- Admin paneldan kirish ----
-@router.callback_query(F.data == "adm:unfin")
 async def adm_unfin(call: CallbackQuery):
     await show_list(call, 0)
 
 
 # ---- Sahifalash ----
-@router.callback_query(F.data.startswith("unfin:"))
 async def unfin_page(call: CallbackQuery):
     page = int(call.data.split(":")[1])
     await show_list(call, page)
 
 
 # ---- Admin: murojaatni yakunlash (mijozga baholash chiqadi) ----
-@router.callback_query(F.data.startswith("unfdone:"))
 async def unfin_done(call: CallbackQuery, bot: Bot):
     if not is_admin(call.from_user.id):
         await call.answer("⛔ Sizda ruxsat yo'q", show_alert=True)
@@ -139,7 +134,6 @@ async def unfin_done(call: CallbackQuery, bot: Bot):
 
 
 # ---- Murojaat tafsiloti ----
-@router.callback_query(F.data.startswith("unford:"))
 async def unfin_detail(call: CallbackQuery):
     _, oid, page = call.data.split(":")
     oid, page = int(oid), int(page)
@@ -190,3 +184,13 @@ async def unfin_detail(call: CallbackQuery):
     except Exception:
         await call.message.answer(text, reply_markup=kb.as_markup(), disable_web_page_preview=True)
     await call.answer()
+
+
+def build_router() -> Router:
+    """Har bir dispatcher uchun alohida router nusxasini quradi (admin va operator botlari)."""
+    r = Router()
+    r.callback_query.register(adm_unfin, F.data == "adm:unfin")
+    r.callback_query.register(unfin_page, F.data.startswith("unfin:"))
+    r.callback_query.register(unfin_done, F.data.startswith("unfdone:"))
+    r.callback_query.register(unfin_detail, F.data.startswith("unford:"))
+    return r

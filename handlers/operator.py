@@ -2,7 +2,7 @@
 import asyncio
 from datetime import timedelta
 from aiogram import Router, F, Bot
-from aiogram.filters import Command, BaseFilter
+from aiogram.filters import Command, CommandStart, BaseFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -45,24 +45,15 @@ async def notify_client(bot: Bot, user_id: int, text: str):
         pass
 
 
-# ---------------- Kanaldagi "pinned a message" xizmat xabarlarini avtomatik o'chirish ----------------
-async def _delete_pin_service(message: Message):
-    if OPERATORS_GROUP_ID and message.chat.id == OPERATORS_GROUP_ID:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-
-# Guruh (supergroup) bo'lsa — message; kanal (channel) bo'lsa — channel_post
-@router.message(F.pinned_message)
-async def remove_pin_service_msg(message: Message):
-    await _delete_pin_service(message)
-
-
-@router.channel_post(F.pinned_message)
-async def remove_pin_service_channel(message: Message):
-    await _delete_pin_service(message)
+# ---------------- Operator botida /start (faqat operatorlar uchun) ----------------
+@router.message(CommandStart())
+async def op_bot_start(message: Message, state: FSMContext):
+    await state.clear()
+    op = await q.get_operator_by_tg(message.from_user.id)
+    if op and op["status"] == "active":
+        await _show_cabinet(message.bot, message.from_user.id, op)
+    else:
+        await message.answer("👋 Bu — <b>operator paneli</b>.\n\nKirish uchun: /operator")
 
 
 # ---------------- Login ----------------
@@ -221,7 +212,8 @@ async def op_toggle_availability(message: Message):
 
 @router.message(IsOperator(), F.text == kb.BTN_OP_BACK)
 async def op_back_to_main(message: Message):
-    await message.answer("🏠 Bosh menyu", reply_markup=await main_kb(message.from_user.id))
+    op = await q.get_operator_by_tg(message.from_user.id)
+    await _show_cabinet(message.bot, message.from_user.id, op)
 
 
 @router.message(IsOperator(), F.text == "📌 Yakunlanmagan murojaatlar")
@@ -233,8 +225,7 @@ async def op_unfinished(message: Message):
 @router.message(IsOperator(), F.text == "🚪 Chiqish (logout)")
 async def op_logout(message: Message):
     await q.logout_operator(message.from_user.id)
-    await message.answer("Kabinetdan chiqdingiz. Qayta kirish: /operator",
-                         reply_markup=await main_kb(message.from_user.id))
+    await message.answer("Kabinetdan chiqdingiz. Qayta kirish: /operator", reply_markup=kb.REMOVE)
 
 
 # ---------------- Yangi murojaatlar ----------------
@@ -733,18 +724,20 @@ async def op_workhours_loop(bot: Bot):
     while True:
         await asyncio.sleep(60)
         try:
+            import botreg
             for op in await q.logged_in_operators():
                 within, ws, we = operator_in_hours(op)
                 if within:
                     continue
                 tg = op["telegram_id"]
                 await q.logout_operator(tg)
+                ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
                 try:
-                    await bot.send_message(
+                    await (ob or bot).send_message(
                         tg,
                         f"🕐 Ish vaqtingiz tugadi ({ws}–{we}).\n"
                         f"Tizimdan chiqdingiz. Ish vaqti boshlanganda /operator orqali qayta kiring.",
-                        reply_markup=await main_kb(tg),
+                        reply_markup=kb.REMOVE,
                     )
                 except (TelegramBadRequest, TelegramForbiddenError):
                     pass
