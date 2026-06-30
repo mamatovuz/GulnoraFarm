@@ -16,7 +16,7 @@ from states import OperatorFlow
 from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
-    update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw,
+    update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw, send_file_from,
 )
 
 router = Router()
@@ -475,6 +475,54 @@ async def op_view_mine(call: CallbackQuery):
     await call.answer()
 
 
+# ---------------- O'zimga o'tkazib olish (boshqa operatordan ham) ----------------
+@router.callback_query(F.data.startswith("optake:"))
+async def op_takeover(call: CallbackQuery):
+    op = await _op_of(call)
+    if not op or op["status"] != "active":
+        await call.answer("Avval /operator orqali kabinetga kiring.", show_alert=True)
+        return
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not order or order["status"] not in ("new", "in_progress"):
+        await call.answer("Bu murojaat faol emas (yopilgan).", show_alert=True)
+        return
+    prev_op_id = order["operator_id"]
+    if prev_op_id == op["id"]:
+        # allaqachon o'ziniki — shunchaki ochamiz
+        await q.set_operator_active_order(op["id"], order_id)
+        await _send_order_single(call.bot, call.from_user.id, order_id,
+                                 f"Murojaat #{order_id} — amalni tanlang:",
+                                 kb.op_order_actions_kb(order_id))
+        await call.answer("Ochildi")
+        return
+    # o'zimga o'tkazib olamiz
+    await q.assign_order(order_id, op["id"])
+    if order["status"] == "new":
+        await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
+    await q.set_operator_active_order(op["id"], order_id)
+    await q.set_operator_availability(op["id"], "busy")
+    # eski operatorni bo'shatamiz + xabar beramiz (uning o'z boti orqali)
+    if prev_op_id:
+        prev = await q.get_operator(prev_op_id)
+        await q.set_operator_active_order(prev_op_id, None)
+        await q.set_operator_availability(prev_op_id, "free")
+        if prev and prev["telegram_id"]:
+            import botreg
+            pb = botreg.get_operator_bot(prev["bot_id"]) if prev["bot_id"] else (cbot() or call.bot)
+            try:
+                await (pb or call.bot).send_message(
+                    prev["telegram_id"],
+                    f"ℹ️ Murojaat #{order_id} <b>{op['name']}</b> tomonidan o'ziga o'tkazib olindi.")
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+    await update_group_card(call.bot, order_id)
+    await _send_order_single(call.bot, call.from_user.id, order_id,
+                             f"🔄 Murojaat #{order_id} sizga o'tkazildi. Endi siz javob berasiz.",
+                             kb.op_order_actions_kb(order_id))
+    await call.answer("✅ O'zingizga o'tkazildi", show_alert=True)
+
+
 # ---------------- Javob / Hisoblash / Yakunlash / Bekor ----------------
 @router.callback_query(F.data.startswith("opc:reply:"))
 async def op_reply_btn(call: CallbackQuery):
@@ -534,7 +582,9 @@ async def bill_send(call: CallbackQuery):
     client = cbot() or call.bot
     try:
         if order["bill_photo"]:
-            await client.send_photo(order["user_id"], order["bill_photo"], caption=caption)
+            # bill_photo'ni operator boti (call.bot) olgan — asosiy bot orqali yuborish uchun cross-bot
+            await send_file_from(client, order["user_id"], "photo", order["bill_photo"],
+                                 call.bot, caption=caption)
         else:
             await client.send_message(order["user_id"], caption)
     except (TelegramBadRequest, TelegramForbiddenError):
@@ -639,6 +689,54 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
         await call.answer("Yuborib bo'lmadi", show_alert=True)
+
+
+# ---------------- Mijozga filial ma'lumoti (rasm + ish vaqti + lokatsiya) yuborish ----------------
+@router.callback_query(F.data.startswith("opc:sendbranch:"))
+async def op_sendbranch_btn(call: CallbackQuery):
+    order_id = int(call.data.split(":")[2])
+    branches = await q.list_branches()
+    if not branches:
+        await call.answer("Filiallar qo'shilmagan", show_alert=True)
+        return
+    await call.message.answer("📍 Qaysi filial ma'lumotini mijozga yuboramiz?",
+                              reply_markup=kb.op_send_branch_kb(branches, order_id))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opsendbr:"))
+async def op_sendbranch_pick(call: CallbackQuery, bot: Bot):
+    _, order_id, branch_id = call.data.split(":")
+    order = await q.get_order(int(order_id))
+    b = await q.get_branch(int(branch_id))
+    if not order or not b:
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    client = cbot() or bot
+    text = (f"🏥 <b>{b['name']}</b>\n"
+            f"📍 {b['address'] or '—'}\n"
+            f"📞 {b['phone'] or '—'}\n"
+            f"🕐 Ish vaqti: {b['open_time']}–{b['close_time']}")
+    has_loc = b["lat"] is not None and b["lon"] is not None
+    markup = kb.branch_directions_kb(b["lat"], b["lon"]) if has_loc else None
+    try:
+        # 1) rasm + ma'lumot + "Yo'l ko'rsatish" tugmasi (rasm asosiy botniki — cross-bot kerak emas)
+        if b["photo_file_id"]:
+            await client.send_photo(order["user_id"], b["photo_file_id"], caption=text,
+                                    reply_markup=markup)
+        else:
+            await client.send_message(order["user_id"], text, reply_markup=markup)
+        # 2) lokatsiya — xaritada nuqta (Telegram o'zi yo'l ko'rsatishni beradi)
+        if has_loc:
+            await client.send_venue(order["user_id"], latitude=b["lat"], longitude=b["lon"],
+                                    title=b["name"], address=b["address"] or "")
+        await call.answer("✅ Filial ma'lumoti mijozga yuborildi", show_alert=True)
+        try:
+            await call.message.edit_text(f"✅ <b>{b['name']}</b> ma'lumoti mijozga yuborildi.")
+        except Exception:
+            pass
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
 
 
 # ---------------- Mijozdan filial tanlashni so'rash ----------------
@@ -860,28 +958,39 @@ async def op_rating(message: Message):
                 ~F.text.in_(kb.ALL_MENU_BUTTONS))
 async def operator_proxy(message: Message, bot: Bot):
     op = await _op_of(message)
-    active = op["active_order_id"]
-    if not active:
+
+    # MANZILNI ANIQLAYMIZ:
+    # 1) Operator biror mijoz xabariga 'reply' qilgan bo'lsa -> javob AYNAN o'sha murojaatga ketadi
+    #    (active_order_id emas — shuning uchun #169 ga reply qilsa #172 ga ketib qolmaydi)
+    reply_to = None
+    target = None
+    if message.reply_to_message:
+        link = await q.link_by_operator_msg(message.reply_to_message.message_id, message.from_user.id)
+        if link:
+            target = link["order_id"]
+            reply_to = link["client_msg_id"]
+    # 2) Reply qilinmagan bo'lsa -> joriy faol murojaat
+    if target is None:
+        target = op["active_order_id"]
+    if not target:
         await message.answer("Avval \"📂 Mening murojaatlarim\" dan murojaat tanlang yoki qabul qiling.")
         return
-    order = await q.get_order(active)
+    order = await q.get_order(target)
     if not order or order["status"] not in ("new", "in_progress"):
-        await q.set_operator_active_order(op["id"], None)
-        await message.answer("Faol murojaat yopilgan. Boshqa murojaat tanlang.")
+        if target == op["active_order_id"]:
+            await q.set_operator_active_order(op["id"], None)
+        await message.answer("Bu murojaat yopilgan. Boshqa murojaat tanlang.")
         return
+    # reply orqali boshqa murojaatga javob berildi -> faol murojaatni o'shanga o'tkazamiz
+    if target != op["active_order_id"]:
+        await q.set_operator_active_order(op["id"], target)
+    active = target
     await save_message_from_message(active, "operator", message)
     clang = await q.get_lang(order["user_id"])
     caption = loc.t("operator_reply", clang, name=op["name"],
                     text=message.caption or message.text or "")
 
-    # 1) Operator aniq bir xabarga 'reply' qilgan bo'lsa -> o'sha mijoz xabariga tirkaymiz
-    reply_to = None
-    if message.reply_to_message:
-        link = await q.link_by_operator_msg(message.reply_to_message.message_id, message.from_user.id)
-        if link:
-            reply_to = link["client_msg_id"]
-    # 2) Aks holda AVTOMATIK ravishda mijozning oxirgi xabariga tirkaymiz
-    #    (shunda javob aynan qaysi xabarga ekani mijozga ko'rinadi)
+    # tirkash: reply bo'lmasa mijozning oxirgi xabariga
     if reply_to is None:
         reply_to = await q.last_client_tg_msg(active)
 

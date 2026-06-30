@@ -188,6 +188,7 @@ def order_accept_link_kb(order_id, bot_username) -> InlineKeyboardMarkup:
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data="adm:stats"))
+    kb.row(InlineKeyboardButton(text="🔴 Real vaqt", callback_data="adm:live"))
     kb.row(InlineKeyboardButton(text="📌 Yakunlanmagan murojaatlar", callback_data="adm:unfin"))
     kb.row(InlineKeyboardButton(text="📨 Ommaviy xabar", callback_data="adm:bc"))
     kb.row(InlineKeyboardButton(text="📢 Kanal boshqaruvi", callback_data="adm:ch"))
@@ -216,6 +217,13 @@ def templates_admin_kb(templates) -> InlineKeyboardMarkup:
 def admin_back_kb(cb="adm:menu") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data=cb))
+    return kb.as_markup()
+
+
+def live_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔄 Yangilash", callback_data="adm:live"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
     return kb.as_markup()
 
 
@@ -410,6 +418,7 @@ OP_BTN = {
     "tpl": "📝 Tayyor javob",
     "bill": "💊 Hisoblash",
     "transfer": "🔄 Uzatish",
+    "sendbranch": "📍 Filial ma'lumoti",
     "askbranch": "🏥 Filialni tanlatish",
     "autoclose": "⏱ 10 daqiqada avto-yakunlash",
     "done": "✅ Yakunlash",
@@ -419,7 +428,8 @@ OP_BTN = {
 # Tugma kalitlari uchun chiroyli nomlar (admin ko'rishi uchun)
 OP_BTN_TITLES = {
     "reply": "Javob yozish", "tpl": "Tayyor javob", "bill": "Hisoblash",
-    "transfer": "Uzatish", "askbranch": "Filialni tanlatish",
+    "transfer": "Uzatish", "sendbranch": "Filial ma'lumoti yuborish",
+    "askbranch": "Filialni tanlatish",
     "autoclose": "10 daqiqada avto-yakunlash", "done": "Yakunlash", "cancel": "Bekor qilish",
 }
 
@@ -437,6 +447,7 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
            InlineKeyboardButton(text=OP_BTN["tpl"], callback_data=f"opc:tpl:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["bill"], callback_data=f"opc:bill:{order_id}"),
            InlineKeyboardButton(text=OP_BTN["transfer"], callback_data=f"opc:transfer:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["sendbranch"], callback_data=f"opc:sendbranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["askbranch"], callback_data=f"opc:askbranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["autoclose"], callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
@@ -481,6 +492,22 @@ def op_ask_branch_kb(branches, order_id, lang="uz") -> InlineKeyboardMarkup:
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"opbr:{order_id}:{b['id']}"))
     kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data=f"opbrnear:{order_id}"))
+    return kb.as_markup()
+
+
+def op_send_branch_kb(branches, order_id) -> InlineKeyboardMarkup:
+    """Operator mijozga qaysi filial ma'lumotini yuborishni tanlaydi."""
+    kb = InlineKeyboardBuilder()
+    for b in branches:
+        kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"opsendbr:{order_id}:{b['id']}"))
+    return kb.as_markup()
+
+
+def branch_directions_kb(lat, lon, lang="uz") -> InlineKeyboardMarkup:
+    """Filialga xaritada yo'l ko'rsatish (Google Maps)."""
+    url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}"
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🧭 Yo'l ko'rsatish (xarita)", url=url))
     return kb.as_markup()
 
 

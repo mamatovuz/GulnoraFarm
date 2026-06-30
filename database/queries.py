@@ -861,6 +861,34 @@ async def general_stats():
     return stats
 
 
+async def live_stats():
+    """Real vaqt holati: yangi/jarayonda/bugun yakunlangan + operatorlar kesimi."""
+    db = await get_db()
+    today = now_local().strftime("%Y-%m-%d")
+
+    async def c(q_, p=()):
+        cur = await db.execute(q_, p)
+        return (await cur.fetchone())[0]
+
+    new = await c("SELECT COUNT(*) FROM orders WHERE status='new'")
+    prog = await c("SELECT COUNT(*) FROM orders WHERE status='in_progress'")
+    today_new = await c("SELECT COUNT(*) FROM orders WHERE created_at LIKE ?", (today + "%",))
+    today_done = await c("SELECT COUNT(*) FROM orders WHERE status='done' AND closed_at LIKE ?",
+                         (today + "%",))
+    online = await c("SELECT COUNT(*) FROM operators WHERE telegram_id IS NOT NULL")
+    # operatorlar kesimi: hozir jarayonda nechta, online/holat
+    cur = await db.execute(
+        "SELECT op.name, op.availability, op.telegram_id, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='in_progress') AS cnt, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='done' "
+        " AND o.closed_at LIKE ?) AS done_today "
+        "FROM operators op WHERE op.status='active' ORDER BY cnt DESC, done_today DESC",
+        (today + "%",))
+    per_op = await cur.fetchall()
+    return {"new": new, "prog": prog, "today_new": today_new, "today_done": today_done,
+            "online": online, "per_op": per_op}
+
+
 # ============================ EXCEL HISOBOT UCHUN ============================
 async def all_orders_full():
     db = await get_db()

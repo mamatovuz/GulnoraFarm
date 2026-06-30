@@ -88,6 +88,35 @@ async def admin_stats(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data == "adm:live")
+async def admin_live(call: CallbackQuery):
+    s = await q.live_stats()
+    now_str = q.now()[11:19]   # HH:MM:SS
+    lines = [
+        "🔴 <b>Real vaqt holati</b>\n",
+        f"🟡 Yangi (kutyapti): <b>{s['new']}</b>",
+        f"🔵 Jarayonda: <b>{s['prog']}</b>",
+        f"📨 Bugun kelgan: {s['today_new']}   🟢 Bugun yakunlangan: {s['today_done']}",
+        f"👨‍⚕️ Online operatorlar: <b>{s['online']}</b>\n",
+        "<b>Operatorlar (hozir):</b>",
+    ]
+    if s["per_op"]:
+        for o in s["per_op"]:
+            if o["telegram_id"]:
+                holat = "🔴 band" if o["availability"] == "busy" else "🟢 bo'sh"
+            else:
+                holat = "⚪ oflayn"
+            lines.append(f"• {o['name']} — {holat} | 🔵 {o['cnt']} jarayonda | ✅ {o['done_today']} bugun")
+    else:
+        lines.append("(operator yo'q)")
+    lines.append(f"\n🕐 Yangilandi: {now_str}")
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=kb.live_kb())
+    except TelegramBadRequest:
+        pass
+    await call.answer("🔄 Yangilandi")
+
+
 @router.callback_query(F.data == "adm:excel")
 async def admin_excel(call: CallbackQuery):
     import openpyxl

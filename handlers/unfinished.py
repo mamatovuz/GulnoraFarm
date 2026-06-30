@@ -176,6 +176,9 @@ async def unfin_detail(call: CallbackQuery):
             kb.row(InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"op_accept:{oid}"))
         elif row["operator_id"] == op["id"]:
             kb.row(InlineKeyboardButton(text="💬 Ochish", callback_data=f"opmine:{oid}"))
+        else:
+            # boshqa operator olgan — o'zimga o'tkazib olish mumkin
+            kb.row(InlineKeyboardButton(text="🔄 O'zimga o'tkazish", callback_data=f"optake:{oid}"))
     # Admin bo'lsa — yakunlash tugmasi
     if is_admin(call.from_user.id):
         kb.row(InlineKeyboardButton(text="✅ Yakunlash", callback_data=f"unfdone:{oid}:{page}"))

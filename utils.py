@@ -55,6 +55,27 @@ async def _send_media_bytes(bot: Bot, chat_id, content_type, raw, caption, kw, f
         return None
 
 
+async def send_file_from(target_bot: Bot, chat_id, content_type, file_id, src_bot: Bot,
+                         caption=None, markup=None, filename=None):
+    """file_id egasi src_bot bo'lib, uni target_bot orqali yuboradi.
+    Masalan: operator hisob-kitob rasmini (operator boti olgan) mijozga (asosiy bot) yuborish."""
+    kw = {"reply_markup": markup}
+    if content_type == "text" or not file_id:
+        try:
+            return await target_bot.send_message(chat_id, caption or "—", reply_markup=markup)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            return None
+    if src_bot and target_bot.id == src_bot.id:
+        # bir xil bot — to'g'ridan-to'g'ri file_id bilan
+        return await send_raw(target_bot, chat_id, content_type, file_id, caption, markup=markup)
+    raw = await _download_file(src_bot, file_id) if src_bot else None
+    if raw is None:
+        # yuklab bo'lmadi — file_id bilan urinib ko'ramiz (fallback)
+        return await send_raw(target_bot, chat_id, content_type, file_id, caption, markup=markup)
+    cap = None if content_type == "sticker" else caption
+    return await _send_media_bytes(target_bot, chat_id, content_type, raw, cap, kw, filename)
+
+
 async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=None,
                    reply_to=None, raw=None):
     """Kontent turini berib yuboradi. file_id boshqa botniki bo'lsa (cross-bot),
