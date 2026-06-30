@@ -9,7 +9,7 @@ import keyboards as kb
 import locales as loc
 from states import Reg, OperatorFlow
 from database import queries as q
-from utils import check_subscription, main_kb
+from utils import check_subscription, main_kb, haversine_km
 
 router = Router()
 
@@ -223,6 +223,30 @@ async def pick_branch_cb(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
     await call.answer()
+
+
+@router.callback_query(Reg.branch, F.data == "regnear")
+async def reg_near_ask(call: CallbackQuery, state: FSMContext):
+    lang = await q.get_lang(call.from_user.id)
+    await call.message.answer(loc.t("nearest_ask", lang), reply_markup=kb.client_location_kb(lang))
+    await call.answer()
+
+
+@router.message(Reg.branch, F.location)
+async def reg_near_result(message: Message, state: FSMContext):
+    lang = await q.get_lang(message.from_user.id)
+    geo = [b for b in await q.list_branches() if b["lat"] is not None and b["lon"] is not None]
+    if not geo:
+        branches = await q.list_branches()
+        await message.answer(loc.t("nearest_none", lang),
+                             reply_markup=kb.branches_choose_kb(branches, lang=lang))
+        return
+    ulat, ulon = message.location.latitude, message.location.longitude
+    nearest = min(geo, key=lambda b: haversine_km(ulat, ulon, b["lat"], b["lon"]))
+    await q.set_user_branch(message.from_user.id, nearest["id"])
+    await state.clear()
+    await message.answer(loc.t("branch_selected", lang, branch=nearest["name"]),
+                         reply_markup=await main_kb(message.from_user.id))
 
 
 @router.callback_query(Reg.branch, F.data == "branch_skip")

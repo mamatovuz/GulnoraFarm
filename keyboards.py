@@ -80,6 +80,7 @@ def branches_choose_kb(branches, prefix="pickbranch", lang="uz", show_skip=True)
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"{prefix}:{b['id']}"))
+    kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data="regnear"))
     if show_skip:
         kb.row(InlineKeyboardButton(text=loc.btn("skip", lang), callback_data="branch_skip"))
     return kb.as_markup()
