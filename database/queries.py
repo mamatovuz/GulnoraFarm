@@ -461,10 +461,32 @@ async def get_operator_by_tg(telegram_id):
     return await cur.fetchone()
 
 
+async def get_operator_by_tg_bot(telegram_id, bot_id):
+    """Faqat shu botga tegishli operator (sessiya bot bo'yicha ajratilgan)."""
+    db = await get_db()
+    if bot_id is None:
+        cur = await db.execute(
+            "SELECT * FROM operators WHERE telegram_id = ? AND bot_id IS NULL", (telegram_id,))
+    else:
+        cur = await db.execute(
+            "SELECT * FROM operators WHERE telegram_id = ? AND bot_id = ?", (telegram_id, bot_id))
+    return await cur.fetchone()
+
+
 async def login_operator(operator_id, telegram_id):
     db = await get_db()
-    # bitta telegram bitta operatorga bog'lansin
-    await db.execute("UPDATE operators SET telegram_id = NULL WHERE telegram_id = ?", (telegram_id,))
+    # operatorning boti
+    cur = await db.execute("SELECT bot_id FROM operators WHERE id = ?", (operator_id,))
+    row = await cur.fetchone()
+    bot_id = row["bot_id"] if row else None
+    # Bitta telegram FAQAT SHU BOT ichida bitta operatorga bog'lansin.
+    # (Boshqa botlardagi sessiyalar saqlanadi — 1 hisob bilan bir nechta botga kirsa bo'ladi.)
+    if bot_id is None:
+        await db.execute("UPDATE operators SET telegram_id = NULL "
+                         "WHERE telegram_id = ? AND bot_id IS NULL", (telegram_id,))
+    else:
+        await db.execute("UPDATE operators SET telegram_id = NULL "
+                         "WHERE telegram_id = ? AND bot_id = ?", (telegram_id, bot_id))
     await db.execute("UPDATE operators SET telegram_id = ?, last_active = ? WHERE id = ?",
                      (telegram_id, now(), operator_id))
     await db.commit()
@@ -496,12 +518,21 @@ async def idle_operators(threshold: str):
     return await cur.fetchall()
 
 
-async def logout_operator(telegram_id):
+async def logout_operator(telegram_id, bot_id="__all__"):
+    """bot_id berilsa — faqat o'sha botdan chiqaradi (boshqa botlardagi sessiya qoladi)."""
     db = await get_db()
-    await db.execute(
-        "UPDATE operators SET telegram_id = NULL, active_order_id = NULL WHERE telegram_id = ?",
-        (telegram_id,),
-    )
+    if bot_id == "__all__":
+        await db.execute(
+            "UPDATE operators SET telegram_id = NULL, active_order_id = NULL WHERE telegram_id = ?",
+            (telegram_id,))
+    elif bot_id is None:
+        await db.execute(
+            "UPDATE operators SET telegram_id = NULL, active_order_id = NULL "
+            "WHERE telegram_id = ? AND bot_id IS NULL", (telegram_id,))
+    else:
+        await db.execute(
+            "UPDATE operators SET telegram_id = NULL, active_order_id = NULL "
+            "WHERE telegram_id = ? AND bot_id = ?", (telegram_id, bot_id))
     await db.commit()
 
 
@@ -536,12 +567,22 @@ async def save_login(telegram_id, operator_id):
     await db.commit()
 
 
-async def saved_logins_for(telegram_id):
-    """Shu telegram uchun saqlangan (faol) operator hisoblari."""
+async def saved_logins_for(telegram_id, bot_id="__all__"):
+    """Shu telegram uchun saqlangan (faol) operator hisoblari.
+    bot_id berilsa — faqat o'sha botga tegishli hisoblar (sessiya ajratish uchun)."""
     db = await get_db()
-    cur = await db.execute(
-        "SELECT o.id, o.name FROM saved_logins s JOIN operators o ON o.id = s.operator_id "
-        "WHERE s.telegram_id = ? AND o.status = 'active'", (telegram_id,))
+    if bot_id == "__all__":
+        cur = await db.execute(
+            "SELECT o.id, o.name FROM saved_logins s JOIN operators o ON o.id = s.operator_id "
+            "WHERE s.telegram_id = ? AND o.status = 'active'", (telegram_id,))
+    elif bot_id is None:
+        cur = await db.execute(
+            "SELECT o.id, o.name FROM saved_logins s JOIN operators o ON o.id = s.operator_id "
+            "WHERE s.telegram_id = ? AND o.status = 'active' AND o.bot_id IS NULL", (telegram_id,))
+    else:
+        cur = await db.execute(
+            "SELECT o.id, o.name FROM saved_logins s JOIN operators o ON o.id = s.operator_id "
+            "WHERE s.telegram_id = ? AND o.status = 'active' AND o.bot_id = ?", (telegram_id, bot_id))
     return await cur.fetchall()
 
 

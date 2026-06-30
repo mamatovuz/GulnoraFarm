@@ -168,8 +168,9 @@ async def unfin_detail(call: CallbackQuery):
             f"{preview}")
 
     kb = InlineKeyboardBuilder()
-    # Operator bo'lsa — qabul/ochish tugmalari
-    op = await q.get_operator_by_tg(call.from_user.id)
+    # Operator bo'lsa — qabul/ochish tugmalari (shu bot bo'yicha)
+    import botreg
+    op = await q.get_operator_by_tg_bot(call.from_user.id, botreg.bot_id_of(call.bot))
     if op and op["status"] == "active":
         if not row["operator_id"]:
             kb.row(InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"op_accept:{oid}"))

@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import keyboards as kb
 import texts as t
 import locales as loc
+import botreg
 from config import OPERATORS_GROUP_ID, now_local
 from states import OperatorFlow
 from database import queries as q
@@ -33,8 +34,16 @@ def remember_pending_accept(telegram_id: int, order_id: int):
 
 class IsOperator(BaseFilter):
     async def __call__(self, message: Message) -> bool:
-        op = await q.get_operator_by_tg(message.from_user.id)
+        # Sessiya bot bo'yicha ajratilgan: shu bot operator faqat o'z operatorini taniydi
+        op = await q.get_operator_by_tg_bot(message.from_user.id, botreg.bot_id_of(message.bot))
         return bool(op and op["status"] == "active")
+
+
+async def _op_of(event):
+    """Event (Message/CallbackQuery) kelgan bot uchun operatorni qaytaradi.
+    Bitta telegram hisobi bir nechta operator botida bir vaqtda kira oladi —
+    shuning uchun operator HAR DOIM event kelgan bot bo'yicha aniqlanadi."""
+    return await q.get_operator_by_tg_bot(event.from_user.id, botreg.bot_id_of(event.bot))
 
 
 async def notify_client(bot: Bot, user_id: int, text: str):
@@ -49,7 +58,7 @@ async def notify_client(bot: Bot, user_id: int, text: str):
 @router.message(CommandStart())
 async def op_bot_start(message: Message, state: FSMContext):
     await state.clear()
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await q.get_operator_by_tg_bot(message.from_user.id, botreg.bot_id_of(message.bot))
     if op and op["status"] == "active":
         await _show_cabinet(message.bot, message.from_user.id, op)
     else:
@@ -85,17 +94,18 @@ def _hours_warn(op) -> str:
 @router.message(Command("operator"))
 async def operator_cmd(message: Message, state: FSMContext):
     await state.clear()
-    op = await q.get_operator_by_tg(message.from_user.id)
+    bot_id = botreg.bot_id_of(message.bot)
+    op = await q.get_operator_by_tg_bot(message.from_user.id, bot_id)
     if op and op["status"] == "active":
         within, ws, we = operator_in_hours(op)
         if not within:
-            await q.logout_operator(message.from_user.id)
+            await q.logout_operator(message.from_user.id, bot_id)
             await message.answer(_hours_warn(op))
             return
         await _show_cabinet(message.bot, message.from_user.id, op)
         return
-    # Saqlangan login bo'lsa — tezkor kirish taklif qilamiz
-    saved = await q.saved_logins_for(message.from_user.id)
+    # Saqlangan login bo'lsa — tezkor kirish taklif qilamiz (faqat shu botники)
+    saved = await q.saved_logins_for(message.from_user.id, bot_id)
     if saved:
         await message.answer(
             "👨‍⚕️ <b>Operator kabineti</b>\n\nQuyidagilardan birini tanlang:",
@@ -113,6 +123,9 @@ async def quick_login(call: CallbackQuery, state: FSMContext):
     if not op or op["status"] != "active":
         await q.remove_saved_login(call.from_user.id, op_id)
         await call.answer("Bu hisob mavjud emas yoki bloklangan.", show_alert=True)
+        return
+    if op["bot_id"] != botreg.bot_id_of(call.bot):
+        await call.answer("⛔ Bu login boshqa botga tegishli. O'z botingizdan kiring.", show_alert=True)
         return
     within, ws, we = operator_in_hours(op)
     if not within:
@@ -133,7 +146,7 @@ async def quick_login(call: CallbackQuery, state: FSMContext):
 async def forget_login(call: CallbackQuery, state: FSMContext):
     op_id = int(call.data.split(":")[1])
     await q.remove_saved_login(call.from_user.id, op_id)
-    saved = await q.saved_logins_for(call.from_user.id)
+    saved = await q.saved_logins_for(call.from_user.id, botreg.bot_id_of(call.bot))
     if saved:
         try:
             await call.message.edit_reply_markup(reply_markup=kb.quick_login_kb(saved))
@@ -211,7 +224,7 @@ async def save_login_cb(call: CallbackQuery):
 
 @router.message(IsOperator(), F.text.in_(loc.labels("op_cabinet")))
 async def op_open_cabinet(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     cnt = len(await q.orders_by_status("in_progress", op["id"]))
     await message.answer(
         f"👨‍⚕️ <b>Operator kabineti</b> — {op['name']}\n\n"
@@ -222,7 +235,7 @@ async def op_open_cabinet(message: Message):
 
 @router.message(IsOperator(), F.text.in_({"🟢 Holatim: Bo'sh", "🔴 Holatim: Band"}))
 async def op_toggle_availability(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     new = "busy" if op["availability"] == "free" else "free"
     await q.set_operator_availability(op["id"], new)
     label = "🟢 Bo'sh — yangi murojaatlarga tayyorsiz" if new == "free" \
@@ -232,7 +245,7 @@ async def op_toggle_availability(message: Message):
 
 @router.message(IsOperator(), F.text == kb.BTN_OP_BACK)
 async def op_back_to_main(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     await _show_cabinet(message.bot, message.from_user.id, op)
 
 
@@ -244,7 +257,7 @@ async def op_unfinished(message: Message):
 
 @router.message(IsOperator(), F.text == "🚪 Chiqish (logout)")
 async def op_logout(message: Message):
-    await q.logout_operator(message.from_user.id)
+    await q.logout_operator(message.from_user.id, botreg.bot_id_of(message.bot))
     await message.answer("Kabinetdan chiqdingiz. Qayta kirish: /operator", reply_markup=kb.REMOVE)
 
 
@@ -390,7 +403,7 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
 
 @router.callback_query(F.data.startswith("op_accept:"))
 async def op_accept(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     if not op or op["status"] != "active":
         await call.answer("Avval /operator orqali kabinetga kiring.", show_alert=True)
         return
@@ -409,7 +422,7 @@ async def op_accept(call: CallbackQuery):
 # ---------------- Mening murojaatlarim ----------------
 @router.message(IsOperator(), F.text == "📂 Mening murojaatlarim")
 async def op_my_orders(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     orders = await q.orders_by_status("in_progress", op["id"])
     if not orders:
         await message.answer("📂 Jarayondagi murojaatlaringiz yo'q.")
@@ -423,7 +436,7 @@ async def op_my_orders(message: Message):
 
 @router.callback_query(F.data.startswith("opmine:"))
 async def op_view_mine(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[1])
     order = await q.get_order(order_id)
     if not order or order["operator_id"] != op["id"]:
@@ -439,7 +452,7 @@ async def op_view_mine(call: CallbackQuery):
 # ---------------- Javob / Hisoblash / Yakunlash / Bekor ----------------
 @router.callback_query(F.data.startswith("opc:reply:"))
 async def op_reply_btn(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[2])
     await q.set_operator_active_order(op["id"], order_id)
     await call.message.answer(
@@ -512,7 +525,7 @@ async def bill_save(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("opc:done:"))
 async def op_done(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[2])
     order = await q.get_order(order_id)
     await q.set_order_status(order_id, "done", f"operator:{op['id']}")
@@ -536,7 +549,7 @@ async def op_done(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("opc:cancel:"))
 async def op_cancel(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[2])
     order = await q.get_order(order_id)
     await q.set_order_status(order_id, "canceled", f"operator:{op['id']}")
@@ -552,7 +565,7 @@ async def op_cancel(call: CallbackQuery):
 # ---------------- Tayyor javob shablonlari ----------------
 @router.callback_query(F.data.startswith("opc:tpl:"))
 async def op_templates(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[2])
     if op:
         await q.set_operator_active_order(op["id"], order_id)
@@ -571,7 +584,7 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
     order_id, tpl_id = int(order_id), int(tpl_id)
     order = await q.get_order(order_id)
     tpl = await q.get_template(tpl_id)
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     if not order or not tpl or not op:
         await call.answer("Topilmadi", show_alert=True)
         return
@@ -626,7 +639,7 @@ async def op_ask_branch(call: CallbackQuery, bot: Bot):
 # ---------------- Murojaatni boshqa operatorga uzatish ----------------
 @router.callback_query(F.data.startswith("opc:transfer:"))
 async def op_transfer(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     order_id = int(call.data.split(":")[2])
     ops = await q.active_operators(exclude_id=op["id"] if op else None)
     if not ops:
@@ -642,7 +655,7 @@ async def op_do_transfer(call: CallbackQuery, bot: Bot):
     _, order_id, newop_id = call.data.split(":")
     order_id, newop_id = int(order_id), int(newop_id)
     order = await q.get_order(order_id)
-    cur_op = await q.get_operator_by_tg(call.from_user.id)
+    cur_op = await _op_of(call)
     new_op = await q.get_operator(newop_id)
     if not order or not new_op:
         await call.answer("Topilmadi", show_alert=True)
@@ -713,7 +726,7 @@ async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: 
 
 @router.callback_query(F.data.startswith("opc:autoclose:"))
 async def op_autoclose(call: CallbackQuery):
-    op = await q.get_operator_by_tg(call.from_user.id)
+    op = await _op_of(call)
     if not op:
         await call.answer("Avval /operator orqali kiring.", show_alert=True)
         return
@@ -750,7 +763,7 @@ async def op_workhours_loop(bot: Bot):
                 if within:
                     continue
                 tg = op["telegram_id"]
-                await q.logout_operator(tg)
+                await q.logout_operator(tg, op["bot_id"])
                 ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
                 try:
                     await (ob or bot).send_message(
@@ -768,7 +781,7 @@ async def op_workhours_loop(bot: Bot):
 # ---------------- Yakunlanganlar ----------------
 @router.message(IsOperator(), F.text == "✅ Yakunlanganlar")
 async def op_done_list(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     orders = await q.orders_by_status("done", op["id"])
     if not orders:
         await message.answer("Yakunlangan murojaatlaringiz yo'q.")
@@ -783,7 +796,7 @@ async def op_done_list(message: Message):
 # ---------------- Statistika ----------------
 @router.message(IsOperator(), F.text == "📊 Mening statistikam")
 async def op_my_stats(message: Message):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     s = await q.operator_stats(op["id"])
     await message.answer(
         "📊 <b>Statistikangiz</b>\n\n"
@@ -815,7 +828,7 @@ async def op_rating(message: Message):
                 F.content_type.in_({"text", "photo", "document", "video", "sticker", "animation", "voice"}),
                 ~F.text.in_(kb.ALL_MENU_BUTTONS))
 async def operator_proxy(message: Message, bot: Bot):
-    op = await q.get_operator_by_tg(message.from_user.id)
+    op = await _op_of(message)
     active = op["active_order_id"]
     if not active:
         await message.answer("Avval \"📂 Mening murojaatlarim\" dan murojaat tanlang yoki qabul qiling.")

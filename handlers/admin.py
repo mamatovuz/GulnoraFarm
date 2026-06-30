@@ -723,8 +723,8 @@ async def op_toggle(call: CallbackQuery):
     op = await q.get_operator(op_id)
     new_status = "inactive" if op["status"] == "active" else "active"
     await q.update_operator(op_id, "status", new_status)
-    if new_status == "inactive":
-        await q.logout_operator(op["telegram_id"]) if op["telegram_id"] else None
+    if new_status == "inactive" and op["telegram_id"]:
+        await q.logout_operator(op["telegram_id"], op["bot_id"])
     label = "faollashtirildi 🟢" if new_status == "active" else "bloklandi 🔴"
     await call.message.edit_text(f"✅ {op['name']} {label}.", reply_markup=kb.admin_back_kb("adm:op"))
     await call.answer()

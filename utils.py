@@ -92,8 +92,9 @@ def haversine_km(lat1, lon1, lat2, lon2) -> float:
 
 
 async def main_kb(telegram_id: int):
-    """Rolga va tilga mos asosiy menyu: admin va/yoki operator tugmalari bilan."""
-    op = await q.get_operator_by_tg(telegram_id)
+    """Mijoz/asosiy bot menyusi. Operatorlar alohida botda ishlaydi —
+    shuning uchun asosiy botda operator tugmasi ko'rsatilmaydi (bot_id IS NULL)."""
+    op = await q.get_operator_by_tg_bot(telegram_id, None)
     is_op = bool(op and op["status"] == "active")
     lang = await q.get_lang(telegram_id)
     faq_on = (await q.get_setting("faq_enabled", "1")) != "0"
