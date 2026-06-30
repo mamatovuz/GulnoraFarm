@@ -178,6 +178,20 @@ async def assign_order(order_id, operator_id):
     await db.commit()
 
 
+async def claim_order(order_id, operator_id):
+    """ATOMAR qabul: faqat status='new' bo'lsa operatorga biriktiradi va 'in_progress' qiladi.
+    True = shu operator yutdi; False = kimdir oldin olib bo'lgan."""
+    db = await get_db()
+    cur = await db.execute(
+        "UPDATE orders SET status='in_progress', operator_id=? WHERE id=? AND status='new'",
+        (operator_id, order_id))
+    await db.commit()
+    if cur.rowcount and cur.rowcount > 0:
+        await log_status(order_id, "new", "in_progress", f"operator:{operator_id}")
+        return True
+    return False
+
+
 async def set_order_branch(order_id, branch_id):
     db = await get_db()
     await db.execute("UPDATE orders SET branch_id = ? WHERE id = ?", (branch_id, order_id))

@@ -356,8 +356,9 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     if order["status"] != "new":
         return False, f"Murojaat #{order_id} allaqachon qabul qilingan yoki yopilgan."
 
-    await q.assign_order(order_id, op["id"])
-    await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
+    # ATOMAR qabul: parallel ishlovда faqat bitta operator yutadi
+    if not await q.claim_order(order_id, op["id"]):
+        return False, f"Murojaat #{order_id} allaqachon qabul qilingan yoki yopilgan."
     await q.set_operator_active_order(op["id"], order_id)
 
     # 0) Boshqa operator botlaridagi bu murojaat bildirishnomasini o'chiramiz

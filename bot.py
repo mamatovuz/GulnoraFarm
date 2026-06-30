@@ -13,7 +13,7 @@ from database import queries as q
 import keyboards as kb
 import botreg
 from handlers import registration, admin, operator, menu, order, unfinished
-from middlewares import ActivityMiddleware, ClientBotOnly
+from middlewares import ClientBotOnly
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 # aiogram ichki loglarini o'chiramiz — terminal toza bo'lsin
@@ -45,10 +45,6 @@ async def main():
         r.message.outer_middleware(ClientBotOnly())
         r.callback_query.outer_middleware(ClientBotOnly())
         r.channel_post.outer_middleware(ClientBotOnly())
-
-    # Operator faolligini kuzatish
-    dp.message.middleware(ActivityMiddleware())
-    dp.callback_query.middleware(ActivityMiddleware())
 
     # Tartib muhim: /start -> registration (mijoz), /operator -> operator
     dp.include_router(registration.router)

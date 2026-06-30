@@ -47,8 +47,18 @@ def make_bot(token: str) -> Bot:
     return Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 
+async def _safe_feed(bot: Bot, u):
+    """Bitta yangilanishni ishlaydi — xato bo'lsa ham polling to'xtamaydi."""
+    try:
+        await operator_dp.feed_update(bot, u)
+    except Exception:
+        pass
+
+
 async def _poll(bot: Bot, bot_id: int):
-    """Bitta operator boti uchun polling — umumiy operator_dp ga uzatadi."""
+    """Bitta operator boti uchun polling — umumiy operator_dp ga uzatadi.
+    Har bir yangilanish FON vazifa sifatida ishlanadi — shunda sekin handler (masalan
+    media yuklash) keyingi xabarlarni bloklamaydi (bot qotib qolmaydi)."""
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
@@ -61,7 +71,7 @@ async def _poll(bot: Bot, bot_id: int):
             for u in updates:
                 offset = u.update_id + 1
                 if operator_dp:
-                    await operator_dp.feed_update(bot, u)
+                    asyncio.create_task(_safe_feed(bot, u))
         except asyncio.CancelledError:
             break
         except TelegramConflictError:

@@ -16,6 +16,11 @@ async def get_db() -> aiosqlite.Connection:
         _db = await aiosqlite.connect(DB_PATH)
         _db.row_factory = aiosqlite.Row
         await _db.execute("PRAGMA foreign_keys = ON;")
+        # Bir nechta bot bitta bazaga yozadi — WAL parallel o'qish/yozishni tezlashtiradi,
+        # busy_timeout esa "database is locked" xatosi o'rniga kutadi.
+        await _db.execute("PRAGMA journal_mode = WAL;")
+        await _db.execute("PRAGMA synchronous = NORMAL;")
+        await _db.execute("PRAGMA busy_timeout = 5000;")
     return _db
 
 
