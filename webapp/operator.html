@@ -148,6 +148,11 @@
   .ccard img{max-width:100%;border-radius:10px;margin:4px 0;display:block}
   .ccard .accept{width:100%;background:var(--accent);color:var(--accent-text);border:none;
     padding:11px;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;margin-top:6px}
+  #stickerpanel{background:var(--bg);border-top:1px solid var(--sep);max-height:190px;overflow-y:auto;
+    display:flex;flex-wrap:wrap;gap:6px;padding:8px}
+  .stk{width:76px;height:76px;object-fit:contain;cursor:pointer;border-radius:8px}
+  .stk:active{background:var(--sec)}
+  .chev{color:var(--hint);margin-left:auto}
 </style>
 </head>
 <body>
@@ -215,6 +220,11 @@
       </div>
     </div>
     <div class="list">
+      <div class="item" onclick="openList('unfinished')"><svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openList('done')"><svg class="ic" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3"/></svg><div class="lbl">Yakunlanganlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openList('rating')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Reyting</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+    </div>
+    <div class="list">
       <div class="item" style="display:block">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px">
           <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -260,8 +270,10 @@
   </div>
   <div id="msgs" class="msgs"></div>
   <div id="cmdpanel" class="hide" style="background:var(--bg);border-top:1px solid var(--sep);max-height:220px;overflow-y:auto"></div>
+  <div id="stickerpanel" class="hide"></div>
   <div id="composer" class="composer">
     <button class="cbtn" onclick="pickPhoto()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15l-5-5L5 21"/><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></button>
+    <button class="cbtn" onclick="toggleStickers()"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
     <textarea id="in-msg" rows="1" placeholder="Xabar..."></textarea>
     <button class="cbtn" id="mic" onclick="startRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 19v4"/></svg></button>
     <button class="cbtn acc" id="sendbtn" onclick="send()" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
@@ -287,6 +299,32 @@
     <button class="iconbtn" onclick="loadChannel()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
   </div>
   <div id="chanfeed" class="body" style="padding:10px"></div>
+</div>
+
+<!-- Umumiy ro'yxat (yakunlanmagan/yakunlangan/reyting) -->
+<div id="listview" class="screen hide">
+  <div class="topbar">
+    <button class="iconbtn" onclick="closeList()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="t" id="lv-title" style="font-size:17px">—</div>
+  </div>
+  <div id="lv-body" class="body"></div>
+</div>
+
+<!-- Rasm yuborish (caption + Cancel/Send) -->
+<div id="mediamodal" class="screen hide" style="background:var(--sec);z-index:30">
+  <div class="topbar">
+    <button class="iconbtn" onclick="closeMedia()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <div class="t" style="font-size:17px">Rasm yuborish</div>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto">
+    <img id="mm-img" style="max-width:100%;max-height:100%;border-radius:12px">
+  </div>
+  <div style="padding:8px 12px;text-align:center;color:var(--hint);font-size:13px">Caption yozing (ixtiyoriy)</div>
+  <div class="composer">
+    <textarea id="mm-cap" rows="1" placeholder="Sarlavha..."></textarea>
+    <button class="cbtn" onclick="closeMedia()" style="color:#e5484d"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <button class="cbtn acc" onclick="sendMedia()"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+  </div>
 </div>
 
 <!-- Filial tanlash modal -->
@@ -331,7 +369,7 @@ document.getElementById("btn-login").onclick = async () => {
   enter();
 };
 function logout(){ localStorage.clear(); OP = {}; CUR = null; if(pinTimer){clearInterval(pinTimer);pinTimer=null;} document.getElementById("in-pass").value=""; sh("login"); }
-function sh(id){ ["login","app","chat","channel"].forEach(s => document.getElementById(s).classList.toggle("hide", s !== id)); }
+function sh(id){ ["login","app","chat","channel","listview"].forEach(s => document.getElementById(s).classList.toggle("hide", s !== id)); }
 function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); if(pinTimer) clearInterval(pinTimer); pinTimer=setInterval(updatePinBadge,6000); }
 
 // ---- Tabs ----
@@ -444,6 +482,7 @@ async function loadMsgs(scroll){
     else if((m.type === "voice" || m.type === "audio") && m.file_id){
       inner = `<div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div>`; }
     else if(m.type === "video" && m.file_id){ inner = `<video controls style="max-width:230px;border-radius:12px" src="${fileUrl(m.file_id,'video')}"></video>`; }
+    else if(m.type === "sticker" && m.file_id){ inner = `<img src="${fileUrl(m.file_id,'sticker')}" style="width:118px;height:118px;object-fit:contain">`; }
     else if(m.type !== "text" && m.type){ inner = (_MLBL[m.type]||"Fayl") + (m.text?": "+esc(m.text):""); }
     else { inner = esc(m.text); }
     return `<div class="b ${m.own?'o':'c'}">${inner}<div class="tm">${m.time}</div></div>`;
@@ -543,12 +582,73 @@ function compressImage(file, maxDim, quality){
 function pickPhoto(){ document.getElementById("file-photo").click(); }
 document.getElementById("file-photo").onchange = async function(){
   const f=this.files[0]; this.value=""; if(!f||!CUR) return;
-  const data = await compressImage(f, 1600, 0.72);
-  const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:ta.value.trim(),media_kind:"photo",media_data:data}));
-  ta.value=""; ta.dispatchEvent(new Event("input"));
-  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
-  await loadMsgs(true);
+  openMedia(await compressImage(f, 1600, 0.72));
 };
+// ---- Rasm oldindan ko'rish (caption + Cancel/Send) ----
+let pendingMedia=null;
+function openMedia(data){ pendingMedia=data; document.getElementById("mm-img").src=data;
+  document.getElementById("mm-cap").value=""; document.getElementById("mediamodal").classList.remove("hide");
+  setTimeout(()=>document.getElementById("mm-cap").focus(),120); }
+function closeMedia(){ pendingMedia=null; document.getElementById("mediamodal").classList.add("hide"); }
+async function sendMedia(){
+  if(!pendingMedia||!CUR) return;
+  const cap=document.getElementById("mm-cap").value.trim(); const data=pendingMedia; closeMedia();
+  const r=await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:cap,media_kind:"photo",media_data:data}));
+  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true);
+}
+document.getElementById("mm-cap").addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMedia(); } });
+// Skrinshot / clipboard rasmni qo'yish (Ctrl+V)
+document.addEventListener("paste", async e=>{
+  if(!CUR || document.getElementById("chat").classList.contains("hide")) return;
+  const items=(e.clipboardData&&e.clipboardData.items)||[];
+  for(const it of items){ if(it.type&&it.type.indexOf("image")===0){ const f=it.getAsFile();
+    if(f){ e.preventDefault(); openMedia(await compressImage(f,1600,0.72)); return; } } }
+});
+// Ctrl+S — chatда rasm tanlashni ochadi
+document.addEventListener("keydown", e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&CUR&&!document.getElementById("chat").classList.contains("hide")){ e.preventDefault(); pickPhoto(); }
+});
+
+// ---- Stikerlar ----
+async function toggleStickers(){
+  const p=document.getElementById("stickerpanel");
+  if(!p.classList.contains("hide")){ p.classList.add("hide"); return; }
+  const r=await q("/api/stickers","GET",auth());
+  if(!r.ok||!r.items.length){ tg.showAlert("Stiker yo'q. Admin panel → Tayyor javoblar → stiker qo'shing."); return; }
+  p.innerHTML=r.items.map(s=>`<img class="stk" src="${fileUrl(s.file_id,'sticker')}" onclick="sendSticker(${s.id})">`).join("");
+  p.classList.remove("hide");
+}
+async function sendSticker(id){
+  document.getElementById("stickerpanel").classList.add("hide");
+  const r=await q("/api/send_sticker","POST",Object.assign(auth(),{order_id:CUR,sticker_id:id}));
+  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true);
+}
+
+// ---- Sozlamalar ro'yxatlari ----
+async function openList(kind){
+  const cfg={unfinished:{t:"Yakunlanmagan murojaatlar",u:"/api/unfinished"},
+             done:{t:"Yakunlanganlar",u:"/api/done"}, rating:{t:"Reyting",u:"/api/rating"}};
+  const c=cfg[kind]; document.getElementById("lv-title").textContent=c.t; sh("listview");
+  const box=document.getElementById("lv-body"); box.innerHTML='<div class="empty">Yuklanmoqda...</div>';
+  const r=await q(c.u,"GET",auth());
+  if(!r.ok){ box.innerHTML='<div class="empty">Xatolik</div>'; return; }
+  if(kind==="rating"){
+    box.innerHTML=r.items.map((it,i)=>`<div class="row"><div class="ava" style="width:40px;height:40px;font-size:15px">${i+1}</div>
+      <div class="mid"><div class="nm">${esc(it.name)}${it.name===r.me?" (siz)":""}</div>
+      <div class="pv">${it.done} yakun · ${it.score} ball${it.rating?" · "+it.rating+"★":""}</div></div></div>`).join("")
+      ||'<div class="empty">Bo\'sh</div>'; return;
+  }
+  if(!r.items.length){ box.innerHTML='<div class="empty">Bo\'sh</div>'; return; }
+  box.innerHTML=r.items.map(it=>{
+    const sub = kind==="unfinished"
+      ? ((it.status==="new"?"Yangi":"Jarayonda")+(it.operator?" · "+esc(it.operator):"")+(it.mine?" · siznikida":""))
+      : ((it.time||"")+(it.rating?" · "+it.rating+"★":""));
+    return `<div class="row" onclick='openChat(${it.order_id}, ${JSON.stringify(it.name)})'>
+      <div class="ava">${ini(it.name)}</div>
+      <div class="mid"><div class="nm">${esc(it.name)}</div><div class="pv">${sub}</div></div></div>`;
+  }).join("");
+}
+function closeList(){ sh("app"); showTab("prof"); }
 // ---- Voice yozish (Telegram uslubi: taymer + jonli to'lqin) ----
 let audioCtx=null, analyser=null, recStream=null, recAnim=null, recStart=0, recBars=[];
 function getAccent(){ return (getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#3390ec').trim(); }

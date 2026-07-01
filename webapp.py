@@ -209,7 +209,7 @@ async def api_file(request):
     except Exception:
         return web.Response(status=404, text="not found")
     ctype = {"voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
-             "document": "application/octet-stream"}.get(kind, "image/jpeg")
+             "sticker": "image/webp", "document": "application/octet-stream"}.get(kind, "image/jpeg")
     return web.Response(body=raw, content_type=ctype,
                         headers={"Cache-Control": "public, max-age=86400"})
 
@@ -417,7 +417,14 @@ async def api_client_open(request):
         return _json({"ok": False, "error": "tg"}, 400)
     oid = await q.last_order_of(tg)
     if not oid:
-        return _json({"ok": False, "error": "Bu mijozda murojaat yo'q"})
+        # Murojaat bo'lmasa — yangi suhbat (murojaat) yaratamiz, shu operatorга biriktiramiz
+        user = await q.get_user(tg)
+        if not user:
+            return _json({"ok": False, "error": "Mijoz topilmadi"})
+        oid = await q.create_order(tg, user["branch_id"], "text")
+        await q.claim_order(oid, op["id"])
+        await q.set_operator_active_order(op["id"], oid)
+        await q.set_operator_availability(op["id"], "busy")
     return _json({"ok": True, "order_id": oid})
 
 
@@ -571,6 +578,87 @@ async def api_cmd(request):
     return _json({"ok": False, "error": "noma'lum buyruq"}, 400)
 
 
+# ---------------- API: sozlamalar ro'yxatlari ----------------
+async def api_unfinished(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.unfinished_orders()
+    items = [{"order_id": r["id"], "name": r["full_name"] or "—", "status": r["status"],
+              "operator": r["operator"] or "", "mine": r["operator_id"] == op["id"],
+              "time": (r["created_at"] or "")[11:16]} for r in rows]
+    return _json({"ok": True, "items": items})
+
+
+async def api_done(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.orders_by_status("done", op["id"])
+    items = []
+    for r in rows[:50]:
+        u = await q.get_user(r["user_id"])
+        items.append({"order_id": r["id"], "name": u["full_name"] if u else "—",
+                      "time": (r["closed_at"] or r["created_at"] or "")[:16], "rating": r["rating"] or 0})
+    return _json({"ok": True, "items": items})
+
+
+async def api_rating(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.operators_rating()
+    items = [{"name": r["name"], "score": r["score"], "done": r["done"],
+              "rating": r["avg_rating"]} for r in rows]
+    return _json({"ok": True, "items": items, "me": op["name"]})
+
+
+# ---------------- API: stikerlar (admin shablonlari) ----------------
+async def api_stickers(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    tpls = await q.list_templates()
+    items = [{"id": t["id"], "file_id": t["sticker"]} for t in tpls if t["sticker"]]
+    return _json({"ok": True, "items": items})
+
+
+async def api_send_sticker(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id")); tid = int(body.get("sticker_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "arg"}, 400)
+    order = await q.get_order(order_id)
+    tpl = await q.get_template(tid)
+    if not order or not tpl or not tpl["sticker"]:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    if order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "yopilgan"})
+    if order["status"] == "new" and not order["operator_id"]:
+        if await q.claim_order(order_id, op["id"]):
+            await q.set_operator_availability(op["id"], "busy")
+    await q.set_operator_active_order(op["id"], order_id)
+    from utils import cbot, post_operator_to_channel
+    client = cbot()
+    if not client:
+        return _json({"ok": False, "error": "bot tayyor emas"})
+    try:
+        await client.send_sticker(order["user_id"], tpl["sticker"])
+        await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
+        await post_operator_to_channel(client, order, op["name"],
+                                       content_type="sticker", file_id=tpl["sticker"], src_bot=client)
+    except Exception:
+        return _json({"ok": False, "error": "yuborilmadi"})
+    return _json({"ok": True})
+
+
 # ---------------- Server ----------------
 def build_app() -> web.Application:
     app = web.Application(client_max_size=25 * 1024 * 1024)
@@ -596,6 +684,11 @@ def build_app() -> web.Application:
     app.router.add_get("/api/channel", api_channel)
     app.router.add_post("/api/channel_accept", api_channel_accept)
     app.router.add_get("/api/newcount", api_newcount)
+    app.router.add_get("/api/unfinished", api_unfinished)
+    app.router.add_get("/api/done", api_done)
+    app.router.add_get("/api/rating", api_rating)
+    app.router.add_get("/api/stickers", api_stickers)
+    app.router.add_post("/api/send_sticker", api_send_sticker)
     return app
 
 
