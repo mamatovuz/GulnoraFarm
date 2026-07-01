@@ -62,6 +62,9 @@ class AdminFlow(StatesGroup):
     botcred_password = State()
     # murojaat tarixi qidiruv
     search_value = State()
+    # hisobotlar qidiruvi
+    rep_search_conv = State()
+    rep_search_clients = State()
     # kontakt matnini tahrirlash
     contact_edit = State()
     # umumiy ish vaqti

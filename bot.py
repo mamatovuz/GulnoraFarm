@@ -12,7 +12,7 @@ from database.db import init_db
 from database import queries as q
 import keyboards as kb
 import botreg
-from handlers import registration, admin, operator, menu, order, unfinished
+from handlers import registration, admin, operator, menu, order, unfinished, reports
 from middlewares import ClientBotOnly
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -41,7 +41,7 @@ async def main():
 
     # Mijozga oid routerlar FAQAT asosiy botda ishlasin (operator botlarida o'tkazib yuboriladi).
     # Shunda: asosiy botda /operator ham ishlaydi, operator botida esa mijoz menyusi chiqmaydi.
-    for r in (registration.router, admin.router, menu.router, order.router):
+    for r in (registration.router, admin.router, reports.router, menu.router, order.router):
         r.message.outer_middleware(ClientBotOnly())
         r.callback_query.outer_middleware(ClientBotOnly())
         r.channel_post.outer_middleware(ClientBotOnly())
@@ -49,6 +49,7 @@ async def main():
     # Tartib muhim: /start -> registration (mijoz), /operator -> operator
     dp.include_router(registration.router)
     dp.include_router(admin.router)
+    dp.include_router(reports.router)
     dp.include_router(operator.router)
     dp.include_router(unfinished.build_router())
     dp.include_router(menu.router)

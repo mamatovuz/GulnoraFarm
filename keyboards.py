@@ -189,6 +189,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data="adm:stats"))
     kb.row(InlineKeyboardButton(text="🔴 Real vaqt", callback_data="adm:live"))
+    kb.row(InlineKeyboardButton(text="📚 Hisobotlar", callback_data="adm:reports"))
     kb.row(InlineKeyboardButton(text="📌 Yakunlanmagan murojaatlar", callback_data="adm:unfin"))
     kb.row(InlineKeyboardButton(text="📨 Ommaviy xabar", callback_data="adm:bc"))
     kb.row(InlineKeyboardButton(text="📢 Kanal boshqaruvi", callback_data="adm:ch"))

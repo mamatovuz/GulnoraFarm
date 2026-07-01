@@ -889,6 +889,133 @@ async def live_stats():
             "online": online, "per_op": per_op}
 
 
+# ============================ HISOBOTLAR (admin) ============================
+async def orders_page(limit, offset, search=None):
+    """Murojaatlar ro'yxati (sahifalab) + umumiy soni. search: ism/telefon/#id."""
+    db = await get_db()
+    where, params = "", []
+    if search:
+        s = search.strip().lstrip("#")
+        if s.isdigit():
+            where = "WHERE o.id = ? OR u.phone LIKE ?"
+            params = [int(s), f"%{s}%"]
+        else:
+            where = "WHERE u.full_name LIKE ? OR u.phone LIKE ?"
+            params = [f"%{s}%", f"%{s}%"]
+    cur = await db.execute(
+        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, "
+        f"u.full_name, u.phone, op.name AS operator "
+        f"FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        f"LEFT JOIN operators op ON op.id=o.operator_id {where} "
+        f"ORDER BY o.id DESC LIMIT ? OFFSET ?", (*params, limit, offset))
+    rows = await cur.fetchall()
+    cur = await db.execute(
+        f"SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id {where}", params)
+    total = (await cur.fetchone())[0]
+    return rows, total
+
+
+async def users_page(limit, offset, search=None):
+    """Mijozlar ro'yxati (sahifalab) + umumiy soni."""
+    db = await get_db()
+    where, params = "", []
+    if search:
+        s = search.strip()
+        where = "WHERE u.full_name LIKE ? OR u.phone LIKE ?"
+        params = [f"%{s}%", f"%{s}%"]
+    cur = await db.execute(
+        f"SELECT u.telegram_id, u.full_name, u.phone, u.username, b.name AS branch, "
+        f"(SELECT COUNT(*) FROM orders o WHERE o.user_id=u.telegram_id) AS cnt, "
+        f"(SELECT MAX(created_at) FROM orders o WHERE o.user_id=u.telegram_id) AS last_at "
+        f"FROM users u LEFT JOIN branches b ON b.id=u.branch_id {where} "
+        f"ORDER BY u.registered_at DESC LIMIT ? OFFSET ?", (*params, limit, offset))
+    rows = await cur.fetchall()
+    cur = await db.execute(f"SELECT COUNT(*) FROM users u {where}", params)
+    total = (await cur.fetchone())[0]
+    return rows, total
+
+
+async def user_full(tg):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT u.*, b.name AS branch FROM users u LEFT JOIN branches b ON b.id=u.branch_id "
+        "WHERE u.telegram_id=?", (tg,))
+    return await cur.fetchone()
+
+
+async def operators_report(since):
+    """Har operator kesimi (berilgan sanadan beri): qabul, yakun, javob/yakunlash vaqti, reyting."""
+    db = await get_db()
+    cur = await db.execute("SELECT id, name FROM operators WHERE status='active' ORDER BY id")
+    ops = await cur.fetchall()
+
+    async def val(q_, p):
+        cur = await db.execute(q_, p)
+        return (await cur.fetchone())[0]
+
+    res = []
+    for op in ops:
+        oid = op["id"]
+        accepted = await val("SELECT COUNT(*) FROM orders WHERE operator_id=? AND created_at>=?",
+                             (oid, since))
+        done = await val("SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' "
+                         "AND closed_at>=?", (oid, since))
+        resp = await val(
+            "SELECT AVG(resp) FROM (SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
+            "AS resp FROM orders o JOIN status_log sl ON sl.order_id=o.id "
+            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=? GROUP BY o.id)",
+            (f"operator:{oid}", since))
+        resol = await val(
+            "SELECT AVG((julianday(closed_at)-julianday(created_at))*1440) FROM orders "
+            "WHERE operator_id=? AND status='done' AND closed_at>=?", (oid, since))
+        rat = await val("SELECT AVG(rating) FROM orders WHERE operator_id=? AND rating IS NOT NULL",
+                        (oid,))
+        res.append({"name": op["name"], "accepted": accepted, "done": done,
+                    "resp": round(resp, 1) if resp else 0,
+                    "resol": round(resol, 1) if resol else 0,
+                    "rating": round(rat, 1) if rat else 0})
+    return res
+
+
+async def hourly_load(since):
+    """Soat kesimida (0-23) murojaatlar soni."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hr, COUNT(*) "
+        "FROM orders WHERE created_at>=? GROUP BY hr", (since,))
+    return {r[0]: r[1] for r in await cur.fetchall()}
+
+
+async def period_report(since):
+    """Davr bo'yicha umumiy + kunlar kesimi."""
+    db = await get_db()
+
+    async def val(q_, p=()):
+        cur = await db.execute(q_, p)
+        return (await cur.fetchone())[0]
+
+    total = await val("SELECT COUNT(*) FROM orders WHERE created_at>=?", (since,))
+    new = await val("SELECT COUNT(*) FROM orders WHERE status='new' AND created_at>=?", (since,))
+    prog = await val("SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?", (since,))
+    done = await val("SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?", (since,))
+    canceled = await val("SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?", (since,))
+    resp = await val(
+        "SELECT AVG(resp) FROM (SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
+        "AS resp FROM orders o JOIN status_log sl ON sl.order_id=o.id "
+        "WHERE sl.new_status='in_progress' AND o.created_at>=? GROUP BY o.id)", (since,))
+    resol = await val(
+        "SELECT AVG((julianday(closed_at)-julianday(created_at))*1440) FROM orders "
+        "WHERE status='done' AND closed_at>=?", (since,))
+    cur = await db.execute(
+        "SELECT date(created_at) AS d, COUNT(*), "
+        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
+        "FROM orders WHERE created_at>=? GROUP BY d ORDER BY d DESC LIMIT 14", (since,))
+    days = await cur.fetchall()
+    return {"total": total, "new": new, "prog": prog, "done": done, "canceled": canceled,
+            "resp": round(resp, 1) if resp else 0, "resol": round(resol, 1) if resol else 0,
+            "days": days}
+
+
 # ============================ EXCEL HISOBOT UCHUN ============================
 async def all_orders_full():
     db = await get_db()
