@@ -396,6 +396,108 @@ async def api_avatar_upload(request):
     return _json({"ok": True})
 
 
+# ---------------- API: mijozlar ----------------
+async def api_clients(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    search = request.query.get("q") or None
+    rows, total = await q.users_page(50, 0, search)
+    out = [{"tg": r["telegram_id"], "name": r["full_name"] or "—",
+            "phone": r["phone"] or "", "cnt": r["cnt"]} for r in rows]
+    return _json({"ok": True, "total": total, "clients": out})
+
+
+async def api_client_open(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        tg = int(request.query.get("tg"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "tg"}, 400)
+    oid = await q.last_order_of(tg)
+    if not oid:
+        return _json({"ok": False, "error": "Bu mijozda murojaat yo'q"})
+    return _json({"ok": True, "order_id": oid})
+
+
+async def api_branches(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    bs = await q.list_branches()
+    return _json({"ok": True, "branches": [{"id": b["id"], "name": b["name"]} for b in bs]})
+
+
+# ---------------- API: chat buyruqlari (/10daqiqa, /filialtanlatish ...) ----------------
+async def api_cmd(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    cmd = body.get("cmd")
+    arg = body.get("arg")
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    from utils import cbot, post_operator_to_channel
+    import keyboards as kb
+    client = cbot()
+    if not client:
+        return _json({"ok": False, "error": "bot tayyor emas"}, 200)
+    uid = order["user_id"]
+    clang = await q.get_lang(uid)
+    try:
+        if cmd == "autoclose":
+            import asyncio
+            from handlers.operator import _auto_close_task, AUTO_CLOSE_MIN
+            asyncio.create_task(_auto_close_task(client, order_id, q.now(), op["telegram_id"] or 0))
+            await client.send_message(uid, loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
+            return _json({"ok": True, "info": f"{AUTO_CLOSE_MIN} daqiqada avto-yakunlash yoqildi"})
+
+        if cmd == "askbranch":
+            branches = await q.list_branches()
+            await client.send_message(uid, loc.t("op_ask_branch", clang),
+                                      reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+            return _json({"ok": True, "info": "Mijozga filial tanlash so'rovi yuborildi"})
+
+        if cmd == "sendbranch":
+            b = await q.get_branch(int(arg))
+            if not b:
+                return _json({"ok": False, "error": "filial topilmadi"})
+            text = (f"🏥 <b>{b['name']}</b>\n📍 {b['address'] or '—'}\n"
+                    f"📞 {b['phone'] or '—'}\n🕐 Ish vaqti: {b['open_time']}–{b['close_time']}")
+            has = b["lat"] is not None and b["lon"] is not None
+            markup = kb.branch_directions_kb(b["lat"], b["lon"]) if has else None
+            if b["photo_file_id"]:
+                await client.send_photo(uid, b["photo_file_id"], caption=text, reply_markup=markup)
+            else:
+                await client.send_message(uid, text, reply_markup=markup)
+            if has:
+                await client.send_venue(uid, latitude=b["lat"], longitude=b["lon"],
+                                        title=b["name"], address=b["address"] or "")
+            return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
+
+        if cmd == "bill":
+            billtext = str(arg or "").strip()
+            await q.set_order_bill(order_id, billtext, None)
+            await client.send_message(uid, loc.t("bill_to_client", clang, id=order_id, bill=billtext))
+            await q.add_message(order_id, "operator", "text", f"🧾 Hisob-kitob: {billtext}", None, None)
+            await post_operator_to_channel(client, order, op["name"], text=f"🧾 Hisob-kitob: {billtext}")
+            return _json({"ok": True, "info": "Hisob-kitob yuborildi"})
+    except Exception:
+        return _json({"ok": False, "error": "bajarilmadi"}, 200)
+    return _json({"ok": False, "error": "noma'lum buyruq"}, 400)
+
+
 # ---------------- Server ----------------
 def build_app() -> web.Application:
     app = web.Application(client_max_size=25 * 1024 * 1024)
@@ -414,6 +516,10 @@ def build_app() -> web.Application:
     app.router.add_post("/api/status", api_status)
     app.router.add_get("/api/avatar", api_avatar)
     app.router.add_post("/api/avatar", api_avatar_upload)
+    app.router.add_get("/api/clients", api_clients)
+    app.router.add_get("/api/client_open", api_client_open)
+    app.router.add_get("/api/branches", api_branches)
+    app.router.add_post("/api/cmd", api_cmd)
     return app
 
 

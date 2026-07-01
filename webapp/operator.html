@@ -131,6 +131,15 @@
     </div>
     <div id="rows" class="body"></div>
   </div>
+  <!-- CLIENTS TAB -->
+  <div id="tab-clients" class="hide" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <div class="topbar"><div class="t">Mijozlarim</div></div>
+    <div style="padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--sep)">
+      <input id="cl-search" placeholder="Qidiruv (ism yoki telefon)" oninput="loadClients()"
+        style="width:100%;padding:10px 12px;border:none;border-radius:10px;background:var(--sec);color:var(--text);outline:none;font-size:15px">
+    </div>
+    <div id="clrows" class="body"></div>
+  </div>
   <!-- PROFILE TAB -->
   <div id="tab-prof" class="body hide">
     <div class="prof">
@@ -163,6 +172,10 @@
       <svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-3.8-.9L3 20l1.9-5.2A8.5 8.5 0 0 1 12 3a8.38 8.38 0 0 1 9 8.5z"/></svg>
       Chatlar<span id="tb-badge" class="dot hide">0</span>
     </button>
+    <button id="tb-clients" onclick="showTab('clients')">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Mijozlarim
+    </button>
     <button id="tb-prof" onclick="showTab('prof')">
       <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
       Profil
@@ -181,6 +194,7 @@
     <button class="iconbtn" onclick="hideChat()" title="O'chirish"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
   </div>
   <div id="msgs" class="msgs"></div>
+  <div id="cmdpanel" class="hide" style="background:var(--bg);border-top:1px solid var(--sep);max-height:220px;overflow-y:auto"></div>
   <div class="composer">
     <button class="cbtn" onclick="pickPhoto()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15l-5-5L5 21"/><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></button>
     <textarea id="in-msg" rows="1" placeholder="Xabar..."></textarea>
@@ -190,6 +204,15 @@
 </div>
 <input type="file" id="file-photo" accept="image/*" class="hide">
 <input type="file" id="file-ava" accept="image/*" class="hide">
+
+<!-- Filial tanlash modal -->
+<div id="branchmodal" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end">
+  <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:72%;overflow-y:auto">
+    <div class="topbar"><div class="t">Filialni tanlang</div>
+      <button class="iconbtn" onclick="closeBranch()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+    <div id="branchrows"></div>
+  </div>
+</div>
 
 <script>
 const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
@@ -229,11 +252,33 @@ function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); }
 
 // ---- Tabs ----
 function showTab(t){
-  document.getElementById("tab-chats").classList.toggle("hide", t!=="chats");
-  document.getElementById("tab-prof").classList.toggle("hide", t!=="prof");
-  document.getElementById("tb-chats").classList.toggle("on", t==="chats");
-  document.getElementById("tb-prof").classList.toggle("on", t==="prof");
+  ["chats","clients","prof"].forEach(x=>{
+    document.getElementById("tab-"+x).classList.toggle("hide", x!==t);
+    document.getElementById("tb-"+x).classList.toggle("on", x===t);
+  });
   if(t==="prof") loadProfile();
+  if(t==="clients") loadClients();
+}
+
+// ---- Mijozlarim ----
+let clTimer=null;
+async function loadClients(){
+  const term=(document.getElementById("cl-search").value||"").trim();
+  const r=await q("/api/clients","GET",Object.assign(auth(),{q:term}));
+  if(!r.ok) return;
+  const box=document.getElementById("clrows");
+  if(!r.clients.length){ box.innerHTML='<div class="empty">Mijoz topilmadi</div>'; return; }
+  box.innerHTML=r.clients.map(c=>`
+    <div class="row" onclick='openClient(${c.tg}, ${JSON.stringify(c.name)})'>
+      <div class="ava">${ini(c.name)}</div>
+      <div class="mid"><div class="nm"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span></div>
+        <div class="pv">${esc(c.phone)} · ${c.cnt} murojaat</div></div>
+    </div>`).join("");
+}
+async function openClient(uid, name){
+  const r=await q("/api/client_open","GET",Object.assign(auth(),{tg:uid}));
+  if(!r.ok){ tg.showAlert(r.error||"Murojaat yo'q"); return; }
+  openChat(r.order_id, name);
 }
 
 // ---- Chat list ----
@@ -287,18 +332,75 @@ function backToList(){ stopPoll(); CUR=null; sh("app"); loadChats(); }
 
 // ---- Text/media send ----
 const ta = document.getElementById("in-msg");
+let pendingBill = false;
 ta.addEventListener("input", ()=>{
   const has = ta.value.trim().length>0;
   document.getElementById("sendbtn").style.display = has?"flex":"none";
   document.getElementById("mic").style.display = has?"none":"flex";
+  updateCmd();
 });
 ta.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
 async function send(){
   const text = ta.value.trim(); if(!text||!CUR) return;
+  if(pendingBill){
+    pendingBill=false; ta.placeholder="Xabar..."; ta.value=""; ta.dispatchEvent(new Event("input"));
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:text}));
+    tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
+  }
   ta.value=""; ta.dispatchEvent(new Event("input"));
   const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text}));
   if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
   await loadMsgs(true);
+}
+
+// ---- Chat buyruqlari (/) ----
+const CMDS=[
+  {c:"/10daqiqa", d:"10 daqiqada avto-yakunlash"},
+  {c:"/filialtanlatish", d:"Mijozga filial tanlatish"},
+  {c:"/filialmalumoti", d:"Filial ma'lumotini yuborish"},
+  {c:"/hisoblash", d:"Hisob-kitob yuborish"},
+];
+function updateCmd(){
+  const v=ta.value.toLowerCase(); const panel=document.getElementById("cmdpanel");
+  if(v.startsWith("/")){
+    const f=CMDS.filter(x=>x.c.startsWith(v));
+    if(f.length){
+      panel.innerHTML=f.map(x=>`<div class="item" onclick="runCmd('${x.c}')">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        <div class="lbl"><b>${x.c}</b><div class="val">${x.d}</div></div></div>`).join("");
+      panel.classList.remove("hide"); return;
+    }
+  }
+  panel.classList.add("hide");
+}
+async function runCmd(c){
+  ta.value=""; ta.dispatchEvent(new Event("input"));
+  document.getElementById("cmdpanel").classList.add("hide");
+  if(c==="/10daqiqa"){
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"autoclose"}));
+    tg.showAlert(r.ok?r.info:(r.error||"Xatolik"));
+  } else if(c==="/filialtanlatish"){
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"askbranch"}));
+    tg.showAlert(r.ok?r.info:(r.error||"Xatolik"));
+  } else if(c==="/filialmalumoti"){
+    openBranchModal();
+  } else if(c==="/hisoblash"){
+    pendingBill=true; ta.placeholder="Hisob-kitob: summa/izoh yozing va yuboring"; ta.focus();
+  }
+}
+async function openBranchModal(){
+  const r=await q("/api/branches","GET",auth()); if(!r.ok) return;
+  document.getElementById("branchrows").innerHTML=r.branches.map(b=>`
+    <div class="item" onclick="sendBranch(${b.id})">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      <div class="lbl">${esc(b.name)}</div></div>`).join("");
+  document.getElementById("branchmodal").classList.remove("hide");
+}
+function closeBranch(){ document.getElementById("branchmodal").classList.add("hide"); }
+async function sendBranch(id){
+  closeBranch();
+  const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"sendbranch",arg:id}));
+  tg.showAlert(r.ok?r.info:(r.error||"Xatolik"));
 }
 function pickPhoto(){ document.getElementById("file-photo").click(); }
 document.getElementById("file-photo").onchange = function(){

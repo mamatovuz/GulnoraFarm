@@ -908,6 +908,13 @@ async def op_chats(operator_id):
     return await cur.fetchall()
 
 
+async def last_order_of(tg):
+    db = await get_db()
+    cur = await db.execute("SELECT id FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 1", (tg,))
+    r = await cur.fetchone()
+    return r["id"] if r else None
+
+
 async def hide_chat(operator_id, order_id):
     db = await get_db()
     await db.execute("INSERT OR IGNORE INTO hidden_chats (operator_id, order_id) VALUES (?, ?)",
