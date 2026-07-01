@@ -342,8 +342,7 @@ async def api_profile(request):
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
     s = await q.operator_stats(op["id"])
-    chats = await q.op_chats(op["id"])
-    incoming = sum(1 for c in chats if c["status"] == "new")
+    incoming = await q.new_count()
     return _json({"ok": True, "name": op["name"], "login": op["login"],
                   "availability": op["availability"], "incoming": incoming,
                   "has_avatar": os.path.exists(os.path.join(AVATAR_DIR, f"{op['id']}.jpg")),
@@ -428,6 +427,80 @@ async def api_branches(request):
         return _json({"ok": False}, 401)
     bs = await q.list_branches()
     return _json({"ok": True, "branches": [{"id": b["id"], "name": b["name"]} for b in bs]})
+
+
+async def api_newcount(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    return _json({"ok": True, "count": await q.new_count()})
+
+
+# ---------------- API: CRM kanali (murojaatlar tushadi) ----------------
+async def api_channel(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.channel_feed()
+    items = []
+    for r in rows:
+        items.append({
+            "order_id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
+            "branch": r["branch"] or "", "time": (r["created_at"] or "")[11:16],
+            "text": r["first_text"] or "", "file_id": r["first_file"] or "",
+            "ftype": r["first_ct"] or ""})
+    return _json({"ok": True, "count": len(items), "items": items})
+
+
+async def api_channel_accept(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    if order["status"] != "new" or not await q.claim_order(order_id, op["id"]):
+        return _json({"ok": False, "error": "Boshqa operator qabul qildi"})
+    await q.set_operator_active_order(op["id"], order_id)
+    await q.set_operator_availability(op["id"], "busy")
+    # operator botlaridagi bildirishnomalarni o'chiramiz (boshqalardan yo'qoladi)
+    import botreg
+    for n in await q.order_notifs(order_id):
+        nb = botreg.get_operator_bot(n["bot_id"])
+        if nb:
+            try:
+                await nb.delete_message(n["chat_id"], n["message_id"])
+            except Exception:
+                pass
+    await q.clear_order_notifs(order_id)
+    # haqiqiy Telegram kanalidagi kartani yangilaymiz (Jarayonda + kim qabul qildi)
+    from utils import cbot, update_group_card
+    from config import OPERATORS_GROUP_ID
+    client = cbot()
+    if client and order["group_msg_id"] and OPERATORS_GROUP_ID:
+        try:
+            await client.unpin_chat_message(OPERATORS_GROUP_ID, message_id=order["group_msg_id"])
+        except Exception:
+            pass
+        try:
+            await update_group_card(client, order_id)
+        except Exception:
+            pass
+    if client:
+        clang = await q.get_lang(order["user_id"])
+        try:
+            await client.send_message(order["user_id"], loc.t("accept_notify", clang))
+        except Exception:
+            pass
+    return _json({"ok": True, "order_id": order_id})
 
 
 # ---------------- API: chat buyruqlari (/10daqiqa, /filialtanlatish ...) ----------------
@@ -520,6 +593,9 @@ def build_app() -> web.Application:
     app.router.add_get("/api/client_open", api_client_open)
     app.router.add_get("/api/branches", api_branches)
     app.router.add_post("/api/cmd", api_cmd)
+    app.router.add_get("/api/channel", api_channel)
+    app.router.add_post("/api/channel_accept", api_channel_accept)
+    app.router.add_get("/api/newcount", api_newcount)
     return app
 
 

@@ -901,10 +901,30 @@ async def op_chats(operator_id):
         "(SELECT content_type FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_ct, "
         "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
-        "WHERE ((o.status='in_progress' AND o.operator_id=?) OR o.status='new') "
+        "WHERE o.status='in_progress' AND o.operator_id=? "
         "AND o.id NOT IN (SELECT order_id FROM hidden_chats WHERE operator_id=?) "
         "ORDER BY COALESCE(last_at, o.created_at) DESC LIMIT 100",
         (operator_id, operator_id))
+    return await cur.fetchall()
+
+
+async def new_count():
+    db = await get_db()
+    cur = await db.execute("SELECT COUNT(*) FROM orders WHERE status='new'")
+    return (await cur.fetchone())[0]
+
+
+async def channel_feed():
+    """CRM kanali: yangi (kutayotgan) murojaatlar — mijoz ma'lumoti + birinchi kontent bilan."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.created_at, o.content_type, u.full_name, u.phone, u.username, b.name AS branch, "
+        "(SELECT text FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_text, "
+        "(SELECT content_type FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_ct, "
+        "(SELECT file_id FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_file "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN branches b ON b.id=o.branch_id "
+        "WHERE o.status='new' ORDER BY o.created_at DESC LIMIT 50")
     return await cur.fetchall()
 
 

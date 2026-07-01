@@ -135,6 +135,19 @@
   .recdot{width:11px;height:11px;border-radius:50%;background:#e5484d;animation:pulse 1s infinite;flex-shrink:0}
   .rectime{font-variant-numeric:tabular-nums;font-size:14px;min-width:38px}
   #recwave{flex:1;height:30px}
+
+  /* ---- CRM kanali ---- */
+  .chanpin{border-bottom:1px solid var(--sep)!important}
+  .chanpin .ava{background:linear-gradient(135deg,#54a9eb,#3390ec)}
+  .ccard{background:var(--bg);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+  .ccard .ch{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+  .ccard .ch .mid{flex:1;min-width:0}
+  .ccard .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ccard .sub{color:var(--hint);font-size:12px}
+  .ccard .txt{font-size:14.5px;margin:4px 0;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}
+  .ccard img{max-width:100%;border-radius:10px;margin:4px 0;display:block}
+  .ccard .accept{width:100%;background:var(--accent);color:var(--accent-text);border:none;
+    padding:11px;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;margin-top:6px}
 </style>
 </head>
 <body>
@@ -157,7 +170,18 @@
     <div class="topbar"><div class="t">Chatlar</div>
       <button class="iconbtn" onclick="loadChats()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
     </div>
-    <div id="rows" class="body"></div>
+    <div class="body" style="flex:1">
+      <div class="row chanpin" onclick="openChannel()">
+        <div class="ava"><svg class="ic" viewBox="0 0 24 24" style="stroke:#fff"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg></div>
+        <div class="mid">
+          <div class="nm"><span>Gulnora Farm — Murojaatlar</span>
+            <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--hint)"><path d="M12 17v5M8 2h8M9 2l1 9M15 2l-1 9M6 11h12l-2 4H8l-2-4z"/></svg></div>
+          <div class="pv" id="chan-sub">Yangi murojaatlar shu yerda</div>
+        </div>
+        <div id="chan-badge" class="tag hide">0</div>
+      </div>
+      <div id="rows"></div>
+    </div>
   </div>
   <!-- CLIENTS TAB -->
   <div id="tab-clients" class="hide" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
@@ -253,6 +277,18 @@
 <input type="file" id="file-photo" accept="image/*" class="hide">
 <input type="file" id="file-ava" accept="image/*" class="hide">
 
+<!-- CRM KANALI -->
+<div id="channel" class="screen hide">
+  <div class="topbar">
+    <button class="iconbtn" onclick="closeChannel()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="ava" style="width:38px;height:38px;background:linear-gradient(135deg,#54a9eb,#3390ec)"><svg class="ic" viewBox="0 0 24 24" style="stroke:#fff;width:20px;height:20px"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg></div>
+    <div style="flex:1;min-width:0"><div class="t" style="font-size:16px">Gulnora Farm — Murojaatlar</div>
+      <div class="val" style="color:var(--hint);font-size:12px" id="chan-count">0 ta yangi</div></div>
+    <button class="iconbtn" onclick="loadChannel()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
+  </div>
+  <div id="chanfeed" class="body" style="padding:10px"></div>
+</div>
+
 <!-- Filial tanlash modal -->
 <div id="branchmodal" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end">
   <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:72%;overflow-y:auto">
@@ -294,9 +330,9 @@ document.getElementById("btn-login").onclick = async () => {
   localStorage.setItem("op_id", OP.id); localStorage.setItem("op_name", OP.name); localStorage.setItem("op_token", OP.token);
   enter();
 };
-function logout(){ localStorage.clear(); OP = {}; CUR = null; document.getElementById("in-pass").value=""; sh("login"); }
-function sh(id){ ["login","app","chat"].forEach(s => document.getElementById(s).classList.toggle("hide", s !== id)); }
-function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); }
+function logout(){ localStorage.clear(); OP = {}; CUR = null; if(pinTimer){clearInterval(pinTimer);pinTimer=null;} document.getElementById("in-pass").value=""; sh("login"); }
+function sh(id){ ["login","app","chat","channel"].forEach(s => document.getElementById(s).classList.toggle("hide", s !== id)); }
+function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); if(pinTimer) clearInterval(pinTimer); pinTimer=setInterval(updatePinBadge,6000); }
 
 // ---- Tabs ----
 function showTab(t){
@@ -333,21 +369,54 @@ async function openClient(uid, name){
 async function loadChats(){
   const r = await q("/api/chats", "GET", auth());
   if(!r.ok){ if(r.error==="auth") logout(); return; }
+  updatePinBadge();
   const box = document.getElementById("rows");
-  const inc = r.chats.filter(c=>c.incoming).length;
-  const badge = document.getElementById("tb-badge");
-  badge.textContent = inc; badge.classList.toggle("hide", inc===0);
-  if(!r.chats.length){ box.innerHTML = '<div class="empty">Hozircha chat yo\'q</div>'; return; }
+  if(!r.chats.length){ box.innerHTML = '<div class="empty">Faol suhbat yo\'q.<br>Yangi murojaatlar yuqoridagi kanalda.</div>'; return; }
   box.innerHTML = r.chats.map(c => `
     <div class="row" onclick='openChat(${c.order_id}, ${JSON.stringify(c.name)})'>
       <div class="ava">${ini(c.name)}</div>
       <div class="mid">
         <div class="nm"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
-          <span class="tm">${c.incoming ? '<span class="tag">yangi</span>' : c.time}</span></div>
+          <span class="tm">${c.time}</span></div>
         <div class="pv">${esc(c.preview)}</div>
       </div>
-      ${c.incoming ? '<div class="newdot"></div>' : ''}
     </div>`).join("");
+}
+async function updatePinBadge(){
+  const r = await q("/api/newcount","GET",auth()); if(!r.ok) return;
+  const n = r.count||0;
+  ["chan-badge","tb-badge"].forEach(id=>{ const e=document.getElementById(id); e.textContent=n; e.classList.toggle("hide", n===0); });
+  document.getElementById("chan-sub").textContent = n ? (n+" ta yangi murojaat") : "Yangi murojaatlar shu yerda";
+}
+let pinTimer=null;
+// ---- CRM kanali ----
+let chanTimer=null;
+async function openChannel(){ sh("channel"); await loadChannel(); if(chanTimer) clearInterval(chanTimer); chanTimer=setInterval(loadChannel,5000); }
+function closeChannel(){ if(chanTimer){ clearInterval(chanTimer); chanTimer=null; } sh("app"); loadChats(); }
+async function loadChannel(){
+  const r=await q("/api/channel","GET",auth()); if(!r.ok) return;
+  document.getElementById("chan-count").textContent = r.count + " ta yangi";
+  const box=document.getElementById("chanfeed");
+  if(!r.items.length){ box.innerHTML='<div class="empty">Yangi murojaat yo\'q</div>'; return; }
+  box.innerHTML=r.items.map(it=>{
+    let media="";
+    if(it.file_id && it.ftype==="photo") media=`<img src="${fileUrl(it.file_id,'photo')}">`;
+    else if(it.file_id) media=`<div class="sub">${_MLBL[it.ftype]||"Fayl"}</div>`;
+    const txt = it.text?`<div class="txt">${esc(it.text)}</div>`:"";
+    return `<div class="ccard">
+      <div class="ch"><div class="ava" style="width:44px;height:44px;font-size:17px">${ini(it.name)}</div>
+        <div class="mid"><div class="nm">${esc(it.name)}</div>
+          <div class="sub">${esc(it.phone)}${it.branch?' · '+esc(it.branch):''} · ${it.time}</div></div></div>
+      ${txt}${media}
+      <button class="accept" onclick='acceptChannel(${it.order_id}, ${JSON.stringify(it.name)})'>Qabul qilish</button>
+    </div>`;
+  }).join("");
+}
+async function acceptChannel(oid, name){
+  const r=await q("/api/channel_accept","POST",Object.assign(auth(),{order_id:oid}));
+  if(!r.ok){ tg.showAlert(r.error||"Qabul qilinmadi"); loadChannel(); return; }
+  if(chanTimer){ clearInterval(chanTimer); chanTimer=null; }
+  openChat(r.order_id, name);
 }
 
 // ---- Chat view ----
@@ -458,17 +527,27 @@ async function sendBranch(id){
   const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"sendbranch",arg:id}));
   tg.showAlert(r.ok?r.info:(r.error||"Xatolik"));
 }
+function compressImage(file, maxDim, quality){
+  return new Promise(res=>{
+    const rd=new FileReader();
+    rd.onload=()=>{ const img=new Image();
+      img.onload=()=>{ let w=img.width, h=img.height;
+        if(w>maxDim||h>maxDim){ if(w>=h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+        const c=document.createElement("canvas"); c.width=w; c.height=h;
+        c.getContext("2d").drawImage(img,0,0,w,h);
+        try{ res(c.toDataURL("image/jpeg",quality)); }catch(e){ res(rd.result); } };
+      img.onerror=()=>res(rd.result); img.src=rd.result; };
+    rd.readAsDataURL(file);
+  });
+}
 function pickPhoto(){ document.getElementById("file-photo").click(); }
-document.getElementById("file-photo").onchange = function(){
-  const f = this.files[0]; if(!f||!CUR) return;
-  const rd = new FileReader();
-  rd.onload = async () => {
-    const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:ta.value.trim(),media_kind:"photo",media_data:rd.result}));
-    ta.value=""; ta.dispatchEvent(new Event("input"));
-    if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
-    await loadMsgs(true);
-  };
-  rd.readAsDataURL(f); this.value="";
+document.getElementById("file-photo").onchange = async function(){
+  const f=this.files[0]; this.value=""; if(!f||!CUR) return;
+  const data = await compressImage(f, 1600, 0.72);
+  const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:ta.value.trim(),media_kind:"photo",media_data:data}));
+  ta.value=""; ta.dispatchEvent(new Event("input"));
+  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+  await loadMsgs(true);
 };
 // ---- Voice yozish (Telegram uslubi: taymer + jonli to'lqin) ----
 let audioCtx=null, analyser=null, recStream=null, recAnim=null, recStart=0, recBars=[];
@@ -608,12 +687,11 @@ async function toggleStatus(){
   document.getElementById("p-stlbl").textContent = free?"Bo'sh":"Band";
 }
 function pickAvatar(){ document.getElementById("file-ava").click(); }
-document.getElementById("file-ava").onchange = function(){
-  const f=this.files[0]; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=async()=>{ const r=await q("/api/avatar","POST",Object.assign(auth(),{data:rd.result}));
-    if(r.ok) loadProfile(); };
-  rd.readAsDataURL(f); this.value="";
+document.getElementById("file-ava").onchange = async function(){
+  const f=this.files[0]; this.value=""; if(!f) return;
+  const data = await compressImage(f, 512, 0.8);
+  const r=await q("/api/avatar","POST",Object.assign(auth(),{data}));
+  if(r.ok) loadProfile();
 };
 
 // ---- start ----
