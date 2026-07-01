@@ -28,6 +28,12 @@ OPERATORS_GROUP_ID = int(_group) if _group and _group.lstrip("-").isdigit() else
 _default_db = "/data/gulnora_farm.db" if os.path.isdir("/data") else "gulnora_farm.db"
 DB_PATH = os.getenv("DB_PATH", _default_db)
 
+# Telegram Mini App (CRM web panel)
+# WEBAPP_URL — Railway public domeni, masalan: https://gulnora-farm.up.railway.app
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
+# Railway PORT ni beradi; bo'lmasa 8080
+WEBAPP_PORT = int(os.getenv("PORT", "8080"))
+
 if not BOT_TOKEN:
     raise RuntimeError(
         "BOT_TOKEN topilmadi! .env faylini yarating (.env.example dan nusxa oling) "

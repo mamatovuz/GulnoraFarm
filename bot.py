@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEBAPP_PORT, WEBAPP_URL
 from database.db import init_db
 from database import queries as q
 import keyboards as kb
@@ -69,6 +69,12 @@ async def main():
 
     # Operator ish vaqti tugaganda avtomatik chiqaruvchi fon vazifasi
     asyncio.create_task(operator.op_workhours_loop(bot))
+    # Mini app (CRM) web serveri — bot bilan bir jarayonda
+    try:
+        import webapp
+        asyncio.create_task(webapp.start(WEBAPP_PORT))
+    except Exception as e:
+        logger.info("Mini app serverini ishga tushirishda xato: %s", e)
     await dp.start_polling(bot, handle_signals=False)
 
 

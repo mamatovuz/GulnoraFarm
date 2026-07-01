@@ -1,11 +1,15 @@
 """Reply va inline klaviaturalar."""
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
-    InlineKeyboardMarkup, InlineKeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import locales as loc
+try:
+    from config import WEBAPP_URL as _WEBAPP_URL
+except Exception:
+    _WEBAPP_URL = ""
 
 REMOVE = ReplyKeyboardRemove()
 
@@ -387,16 +391,19 @@ def history_kb() -> InlineKeyboardMarkup:
 # ========================= OPERATOR KABINETI =========================
 def operator_menu(availability="free") -> ReplyKeyboardMarkup:
     status_btn = "🟢 Holatim: Bo'sh" if availability == "free" else "🔴 Holatim: Band"
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
-            [KeyboardButton(text="📌 Yakunlanmagan murojaatlar")],
-            [KeyboardButton(text="✅ Yakunlanganlar"), KeyboardButton(text="📊 Mening statistikam")],
-            [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
-            [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
-        ],
-        resize_keyboard=True,
-    )
+    rows = []
+    # Mini app (CRM) tugmasi — WEBAPP_URL sozlangan bo'lsa
+    if _WEBAPP_URL:
+        rows.append([KeyboardButton(text="🖥 Mini app (CRM)",
+                                    web_app=WebAppInfo(url=_WEBAPP_URL + "/operator"))])
+    rows += [
+        [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
+        [KeyboardButton(text="📌 Yakunlanmagan murojaatlar")],
+        [KeyboardButton(text="✅ Yakunlanganlar"), KeyboardButton(text="📊 Mening statistikam")],
+        [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
+        [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
+    ]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 # Bot taniydigan barcha menyu tugmalari (proxy-chat ularni yutib yubormasligi uchun)

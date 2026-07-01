@@ -889,6 +889,32 @@ async def live_stats():
             "online": online, "per_op": per_op}
 
 
+# ============================ MINI APP (CRM) ============================
+async def op_chats(operator_id):
+    """Operator chatlari: o'ziga biriktirilgan jarayondagilar + yangi (kelayotgan) murojaatlar.
+    Yashirilganlar chiqmaydi. Har birida oxirgi xabar ko'rinadi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, "
+        "u.full_name, u.phone, u.username, "
+        "(SELECT text FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_text, "
+        "(SELECT content_type FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_ct, "
+        "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE ((o.status='in_progress' AND o.operator_id=?) OR o.status='new') "
+        "AND o.id NOT IN (SELECT order_id FROM hidden_chats WHERE operator_id=?) "
+        "ORDER BY COALESCE(last_at, o.created_at) DESC LIMIT 100",
+        (operator_id, operator_id))
+    return await cur.fetchall()
+
+
+async def hide_chat(operator_id, order_id):
+    db = await get_db()
+    await db.execute("INSERT OR IGNORE INTO hidden_chats (operator_id, order_id) VALUES (?, ?)",
+                     (operator_id, order_id))
+    await db.commit()
+
+
 # ============================ HISOBOTLAR (admin) ============================
 async def orders_page(limit, offset, search=None):
     """Murojaatlar ro'yxati (sahifalab) + umumiy soni. search: ism/telefon/#id."""

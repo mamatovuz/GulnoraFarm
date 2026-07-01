@@ -148,6 +148,13 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- Mini app'da operator "chatni o'chirsa" (Telegramdek) — ro'yxatdan yashiriladi
+CREATE TABLE IF NOT EXISTS hidden_chats (
+    operator_id INTEGER,
+    order_id    INTEGER,
+    UNIQUE(operator_id, order_id)
+);
+
 CREATE TABLE IF NOT EXISTS status_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id   INTEGER,
