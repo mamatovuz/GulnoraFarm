@@ -106,12 +106,13 @@ let CUR = null;      // joriy order_id
 let pollTimer = null;
 
 function api(path, method, body){
+  const b = Object.assign({ _init: INIT }, body || {});
   const opts = { method, headers: { "X-Init-Data": INIT, "Content-Type": "application/json" } };
   if(method === "GET"){
-    const p = new URLSearchParams(body || {});
+    const p = new URLSearchParams(b);
     return fetch(path + "?" + p.toString(), opts).then(r => r.json());
   }
-  opts.body = JSON.stringify(body || {});
+  opts.body = JSON.stringify(b);
   return fetch(path, opts).then(r => r.json());
 }
 function show(id){ ["login","list","chat"].forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id)); }

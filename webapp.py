@@ -48,9 +48,12 @@ async def _all_tokens():
     return tokens
 
 
-async def _auth_user(request):
-    """initData'dan (X-Init-Data header) haqiqiy Telegram foydalanuvchisini qaytaradi."""
-    init_data = request.headers.get("X-Init-Data", "")
+async def _auth_user(request, body=None):
+    """initData'dan (header/body/query) haqiqiy Telegram foydalanuvchisini qaytaradi.
+    Imzo to'g'ri bo'lmasa None — bu faqat onlayn bog'lash uchun, majburiy emas."""
+    init_data = (request.headers.get("X-Init-Data", "")
+                 or (body or {}).get("_init", "")
+                 or request.query.get("_init", ""))
     if not init_data:
         return None
     for tok in await _all_tokens():
@@ -65,27 +68,25 @@ async def _auth_user(request):
     return None
 
 
-def _sign(operator_id, tg_id) -> str:
-    return hmac.new(BOT_TOKEN.encode(), f"{operator_id}:{tg_id}".encode(),
+def _sign(operator_id) -> str:
+    """Operator sessiya tokeni (login/parol bilan olinadi, server siri bilan imzolanadi)."""
+    return hmac.new(BOT_TOKEN.encode(), f"op-session:{operator_id}".encode(),
                     hashlib.sha256).hexdigest()
 
 
 async def _auth_op(request, data):
-    """Operatorni tasdiqlaydi: initData (haqiqiy tg) + operator_id + token (imzo)."""
-    user = await _auth_user(request)
-    if not user:
-        return None, None
+    """Operatorni imzolangan token orqali tasdiqlaydi (login/parol bilan olingan)."""
     try:
         operator_id = int(data.get("operator_id"))
     except (TypeError, ValueError):
-        return None, user
+        return None, None
     token = str(data.get("token", ""))
-    if not hmac.compare_digest(_sign(operator_id, user["id"]), token):
-        return None, user
+    if not token or not hmac.compare_digest(_sign(operator_id), token):
+        return None, None
     op = await q.get_operator(operator_id)
     if not op or op["status"] != "active":
-        return None, user
-    return op, user
+        return None, None
+    return op, None
 
 
 def _json(data, status=200):
@@ -105,9 +106,6 @@ async def health(request):
 
 # ---------------- API: login ----------------
 async def api_login(request):
-    user = await _auth_user(request)
-    if not user:
-        return _json({"ok": False, "error": "Telegram tekshiruvi o'tmadi"}, 401)
     try:
         body = await request.json()
     except Exception:
@@ -119,10 +117,15 @@ async def api_login(request):
         return _json({"ok": False, "error": "Login yoki parol xato"}, 200)
     if op["status"] != "active":
         return _json({"ok": False, "error": "Hisob bloklangan"}, 200)
-    # operatorni shu telegram hisobiga bog'laymiz (online bo'ladi)
-    await q.login_operator(op["id"], user["id"])
+    # Telegram foydalanuvchisini (imzo to'g'ri bo'lsa) operatorga bog'laymiz — online bo'ladi
+    user = await _auth_user(request, body)
+    if user:
+        try:
+            await q.login_operator(op["id"], user["id"])
+        except Exception:
+            pass
     return _json({"ok": True, "operator_id": op["id"], "name": op["name"],
-                  "token": _sign(op["id"], user["id"])})
+                  "token": _sign(op["id"])})
 
 
 # ---------------- API: chatlar ----------------

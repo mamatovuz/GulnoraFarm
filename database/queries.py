@@ -961,6 +961,24 @@ async def users_page(limit, offset, search=None):
     return rows, total
 
 
+async def top_clients(since, limit, offset):
+    """Davr ichida eng ko'p murojaat yuborgan mijozlar (kamayish tartibida)."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT u.telegram_id, u.full_name, u.phone, u.username, b.name AS branch, "
+        "COUNT(o.id) AS cnt "
+        "FROM users u JOIN orders o ON o.user_id=u.telegram_id AND o.created_at>=? "
+        "LEFT JOIN branches b ON b.id=u.branch_id "
+        "GROUP BY u.telegram_id ORDER BY cnt DESC, MAX(o.created_at) DESC LIMIT ? OFFSET ?",
+        (since, limit, offset))
+    rows = await cur.fetchall()
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM (SELECT o.user_id FROM orders o WHERE o.created_at>=? "
+        "GROUP BY o.user_id)", (since,))
+    total = (await cur.fetchone())[0]
+    return rows, total
+
+
 async def user_full(tg):
     db = await get_db()
     cur = await db.execute(

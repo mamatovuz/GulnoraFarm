@@ -33,7 +33,12 @@ def _period_start(period: str) -> str:
         return (n - timedelta(days=n.weekday())).strftime("%Y-%m-%d 00:00:00")
     if period == "month":
         return n.strftime("%Y-%m-01 00:00:00")
+    if period == "year":
+        return n.strftime("%Y-01-01 00:00:00")
     return "0000-01-01 00:00:00"
+
+
+_PLABEL = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy", "year": "Joriy yil"}
 
 
 def _hm(dt) -> str:
@@ -65,7 +70,7 @@ async def _edit(call: CallbackQuery, text: str, markup):
 
 def _period_row(base: str, active: str):
     out = []
-    for p, t in (("today", "Bugun"), ("week", "Hafta"), ("month", "Oy")):
+    for p, t in (("today", "Bugun"), ("week", "Hafta"), ("month", "Oy"), ("year", "Yil")):
         out.append(InlineKeyboardButton(text=("• " + t if p == active else t),
                                         callback_data=f"{base}:{p}"))
     return out
@@ -240,6 +245,46 @@ async def _show_clients(call: CallbackQuery, page: int):
     if search:
         sr.append(InlineKeyboardButton(text="❌ Tozalash", callback_data="rep:clclear"))
     b.row(*sr)
+    _add_client_periods(b, "all")
+    b.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:reports"))
+    await _edit(call, head, b.as_markup())
+    await call.answer()
+
+
+def _add_client_periods(b: InlineKeyboardBuilder, active: str):
+    b.row(InlineKeyboardButton(text=("• Barchasi" if active == "all" else "Barchasi"),
+                               callback_data="rep:clients:0"))
+    b.row(*[InlineKeyboardButton(text=("• " + t if p == active else t),
+                                 callback_data=f"rep:cltop:{p}:0")
+            for p, t in (("today", "Bugun"), ("week", "Hafta"), ("month", "Oy"), ("year", "Yil"))])
+
+
+@router.callback_query(F.data.startswith("rep:cltop:"))
+async def top_clients_list(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    _, _, period, page = call.data.split(":")
+    page = int(page)
+    rows, total = await q.top_clients(_period_start(period), PAGE, page * PAGE)
+    pages = max(1, (total + PAGE - 1) // PAGE)
+    head = (f"👥 <b>Eng ko'p murojaat qilganlar</b> — {_PLABEL[period]}\n"
+            f"Jami mijoz: {total} · Sahifa {page + 1}/{pages}")
+    b = InlineKeyboardBuilder()
+    medals = ["🥇", "🥈", "🥉"]
+    for i, u in enumerate(rows):
+        rank = medals[i] if page == 0 and i < 3 else f"{page * PAGE + i + 1}."
+        nm = (u["full_name"] or "—")[:20]
+        b.row(InlineKeyboardButton(text=f"{rank} {nm} · {u['cnt']} murojaat",
+                                   callback_data=f"rep:cl:{u['telegram_id']}:0"))
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"rep:cltop:{period}:{page - 1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"rep:cltop:{period}:{page + 1}"))
+    if nav:
+        b.row(*nav)
+    _add_client_periods(b, period)
     b.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:reports"))
     await _edit(call, head, b.as_markup())
     await call.answer()
@@ -313,7 +358,7 @@ async def ops_report(call: CallbackQuery):
     period = call.data.split(":")[2]
     rows = await q.operators_report(_period_start(period))
     rows.sort(key=lambda x: x["done"], reverse=True)
-    plabel = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy"}[period]
+    plabel = _PLABEL[period]
     lines = [f"👨‍⚕️ <b>Operatorlar reytingi</b> — {plabel}\n"]
     if not any(r["accepted"] or r["done"] for r in rows):
         lines.append("(bu davrda ma'lumot yo'q)")
@@ -343,7 +388,7 @@ async def hourly_report(call: CallbackQuery):
         return
     period = call.data.split(":")[2]
     data = await q.hourly_load(_period_start(period))
-    plabel = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy"}[period]
+    plabel = _PLABEL[period]
     mx = max(data.values()) if data else 0
     lines = [f"⏰ <b>Soatlik yuklanma</b> — {plabel}\n"]
     if mx == 0:
@@ -371,7 +416,7 @@ async def period_report(call: CallbackQuery):
         return
     period = call.data.split(":")[2]
     r = await q.period_report(_period_start(period))
-    plabel = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy"}[period]
+    plabel = _PLABEL[period]
     lines = [
         f"📈 <b>Davr hisoboti</b> — {plabel}\n",
         f"Jami murojaatlar: <b>{r['total']}</b>",
