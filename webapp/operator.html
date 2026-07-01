@@ -107,6 +107,34 @@
   .switch.on{background:#31c48d}
   .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
   .switch.on::after{left:21px}
+  .seg{display:flex;gap:6px;background:var(--sec);border-radius:10px;padding:3px}
+  .seg button{flex:1;border:none;background:none;color:var(--text);padding:7px;border-radius:8px;font-size:13px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:var(--accent-text)}
+
+  /* ---- Manual light/dark (auto = Telegram temasi) ---- */
+  html[data-theme="light"]{--bg:#ffffff;--sec:#f1f2f5;--text:#0f1419;--hint:#8a929c;--link:#3390ec;
+    --accent:#3390ec;--accent-text:#fff;--sep:rgba(0,0,0,.08)}
+  html[data-theme="dark"]{--bg:#17212b;--sec:#0e1621;--text:#f5f5f5;--hint:#7d8b99;--link:#6ab3f3;
+    --accent:#3390ec;--accent-text:#fff;--sep:rgba(255,255,255,.09)}
+  html[data-theme="dark"] .card,html[data-theme="dark"] .row,html[data-theme="dark"] .item,
+  html[data-theme="dark"] .topbar,html[data-theme="dark"] .prof,html[data-theme="dark"] .b.c,
+  html[data-theme="dark"] .tabbar,html[data-theme="dark"] #cmdpanel{background:#17212b}
+  html[data-theme="dark"] body,html[data-theme="dark"] .screen,html[data-theme="dark"] .msgs{background:#0e1621}
+  html[data-theme="dark"] .composer{background:#17212b}
+
+  /* ---- Voice player (Telegram uslubi) ---- */
+  .vp{display:flex;align-items:center;gap:9px;min-width:180px}
+  .vp .pp{width:38px;height:38px;border-radius:50%;background:var(--accent);color:var(--accent-text);
+    border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+  .b.o .vp .pp{background:#fff;color:var(--accent)}
+  .vp canvas{flex:1;height:26px;cursor:pointer}
+  .vp .vt{font-size:11px;opacity:.7;min-width:30px}
+
+  /* ---- Recording bar ---- */
+  #recbar{align-items:center;gap:8px}
+  .recdot{width:11px;height:11px;border-radius:50%;background:#e5484d;animation:pulse 1s infinite;flex-shrink:0}
+  .rectime{font-variant-numeric:tabular-nums;font-size:14px;min-width:38px}
+  #recwave{flex:1;height:30px}
 </style>
 </head>
 <body>
@@ -163,6 +191,19 @@
       </div>
     </div>
     <div class="list">
+      <div class="item" style="display:block">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <div class="lbl">Mavzu</div>
+        </div>
+        <div class="seg" id="themeseg">
+          <button data-th="auto" onclick="setTheme('auto')">Avto</button>
+          <button data-th="light" onclick="setTheme('light')">Yorug'</button>
+          <button data-th="dark" onclick="setTheme('dark')">Tungi</button>
+        </div>
+      </div>
+    </div>
+    <div class="list">
       <div class="item danger" onclick="logout()"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><div class="lbl">Chiqish</div></div>
     </div>
   </div>
@@ -195,11 +236,18 @@
   </div>
   <div id="msgs" class="msgs"></div>
   <div id="cmdpanel" class="hide" style="background:var(--bg);border-top:1px solid var(--sep);max-height:220px;overflow-y:auto"></div>
-  <div class="composer">
+  <div id="composer" class="composer">
     <button class="cbtn" onclick="pickPhoto()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15l-5-5L5 21"/><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></button>
     <textarea id="in-msg" rows="1" placeholder="Xabar..."></textarea>
-    <button class="cbtn" id="mic" onclick="toggleRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 19v4"/></svg></button>
+    <button class="cbtn" id="mic" onclick="startRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10a7 7 0 0 1-14 0M12 19v4"/></svg></button>
     <button class="cbtn acc" id="sendbtn" onclick="send()" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+  </div>
+  <div id="recbar" class="composer hide">
+    <button class="cbtn" style="color:#e5484d" onclick="cancelRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
+    <div class="recdot"></div>
+    <div id="rectime" class="rectime">0:00</div>
+    <canvas id="recwave"></canvas>
+    <button class="cbtn acc" onclick="stopSendRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
   </div>
 </div>
 <input type="file" id="file-photo" accept="image/*" class="hide">
@@ -307,23 +355,31 @@ async function openChat(oid, name){
   CUR = oid; sh("chat");
   document.getElementById("c-ava").textContent = ini(name);
   document.getElementById("c-name").textContent = name || "";
-  document.getElementById("msgs").innerHTML = "";
+  document.getElementById("msgs").innerHTML = ""; lastSig="";
   await loadMsgs(true); startPoll();
 }
+const _MLBL={video:"Video",document:"Hujjat",sticker:"Stiker",animation:"GIF",location:"Lokatsiya"};
+let lastSig="";
 async function loadMsgs(scroll){
   const r = await q("/api/messages", "GET", Object.assign(auth(), { order_id: CUR }));
   if(!r.ok) return;
   document.getElementById("c-phone").textContent = r.client.phone || "";
+  const last = r.messages[r.messages.length-1] || {};
+  const sig = r.messages.length + "|" + (last.time||"") + "|" + (last.file_id||"") + "|" + (last.text||"");
+  if(!scroll && sig===lastSig) return;
+  lastSig = sig;
   const box = document.getElementById("msgs");
   box.innerHTML = r.messages.map(m => {
     let inner = "";
     if(m.type === "photo" && m.file_id){ inner = `<img src="${fileUrl(m.file_id,'photo')}">` + (m.text?esc(m.text):""); }
-    else if((m.type === "voice" || m.type === "audio") && m.file_id){ inner = `<audio controls src="${fileUrl(m.file_id,'voice')}"></audio>`; }
+    else if((m.type === "voice" || m.type === "audio") && m.file_id){
+      inner = `<div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div>`; }
     else if(m.type === "video" && m.file_id){ inner = `<video controls style="max-width:230px;border-radius:12px" src="${fileUrl(m.file_id,'video')}"></video>`; }
-    else if(m.type !== "text" && m.type){ inner = "📎 " + m.type + (m.text?": "+esc(m.text):""); }
+    else if(m.type !== "text" && m.type){ inner = (_MLBL[m.type]||"Fayl") + (m.text?": "+esc(m.text):""); }
     else { inner = esc(m.text); }
     return `<div class="b ${m.own?'o':'c'}">${inner}<div class="tm">${m.time}</div></div>`;
   }).join("");
+  initVoicePlayers();
   if(scroll) box.scrollTop = box.scrollHeight;
 }
 function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR) loadMsgs(false); }, 4000); }
@@ -414,28 +470,111 @@ document.getElementById("file-photo").onchange = function(){
   };
   rd.readAsDataURL(f); this.value="";
 };
-// ---- Voice ----
-async function toggleRec(){
-  if(rec && rec.state==="recording"){ rec.stop(); return; }
+// ---- Voice yozish (Telegram uslubi: taymer + jonli to'lqin) ----
+let audioCtx=null, analyser=null, recStream=null, recAnim=null, recStart=0, recBars=[];
+function getAccent(){ return (getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#3390ec').trim(); }
+async function startRec(){
   if(!navigator.mediaDevices){ tg.showAlert("Mikrofon mavjud emas"); return; }
+  try{ recStream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(e){ tg.showAlert("Mikrofonga ruxsat berilmadi"); return; }
+  recChunks=[];
+  try{ rec = new MediaRecorder(recStream); }
+  catch(e){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Yozib bo'lmadi"); return; }
+  rec.ondataavailable = e => recChunks.push(e.data);
+  rec.start();
+  document.getElementById("composer").classList.add("hide");
+  document.getElementById("recbar").classList.remove("hide");
+  recStart=Date.now(); recBars=[]; tickTime();
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    rec = new MediaRecorder(stream); recChunks=[];
-    rec.ondataavailable = e => recChunks.push(e.data);
-    rec.onstop = async () => {
-      document.getElementById("mic").classList.remove("rec");
-      stream.getTracks().forEach(t=>t.stop());
-      const blob = new Blob(recChunks, {type:"audio/ogg"});
-      const rd = new FileReader();
-      rd.onload = async () => {
-        const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,media_kind:"voice",media_data:rd.result}));
-        if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
-        await loadMsgs(true);
-      };
-      rd.readAsDataURL(blob);
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(recStream);
+    analyser = audioCtx.createAnalyser(); analyser.fftSize=256; src.connect(analyser);
+    drawWave();
+  }catch(e){}
+}
+function tickTime(){
+  if(!rec || rec.state!=="recording") return;
+  const s=Math.floor((Date.now()-recStart)/1000);
+  document.getElementById("rectime").textContent = Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+  setTimeout(tickTime,200);
+}
+function drawWave(){
+  const c=document.getElementById("recwave"); if(!c||!analyser) return;
+  const ctx=c.getContext("2d"); const data=new Uint8Array(analyser.frequencyBinCount);
+  function frame(){
+    if(!analyser) return;
+    c.width=c.offsetWidth; c.height=30;
+    analyser.getByteFrequencyData(data);
+    let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
+    recBars.push(Math.min(1,(sum/data.length/255)*2.4));
+    const max=Math.floor(c.width/4); if(recBars.length>max) recBars.shift();
+    ctx.clearRect(0,0,c.width,c.height); ctx.fillStyle=getAccent();
+    for(let i=0;i<recBars.length;i++){ const h=Math.max(3,recBars[i]*c.height); ctx.fillRect(i*4,(c.height-h)/2,2.4,h); }
+    recAnim=requestAnimationFrame(frame);
+  }
+  frame();
+}
+function stopSendRec(){ finishRec(true); }
+function cancelRec(){ finishRec(false); }
+function finishRec(sendIt){
+  const doneUI=()=>{ if(recAnim) cancelAnimationFrame(recAnim); recAnim=null;
+    if(recStream){ recStream.getTracks().forEach(t=>t.stop()); recStream=null; }
+    if(audioCtx){ try{audioCtx.close();}catch(e){} audioCtx=null; } analyser=null;
+    document.getElementById("recbar").classList.add("hide");
+    document.getElementById("composer").classList.remove("hide"); };
+  if(rec && rec.state==="recording"){
+    rec.onstop=async()=>{ doneUI();
+      if(sendIt){
+        const blob=new Blob(recChunks,{type:"audio/ogg"});
+        const rd=new FileReader();
+        rd.onload=async()=>{ const r=await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,media_kind:"voice",media_data:rd.result}));
+          if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true); };
+        rd.readAsDataURL(blob);
+      }
     };
-    rec.start(); document.getElementById("mic").classList.add("rec");
-  }catch(e){ tg.showAlert("Mikrofonga ruxsat berilmadi"); }
+    rec.stop();
+  } else { doneUI(); }
+}
+
+// ---- Voice pleyer (to'lqin + play/pause, Telegram uslubi) ----
+const waveCache={};
+const ICON_PLAY='<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const ICON_PAUSE='<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+function fmtDur(s){ s=Math.max(0,Math.floor(s||0)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+function initVoicePlayers(){
+  document.querySelectorAll(".vp").forEach(vp=>{
+    if(vp.dataset.ready) return; vp.dataset.ready="1";
+    const url=vp.dataset.src, fid=vp.dataset.fid;
+    const canvas=vp.querySelector("canvas"), btn=vp.querySelector(".pp"), tlab=vp.querySelector(".vt");
+    let audio=null, bars=waveCache[fid]||null, dur=0;
+    const draw=(prog)=>{ const ctx=canvas.getContext("2d"); canvas.width=canvas.offsetWidth||140; canvas.height=26;
+      const b=bars||new Array(32).fill(0.3), bw=canvas.width/b.length;
+      for(let i=0;i<b.length;i++){ const h=Math.max(3,b[i]*canvas.height);
+        ctx.fillStyle=(i/b.length<=prog)?getAccent():'rgba(140,140,140,.45)';
+        ctx.fillRect(i*bw,(canvas.height-h)/2,Math.max(1.5,bw-2),h); } };
+    setTimeout(()=>draw(0),0);
+    if(!bars){ fetch(url).then(r=>r.arrayBuffer()).then(buf=>{
+      const ac=new (window.AudioContext||window.webkitAudioContext)();
+      ac.decodeAudioData(buf).then(ab=>{ dur=ab.duration; const ch=ab.getChannelData(0), N=32, block=Math.max(1,Math.floor(ch.length/N)), out=[]; let mx=0;
+        for(let i=0;i<N;i++){ let s=0; for(let j=0;j<block;j++) s+=Math.abs(ch[i*block+j]||0); out.push(s/block); mx=Math.max(mx,out[i]); }
+        bars=out.map(v=>mx?Math.min(1,v/mx):0.3); waveCache[fid]=bars; draw(0); tlab.textContent=fmtDur(dur); ac.close();
+      }).catch(()=>{}); }).catch(()=>{}); }
+    const setIcon=p=>btn.innerHTML=p?ICON_PAUSE:ICON_PLAY; setIcon(false);
+    btn.onclick=()=>{ if(!audio){ audio=new Audio(url);
+        audio.onloadedmetadata=()=>{ if(!dur&&isFinite(audio.duration)){ dur=audio.duration; tlab.textContent=fmtDur(dur);} };
+        audio.ontimeupdate=()=>{ const d=audio.duration||dur||1; draw(audio.currentTime/d); tlab.textContent=fmtDur(d-audio.currentTime); };
+        audio.onended=()=>{ setIcon(false); draw(0); tlab.textContent=fmtDur(dur); }; }
+      if(audio.paused){ audio.play(); setIcon(true); } else { audio.pause(); setIcon(false); } };
+    canvas.onclick=e=>{ if(audio&&audio.duration){ audio.currentTime=(e.offsetX/(canvas.offsetWidth||1))*audio.duration; } };
+  });
+}
+
+// ---- Tema (Avto / Yorug' / Tungi) ----
+function setTheme(mode){
+  localStorage.setItem("theme",mode);
+  if(mode==="auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme",mode);
+  document.querySelectorAll("#themeseg button").forEach(b=>b.classList.toggle("on",b.dataset.th===mode));
 }
 
 // ---- Close / hide ----
@@ -478,6 +617,7 @@ document.getElementById("file-ava").onchange = function(){
 };
 
 // ---- start ----
+setTheme(localStorage.getItem("theme")||"auto");
 if(OP.id && OP.token){ enter(); } else { sh("login"); }
 </script>
 </body>
