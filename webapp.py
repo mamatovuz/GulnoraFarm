@@ -228,8 +228,6 @@ async def api_send(request):
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
     text = str(body.get("text", "")).strip()
-    if not text:
-        return _json({"ok": False, "error": "empty"}, 400)
     media_kind = body.get("media_kind")          # 'photo' | 'voice' | None
     media_data = body.get("media_data")          # base64 (dataURL bo'lishi mumkin)
     if not text and not (media_kind and media_data):
@@ -260,15 +258,28 @@ async def api_send(request):
                 await q.add_message(order_id, "operator", "photo", text or None, fid, None)
                 await post_operator_to_channel(client, order, op["name"], content_type="photo",
                                                file_id=fid, src_bot=client, text=text or "")
-            else:  # voice
-                try:
-                    sent = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
-                    fid = sent.voice.file_id
-                    ctype = "voice"
-                except Exception:
-                    sent = await client.send_audio(uid, BufferedInputFile(raw, "audio.ogg"))
-                    fid = sent.audio.file_id
-                    ctype = "voice"
+            else:  # voice — voice -> audio -> document zanjiri (Telegram formatga qarab)
+                mime = str(body.get("media_mime", "")).lower()
+                ext = "ogg" if "ogg" in mime else ("webm" if "webm" in mime else
+                                                   ("mp4" if "mp4" in mime else "audio"))
+                fid, ctype = None, "voice"
+                for kind in ("voice", "audio", "document"):
+                    try:
+                        if kind == "voice":
+                            snt = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
+                            fid, ctype = snt.voice.file_id, "voice"
+                        elif kind == "audio":
+                            snt = await client.send_audio(uid, BufferedInputFile(raw, "audio." + ext))
+                            fid, ctype = snt.audio.file_id, "audio"
+                        else:
+                            snt = await client.send_document(uid, BufferedInputFile(raw, "voice." + ext),
+                                                             caption="🎤 ovozli xabar")
+                            fid, ctype = snt.document.file_id, "document"
+                        break
+                    except Exception:
+                        continue
+                if not fid:
+                    return _json({"ok": False, "error": "ovoz yuborilmadi (format qo'llanmadi)"}, 200)
                 await q.add_message(order_id, "operator", ctype, None, fid, None)
                 await post_operator_to_channel(client, order, op["name"], content_type=ctype,
                                                file_id=fid, src_bot=client, text="🎤 ovozli xabar")

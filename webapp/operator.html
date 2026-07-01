@@ -657,10 +657,14 @@ async function startRec(){
   try{ recStream = await navigator.mediaDevices.getUserMedia({audio:true}); }
   catch(e){ tg.showAlert("Mikrofonga ruxsat berilmadi"); return; }
   recChunks=[];
-  try{ rec = new MediaRecorder(recStream); }
-  catch(e){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Yozib bo'lmadi"); return; }
-  rec.ondataavailable = e => recChunks.push(e.data);
-  rec.start();
+  if(!window.MediaRecorder){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Bu qurilma ovoz yozishni qo'llamaydi"); return; }
+  let mime="";
+  ["audio/ogg;codecs=opus","audio/webm;codecs=opus","audio/webm","audio/mp4"].forEach(m=>{
+    if(!mime && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) mime=m; });
+  try{ rec = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream); }
+  catch(e){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Ovoz yozib bo'lmadi"); return; }
+  rec.ondataavailable = e => { if(e.data && e.data.size>0) recChunks.push(e.data); };
+  rec.start(200);
   document.getElementById("composer").classList.add("hide");
   document.getElementById("recbar").classList.remove("hide");
   recStart=Date.now(); recBars=[]; tickTime();
@@ -702,16 +706,21 @@ function finishRec(sendIt){
     document.getElementById("recbar").classList.add("hide");
     document.getElementById("composer").classList.remove("hide"); };
   if(rec && rec.state==="recording"){
+    const oid=CUR, mime=(rec && rec.mimeType) || "audio/webm";
     rec.onstop=async()=>{ doneUI();
-      if(sendIt){
-        const blob=new Blob(recChunks,{type:"audio/ogg"});
-        const rd=new FileReader();
-        rd.onload=async()=>{ const r=await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,media_kind:"voice",media_data:rd.result}));
-          if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true); };
-        rd.readAsDataURL(blob);
-      }
+      if(!sendIt) return;
+      const blob=new Blob(recChunks,{type:mime});
+      if(blob.size<300){ tg.showAlert("Ovoz juda qisqa yoki yozilmadi"); return; }
+      const rd=new FileReader();
+      rd.onerror=()=>tg.showAlert("Ovozni o'qib bo'lmadi");
+      rd.onload=async()=>{ try{
+          const r=await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
+          if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+          if(CUR===oid) await loadMsgs(true);
+        }catch(err){ tg.showAlert("Yuborishda xatolik: "+err); } };
+      rd.readAsDataURL(blob);
     };
-    rec.stop();
+    try{ rec.stop(); }catch(e){ doneUI(); tg.showAlert("Ovoz to'xtatilmadi"); }
   } else { doneUI(); }
 }
 
