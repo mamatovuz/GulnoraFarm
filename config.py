@@ -33,6 +33,8 @@ DB_PATH = os.getenv("DB_PATH", _default_db)
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
 # Railway PORT ni beradi; bo'lmasa 8080
 WEBAPP_PORT = int(os.getenv("PORT", "8080"))
+# Operator profil rasmlari (mini app) — baza papkasida saqlanadi (Railway /data volume'da doimiy)
+AVATAR_DIR = os.path.join(os.path.dirname(DB_PATH) or ".", "avatars")
 
 if not BOT_TOKEN:
     raise RuntimeError(

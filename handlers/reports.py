@@ -355,11 +355,22 @@ async def ops_report(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         await call.answer("⛔", show_alert=True)
         return
-    period = call.data.split(":")[2]
+    parts = call.data.split(":")           # rep:ops:{period}[:{sort}]
+    period = parts[2]
+    sort = parts[3] if len(parts) > 3 else "done"
     rows = await q.operators_report(_period_start(period))
-    rows.sort(key=lambda x: x["done"], reverse=True)
-    plabel = _PLABEL[period]
-    lines = [f"👨‍⚕️ <b>Operatorlar reytingi</b> — {plabel}\n"]
+    _SORTERS = {
+        "done": (lambda x: x["done"], True),
+        "accepted": (lambda x: x["accepted"], True),
+        "rating": (lambda x: x["rating"], True),
+        "resp": (lambda x: x["resp"] if x["resp"] > 0 else 1e9, False),  # tez javob = kichik
+    }
+    keyf, rev = _SORTERS.get(sort, _SORTERS["done"])
+    rows.sort(key=keyf, reverse=rev)
+    slabel = {"done": "ko'p yakun", "accepted": "ko'p qabul",
+              "rating": "yuqori baho", "resp": "tez javob"}[sort]
+    lines = [f"👨‍⚕️ <b>Operatorlar reytingi</b> — {_PLABEL[period]}",
+             f"<i>Saralash: {slabel}</i>\n"]
     if not any(r["accepted"] or r["done"] for r in rows):
         lines.append("(bu davrda ma'lumot yo'q)")
     medals = ["🥇", "🥈", "🥉"]
@@ -374,7 +385,15 @@ async def ops_report(call: CallbackQuery):
                      f"    📥 {r['accepted']} qabul · 🟢 {r['done']} yakun\n"
                      f"    ⏱ javob {_dur(r['resp'])} · ✅ yakunlash {_dur(r['resol'])}")
     b = InlineKeyboardBuilder()
-    b.row(*_period_row("rep:ops", period))
+    # davr (saralashni saqlaydi)
+    b.row(*[InlineKeyboardButton(text=("• " + t if p == period else t),
+                                 callback_data=f"rep:ops:{p}:{sort}")
+            for p, t in (("today", "Bugun"), ("week", "Hafta"), ("month", "Oy"), ("year", "Yil"))])
+    # saralash (davrni saqlaydi)
+    b.row(*[InlineKeyboardButton(text=("• " + t if s == sort else t),
+                                 callback_data=f"rep:ops:{period}:{s}")
+            for s, t in (("done", "Ko'p yakun"), ("accepted", "Ko'p qabul"),
+                         ("rating", "Baho"), ("resp", "Tez javob"))])
     b.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:reports"))
     await _edit(call, "\n".join(lines), b.as_markup())
     await call.answer()

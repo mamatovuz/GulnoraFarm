@@ -6,13 +6,15 @@ login/parol -> chat ro'yxati -> yozishma -> mijozga yuborish (bot orqali) -> cha
 import os
 import json
 import hmac
+import base64
 import hashlib
 import logging
 from urllib.parse import parse_qsl
 
 from aiohttp import web
+from aiogram.types import BufferedInputFile
 
-from config import BOT_TOKEN, WEBAPP_URL
+from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR
 from database import queries as q
 import locales as loc
 
@@ -173,13 +175,43 @@ async def api_messages(request):
     for m in msgs:
         out.append({
             "sender": m["sender"],
-            "text": m["text"] or _ct_label(m["content_type"]),
+            "own": m["sender"] == "operator",
+            "type": m["content_type"] or "text",
+            "text": m["text"] or "",
+            "file_id": m["file_id"] or "",
             "time": (m["created_at"] or "")[11:16],
         })
+    uname = user["username"] if user and "username" in user.keys() else ""
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
                   "client": {"name": user["full_name"] if user else "—",
-                             "phone": user["phone"] if user else ""},
+                             "phone": user["phone"] if user else "",
+                             "username": uname or ""},
                   "messages": out})
+
+
+# ---------------- API: media (rasm/ovoz) ko'rsatish ----------------
+async def api_file(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return web.Response(status=401, text="auth")
+    fid = request.query.get("fid", "")
+    kind = request.query.get("kind", "")
+    if not fid:
+        return web.Response(status=400)
+    from utils import cbot
+    client = cbot()
+    if not client:
+        return web.Response(status=503)
+    try:
+        f = await client.get_file(fid)
+        buf = await client.download_file(f.file_path)
+        raw = buf.read()
+    except Exception:
+        return web.Response(status=404, text="not found")
+    ctype = {"voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
+             "document": "application/octet-stream"}.get(kind, "image/jpeg")
+    return web.Response(body=raw, content_type=ctype,
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ---------------- API: yuborish ----------------
@@ -198,6 +230,10 @@ async def api_send(request):
     text = str(body.get("text", "")).strip()
     if not text:
         return _json({"ok": False, "error": "empty"}, 400)
+    media_kind = body.get("media_kind")          # 'photo' | 'voice' | None
+    media_data = body.get("media_data")          # base64 (dataURL bo'lishi mumkin)
+    if not text and not (media_kind and media_data):
+        return _json({"ok": False, "error": "empty"}, 400)
     order = await q.get_order(order_id)
     if not order or order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "yopilgan"}, 200)
@@ -212,17 +248,36 @@ async def api_send(request):
     client = cbot()
     if not client:
         return _json({"ok": False, "error": "bot tayyor emas"}, 200)
-    await q.add_message(order_id, "operator", "text", text, None, None)
-    clang = await q.get_lang(order["user_id"])
+    uid = order["user_id"]
+    clang = await q.get_lang(uid)
     try:
-        await client.send_message(order["user_id"],
-                                  loc.t("operator_reply", clang, name=op["name"], text=text))
+        if media_kind and media_data:
+            raw = base64.b64decode(str(media_data).split(",")[-1])
+            cap = f"👨‍⚕️ {op['name']}" + (f": {text}" if text else "")
+            if media_kind == "photo":
+                sent = await client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"), caption=cap)
+                fid = sent.photo[-1].file_id
+                await q.add_message(order_id, "operator", "photo", text or None, fid, None)
+                await post_operator_to_channel(client, order, op["name"], content_type="photo",
+                                               file_id=fid, src_bot=client, text=text or "")
+            else:  # voice
+                try:
+                    sent = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
+                    fid = sent.voice.file_id
+                    ctype = "voice"
+                except Exception:
+                    sent = await client.send_audio(uid, BufferedInputFile(raw, "audio.ogg"))
+                    fid = sent.audio.file_id
+                    ctype = "voice"
+                await q.add_message(order_id, "operator", ctype, None, fid, None)
+                await post_operator_to_channel(client, order, op["name"], content_type=ctype,
+                                               file_id=fid, src_bot=client, text="🎤 ovozli xabar")
+        else:
+            await q.add_message(order_id, "operator", "text", text, None, None)
+            await client.send_message(uid, loc.t("operator_reply", clang, name=op["name"], text=text))
+            await post_operator_to_channel(client, order, op["name"], text=text)
     except Exception:
         return _json({"ok": False, "error": "mijozga yuborilmadi (bloklagan bo'lishi mumkin)"}, 200)
-    try:
-        await post_operator_to_channel(client, order, op["name"], text=text)
-    except Exception:
-        pass
     return _json({"ok": True})
 
 
@@ -281,19 +336,84 @@ async def api_hide(request):
     return _json({"ok": True})
 
 
+# ---------------- API: profil ----------------
+async def api_profile(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    s = await q.operator_stats(op["id"])
+    chats = await q.op_chats(op["id"])
+    incoming = sum(1 for c in chats if c["status"] == "new")
+    return _json({"ok": True, "name": op["name"], "login": op["login"],
+                  "availability": op["availability"], "incoming": incoming,
+                  "has_avatar": os.path.exists(os.path.join(AVATAR_DIR, f"{op['id']}.jpg")),
+                  "stats": {"accepted": s["accepted"], "done": s["done"],
+                            "today_done": s["today_done"], "rating": s["avg_rating"],
+                            "rated": s["rated_count"]}})
+
+
+async def api_status(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    new = "busy" if op["availability"] == "free" else "free"
+    await q.set_operator_availability(op["id"], new)
+    return _json({"ok": True, "availability": new})
+
+
+async def api_avatar(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return web.Response(status=401)
+    path = os.path.join(AVATAR_DIR, f"{op['id']}.jpg")
+    if os.path.exists(path):
+        return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
+    return web.Response(status=404)
+
+
+async def api_avatar_upload(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    data = body.get("data")
+    if not data:
+        return _json({"ok": False, "error": "empty"}, 400)
+    try:
+        raw = base64.b64decode(str(data).split(",")[-1])
+    except Exception:
+        return _json({"ok": False, "error": "bad"}, 400)
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+    with open(os.path.join(AVATAR_DIR, f"{op['id']}.jpg"), "wb") as f:
+        f.write(raw)
+    return _json({"ok": True})
+
+
 # ---------------- Server ----------------
 def build_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=25 * 1024 * 1024)
     app.router.add_get("/", index)
     app.router.add_get("/operator", index)
     app.router.add_get("/health", health)
     app.router.add_post("/api/login", api_login)
     app.router.add_get("/api/chats", api_chats)
     app.router.add_get("/api/messages", api_messages)
+    app.router.add_get("/api/file", api_file)
     app.router.add_post("/api/send", api_send)
     app.router.add_post("/api/accept", api_accept)
     app.router.add_post("/api/close", api_close)
     app.router.add_post("/api/hide", api_hide)
+    app.router.add_get("/api/profile", api_profile)
+    app.router.add_post("/api/status", api_status)
+    app.router.add_get("/api/avatar", api_avatar)
+    app.router.add_post("/api/avatar", api_avatar_upload)
     return app
 
 
