@@ -397,6 +397,40 @@ async def clients_full():
     return await cur.fetchall()
 
 
+async def checkpoint_wal():
+    """WAL'dagi yozuvlarni asosiy .db faylga o'tkazadi (backup oldidan shart)."""
+    db = await get_db()
+    try:
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
+
+
+async def rate_remind_candidates(lo, hi):
+    """24-48 soat oldin yakunlangan, baholanmagan va eslatilmagan murojaatlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT id, user_id FROM orders WHERE status='done' AND rating IS NULL "
+        "AND COALESCE(rate_reminded,0)=0 AND closed_at >= ? AND closed_at <= ?", (lo, hi))
+    return await cur.fetchall()
+
+
+async def mark_rate_reminded(order_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET rate_reminded = 1 WHERE id = ?", (order_id,))
+    await db.commit()
+
+
+async def counts_between(a, b):
+    """Trend uchun: [a, b) oraliqdagi jami va yakunlangan murojaatlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
+        "FROM orders WHERE created_at >= ? AND created_at < ?", (a, b))
+    r = await cur.fetchone()
+    return (r[0] or 0, r[1] or 0)
+
+
 async def my_daily_done(operator_id, days=7):
     """Operatorning so'nggi N kunlik yakunlari (kun kesimida)."""
     db = await get_db()

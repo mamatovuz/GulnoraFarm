@@ -892,6 +892,33 @@ async def api_mystats(request):
     return _json({"ok": True, "days": days})
 
 
+# ---------------- API: mijoz kartasi (chat ichida) ----------------
+async def api_client_info(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(request.query.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False}, 404)
+    u = await q.user_full(order["user_id"])
+    if not u:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    note = await q.get_client_note(order["user_id"])
+    orders = await q.orders_by_user(order["user_id"])
+    return _json({"ok": True,
+                  "client": {"name": u["full_name"] or u["phone"] or "Mijoz",
+                             "phone": u["phone"] or "", "username": u["username"] or "",
+                             "branch": u["branch"] or "", "reg": (u["registered_at"] or "")[:10],
+                             "note": note},
+                  "orders": [{"id": o["id"], "status": o["status"],
+                              "date": (o["created_at"] or "")[:10],
+                              "rating": o["rating"] or 0} for o in orders[:12]]})
+
+
 # ---------------- API: matnli tayyor javoblar ----------------
 async def api_templates(request):
     op, _ = await _auth_op(request, request.query)
@@ -1028,13 +1055,31 @@ async def api_admin_dash(request):
     tc_rows, _tc_total = await q.top_clients(since, 6, 0)
     topclients = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
                    "phone": r["phone"] or "", "cnt": r["cnt"]} for r in tc_rows]
+    # Trend: o'tgan xuddi shunday davr bilan taqqoslash (kartalarda ↑/↓ %)
+    trend = {"total": None, "done": None}
+    if period in ("today", "week", "month", "year"):
+        from datetime import datetime as _dt2, timedelta as _td2
+        st = _dt2.strptime(since, "%Y-%m-%d %H:%M:%S")
+        if period == "today":
+            pst = st - _td2(days=1)
+        elif period == "week":
+            pst = st - _td2(days=7)
+        elif period == "month":
+            pst = (st - _td2(days=1)).replace(day=1)
+        else:
+            pst = st.replace(year=st.year - 1)
+        pt, pd = await q.counts_between(pst.strftime("%Y-%m-%d %H:%M:%S"), since)
+        if pt:
+            trend["total"] = round((rep["total"] - pt) / pt * 100)
+        if pd:
+            trend["done"] = round((rep["done"] - pd) / pd * 100)
     # Operatorlar taqqoslash (davr bo'yicha yakunlar) + filial kesimi
     oprep = await q.operators_report(since)
     opstats = sorted([{"name": o["name"], "done": o["done"]} for o in oprep if o["done"]],
                      key=lambda x: x["done"], reverse=True)[:8]
     branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since)]
     return _json({"ok": True, "period": period, "waiting": waiting, "topclients": topclients,
-                  "opstats": opstats, "branches": branches,
+                  "opstats": opstats, "branches": branches, "trend": trend,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
                           "resp": rep["resp"], "resol": rep["resol"],
@@ -1873,6 +1918,7 @@ def build_app() -> web.Application:
     app.router.add_post("/api/msg_edit", api_msg_edit)
     app.router.add_post("/api/remind", api_remind)
     app.router.add_get("/api/mystats", api_mystats)
+    app.router.add_get("/api/client_info", api_client_info)
     # Admin mini app
     app.router.add_get("/admin", admin_index)
     app.router.add_post("/api/admin/login", api_admin_login)

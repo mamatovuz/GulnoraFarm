@@ -247,6 +247,10 @@ async def init_db():
     if "bill_photo" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN bill_photo TEXT")
         await db.commit()
+    if "rate_reminded" not in ocols:
+        # baholash eslatmasi yuborilganmi (bir marta)
+        await db.execute("ALTER TABLE orders ADD COLUMN rate_reminded INTEGER DEFAULT 0")
+        await db.commit()
 
     # Migratsiya: operators.last_active va availability ustunlari
     cur = await db.execute("PRAGMA table_info(operators)")

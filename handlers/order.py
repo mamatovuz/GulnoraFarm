@@ -186,6 +186,25 @@ async def _hours_suffix(lang: str) -> str:
     return "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
 
 
+# Tungi avto-javob: har mijozga kuniga 1 marta
+_night_notified: dict[int, str] = {}
+
+
+async def _night_autoreply(message, lang):
+    try:
+        within, ws, we = await work_hours()
+        if within:
+            return
+        from config import now_local
+        today = now_local().strftime("%Y-%m-%d")
+        if _night_notified.get(message.from_user.id) == today:
+            return
+        _night_notified[message.from_user.id] = today
+        await message.answer("🌙 " + loc.t("out_of_hours", lang, start=ws, end=we))
+    except Exception:
+        pass
+
+
 async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
     await q.set_user_username(message.from_user.id, message.from_user.username)
@@ -222,6 +241,8 @@ async def client_proxy(message: Message, state: FSMContext, bot: Bot):
             await save_message_from_message(active, "client", message)
             await forward_client_to_operator(bot, order, message)
             await message.answer(loc.t("proxy_sent", lang))
+            # Ish vaqtidan tashqarida — kuniga bir marta avto-javob
+            await _night_autoreply(message, lang)
             return
     # ochiq murojaat yo'q
     await message.answer(loc.t("use_menu", lang), reply_markup=await main_kb(message.from_user.id))

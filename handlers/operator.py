@@ -893,8 +893,12 @@ async def op_autoclose(call: CallbackQuery):
 
 
 # ---------------- Har operatorni o'z ish vaqti tugaganda avto-logout ----------------
+_endwarn: dict[int, str] = {}   # op_id -> sana (10 daqiqalik ogohlantirish berilganmi)
+
+
 async def op_workhours_loop(bot: Bot):
-    """Har daqiqada tekshiradi: kimning ish vaqti tugagan bo'lsa, o'shani chiqaradi."""
+    """Har daqiqada tekshiradi: kimning ish vaqti tugagan bo'lsa, o'shani chiqaradi.
+    Tugashiga 10 daqiqa qolganda esa oldindan ogohlantiradi."""
     while True:
         await asyncio.sleep(60)
         try:
@@ -902,6 +906,21 @@ async def op_workhours_loop(bot: Bot):
             for op in await q.logged_in_operators():
                 within, ws, we = operator_in_hours(op)
                 if within:
+                    # Tugashiga <=10 daqiqa qolganda — bir marta ogohlantirish
+                    try:
+                        n = now_local()
+                        eh, em = map(int, str(we).split(":"))
+                        left = (eh * 60 + em) - (n.hour * 60 + n.minute)
+                        today = n.strftime("%Y-%m-%d")
+                        if 0 < left <= 10 and _endwarn.get(op["id"]) != today:
+                            _endwarn[op["id"]] = today
+                            ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+                            await ob.send_message(
+                                op["telegram_id"],
+                                f"⏳ Ish vaqtingiz tugashiga <b>{left} daqiqa</b> qoldi ({we}).\n"
+                                f"Ochiq suhbatlaringizni yakunlab qo'ying.")
+                    except Exception:
+                        pass
                     continue
                 tg = op["telegram_id"]
                 await q.logout_operator(tg, op["bot_id"])

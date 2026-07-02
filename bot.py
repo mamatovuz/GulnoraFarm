@@ -23,6 +23,59 @@ for name in ("aiogram", "aiogram.event", "aiogram.dispatcher", "aiogram.middlewa
 logger = logging.getLogger("bot")
 
 
+async def backup_loop(bot):
+    """Har kuni (03:00 dan keyin) bazani admin botiga yuboradi — eng katta sug'urta."""
+    from aiogram.types import FSInputFile
+    from config import DB_PATH, ADMIN_IDS, now_local
+    while True:
+        await asyncio.sleep(1800)
+        try:
+            n = now_local()
+            today = n.strftime("%Y-%m-%d")
+            if n.hour >= 3 and (await q.get_setting("last_backup", "")) != today:
+                await q.checkpoint_wal()   # WAL'ni faylga o'tkazamiz — to'liq nusxa
+                f = FSInputFile(DB_PATH, filename=f"zaxira_{n.strftime('%Y%m%d')}.db")
+                for aid in ADMIN_IDS:
+                    try:
+                        await bot.send_document(
+                            aid, f, caption=f"🗄 Kunlik baza zaxirasi — {today}\n"
+                                            f"Bu faylni saqlab qo'ying: baza buzilsa shu orqali tiklanadi.")
+                    except Exception:
+                        pass
+                await q.set_setting("last_backup", today)
+        except Exception:
+            pass
+
+
+async def rate_remind_loop(bot):
+    """Yakunlangandan 24 soat o'tib baholanmagan murojaatlar uchun bir marta eslatma."""
+    import keyboards as kb2
+    import locales as loc2
+    from datetime import timedelta
+    from config import now_local
+    while True:
+        await asyncio.sleep(1800)
+        try:
+            n = now_local()
+            lo = (n - timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
+            hi = (n - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+            for r in await q.rate_remind_candidates(lo, hi):
+                await q.mark_rate_reminded(r["id"])
+                clang = await q.get_lang(r["user_id"])
+                try:
+                    await bot.send_message(
+                        r["user_id"],
+                        ("⭐ Murojaatingiz (#%d) bo'yicha xizmatni baholab qo'ysangiz — "
+                         "biz uchun juda muhim!" % r["id"]) if clang != "ru" else
+                        ("⭐ Пожалуйста, оцените обслуживание по обращению #%d — "
+                         "это важно для нас!" % r["id"]),
+                        reply_markup=kb2.rating_kb(r["id"]))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
 async def reminders_loop(bot):
     """Operator eslatmalari: vaqti kelganda operatorga (o'z boti orqali) xabar beradi."""
     while True:
@@ -128,6 +181,10 @@ async def main():
     asyncio.create_task(weekly_report_loop(bot))
     # Operator eslatmalari
     asyncio.create_task(reminders_loop(bot))
+    # Kunlik baza zaxirasi (admin botiga)
+    asyncio.create_task(backup_loop(bot))
+    # Baholash eslatmasi (24 soatdan keyin, bir marta)
+    asyncio.create_task(rate_remind_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda
     try:
         import webapp

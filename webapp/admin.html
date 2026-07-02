@@ -192,7 +192,6 @@
 <div id="app" class="screen hide">
   <div class="topbar">
     <div class="t" id="pagetitle">Statistika</div>
-    <button class="iconbtn rf" id="rfbtn" onclick="refreshActive()"><svg class="ic" viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
   </div>
 
   <!-- DASHBOARD -->
@@ -282,6 +281,16 @@
   <!-- SOZLAMALAR -->
   <div id="tab-set" class="body hide">
     <div class="list">
+      <div class="item">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>
+        <div class="lbl">Avto-yangilash</div>
+        <div class="themeseg" id="arfseg">
+          <button data-a="10" onclick="setArf(10)">10s</button>
+          <button data-a="30" onclick="setArf(30)">30s</button>
+          <button data-a="60" onclick="setArf(60)">1daq</button>
+          <button data-a="0" onclick="setArf(0)">O'chiq</button>
+        </div>
+      </div>
       <div class="item">
         <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
         <div class="lbl">Mavzu</div>
@@ -471,8 +480,22 @@ async function loadDash(){
   const u=document.getElementById("upd");
   if(u) u.textContent = "Yangilandi: " + new Date().toTimeString().slice(0,8);
 }
-// Dashboard avto-yangilanish (30 soniyada, ochiq bo'lsa)
-setInterval(()=>{ if(TAB==="dash" && !document.hidden && ADM.token) loadDash(); }, 30000);
+// Avto-yangilanish — davri Sozlamalardan boshqariladi (arf: soniya, 0=o'chiq)
+let _arfTimer=null;
+function applyArf(){
+  if(_arfTimer){ clearInterval(_arfTimer); _arfTimer=null; }
+  const sec = parseInt(localStorage.getItem("arf")||"30");
+  document.querySelectorAll("#arfseg button").forEach(b=>b.classList.toggle("on", b.dataset.a==String(sec)));
+  if(!sec) return;
+  _arfTimer = setInterval(()=>{
+    if(document.hidden || !ADM.token) return;
+    if(TAB==="dash") loadDash();
+    else if(TAB==="orders") loadOrders(true);
+    else if(TAB==="clients") loadClients(true);
+  }, sec*1000);
+}
+function setArf(sec){ localStorage.setItem("arf", String(sec)); applyArf(); }
+applyArf();
 function renderAll(){
   if(!DASH) return;
   renderWaiting(DASH.waiting||[]);
@@ -587,13 +610,18 @@ function renderKPI(k){
       <div class="l">${l}</div>${sub?`<div class="sub">${sub}</div>`:""}
     </div>`;
   const donePct = k.total?Math.round(k.done/k.total*100):0;
+  const tr = (DASH&&DASH.trend)||{};
+  const trh = v => v==null ? "" :
+    (v>=0 ? `<span style="color:#2f9e44;font-weight:600">↑ ${v}%</span>`
+          : `<span style="color:#e5484d;font-weight:600">↓ ${Math.abs(v)}%</span>`)
+    + ` <span style="color:var(--hint)">o'tgan davrga</span>`;
   g.innerHTML =
-    tile(k.total,"Jami murojaatlar",I.msg,"#3390ec") +
+    tile(k.total,"Jami murojaatlar",I.msg,"#3390ec",trh(tr.total)) +
     tile(k.online,"Online operatorlar",I.op,"#2f9e44") +
     tile(fmtDur(k.resp),"O'rtacha javob vaqti",I.clock,"#d97706","",true) +
     tile(fmtDur(k.resol),"O'rtacha yakunlash",I.clock,"#3390ec","",true) +
     tile(k.rating||"—","O'rtacha baho",I.star,"#d97706",k.rated+" ta baho") +
-    tile(k.done,"Yakunlangan",I.check,"#2f9e44",donePct+"% ulush") +
+    tile(k.done,"Yakunlangan",I.check,"#2f9e44",donePct+"% ulush"+(tr.done==null?"":" · "+trh(tr.done))) +
     `<div class="tile wide" style="align-items:center">
       <div style="flex:1"><div class="v" style="color:${(k.new+k.prog)?"#3390ec":"inherit"}">${k.new+k.prog}</div>
         <div class="l">Ochiq murojaatlar</div></div>
