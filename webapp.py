@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 from aiogram.types import BufferedInputFile
 
-from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR
+from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE
 from database import queries as q
 import locales as loc
 
@@ -198,6 +198,18 @@ async def api_file(request):
     kind = request.query.get("kind", "")
     if not fid:
         return web.Response(status=400)
+    ctype = {"voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
+             "sticker": "image/webp", "document": "application/octet-stream"}.get(kind, "image/jpeg")
+    cache_path = os.path.join(MEDIA_CACHE, hashlib.sha256(fid.encode()).hexdigest())
+    # 1) Keshdan (Telegram'ga qayta so'rov yubormaymiz — egress tejaladi)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "rb") as fh:
+                return web.Response(body=fh.read(), content_type=ctype,
+                                    headers={"Cache-Control": "public, max-age=604800"})
+        except Exception:
+            pass
+    # 2) Telegram'dan bir marta yuklab, keshga saqlaymiz
     from utils import cbot
     client = cbot()
     if not client:
@@ -208,10 +220,14 @@ async def api_file(request):
         raw = buf.read()
     except Exception:
         return web.Response(status=404, text="not found")
-    ctype = {"voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
-             "sticker": "image/webp", "document": "application/octet-stream"}.get(kind, "image/jpeg")
+    try:
+        os.makedirs(MEDIA_CACHE, exist_ok=True)
+        with open(cache_path, "wb") as fh:
+            fh.write(raw)
+    except Exception:
+        pass
     return web.Response(body=raw, content_type=ctype,
-                        headers={"Cache-Control": "public, max-age=86400"})
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 # ---------------- API: yuborish ----------------

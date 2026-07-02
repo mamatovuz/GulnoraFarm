@@ -78,8 +78,20 @@
   .b.c{align-self:flex-start;background:var(--bg);border-bottom-left-radius:4px}
   .b.o{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
   .b .tm{font-size:10.5px;opacity:.62;margin-top:2px;text-align:right}
-  .b img{max-width:240px;border-radius:11px;display:block;margin:-1px 0 3px}
   .b audio{width:230px;margin:2px 0}
+  /* Rasm/video pufakchasi — Telegramdek: rasm to'liq, yupqa ramka, caption pastda */
+  .b.media{padding:3px;max-width:252px;overflow:hidden}
+  .b.media img,.b.media video{display:block;width:100%;max-width:246px;border-radius:12px;cursor:zoom-in}
+  .b.media .cap{padding:4px 7px 0;white-space:pre-wrap;line-height:1.36}
+  .b.media .tm{padding:1px 7px 2px}
+  /* Stiker — fonsiz, kartasiz */
+  .b.stick{background:transparent!important;box-shadow:none!important;padding:0}
+  .b.stick img{width:128px;height:128px;object-fit:contain;display:block}
+  .b.stick .tm{text-align:right;opacity:.55}
+  /* Rasmni to'liq ekranda ochish */
+  #imgview{position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:50;
+    display:flex;align-items:center;justify-content:center;padding:10px}
+  #imgview img{max-width:100%;max-height:100%;border-radius:6px}
   .composer{display:flex;gap:6px;padding:7px 8px;background:var(--bg);border-top:1px solid var(--sep);align-items:flex-end}
   .composer textarea{flex:1;resize:none;border:none;border-radius:20px;padding:10px 14px;font-size:15px;
     background:var(--sec);color:var(--text);max-height:110px;outline:none}
@@ -100,8 +112,9 @@
   .card{flex:1;background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center}
   .card b{font-size:20px;display:block}
   .card span{color:var(--hint);font-size:12px}
-  .list{margin:8px 0}
-  .item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--bg);cursor:pointer}
+  .list{margin:10px 12px;background:var(--bg);border-radius:12px;overflow:hidden}
+  .item{display:flex;align-items:center;gap:14px;padding:13px 15px;background:var(--bg);cursor:pointer}
+  .item:active{background:var(--sec)}
   .item+.item{border-top:1px solid var(--sep)}
   .item .lbl{flex:1}
   .item .val{color:var(--hint);font-size:14px}
@@ -291,6 +304,9 @@
 <input type="file" id="file-photo" accept="image/*" class="hide">
 <input type="file" id="file-ava" accept="image/*" class="hide">
 
+<!-- Rasmni to'liq ekranda ko'rish -->
+<div id="imgview" class="hide" onclick="closeImg()"><img id="imgview-img"></div>
+
 <!-- CRM KANALI -->
 <div id="channel" class="screen hide">
   <div class="topbar">
@@ -372,7 +388,7 @@ document.getElementById("btn-login").onclick = async () => {
 };
 function logout(){ localStorage.clear(); OP = {}; CUR = null; if(pinTimer){clearInterval(pinTimer);pinTimer=null;} document.getElementById("in-pass").value=""; sh("login"); }
 function sh(id){ ["login","app","chat","channel","listview"].forEach(s => document.getElementById(s).classList.toggle("hide", s !== id)); }
-function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); if(pinTimer) clearInterval(pinTimer); pinTimer=setInterval(updatePinBadge,6000); }
+function enter(){ sh("app"); showTab("chats"); loadChats(); loadProfile(); if(pinTimer) clearInterval(pinTimer); pinTimer=setInterval(()=>{ if(!document.hidden) updatePinBadge(); },20000); }
 
 // ---- Tabs ----
 function showTab(t){
@@ -431,7 +447,7 @@ async function updatePinBadge(){
 let pinTimer=null;
 // ---- CRM kanali ----
 let chanTimer=null;
-async function openChannel(){ sh("channel"); await loadChannel(); if(chanTimer) clearInterval(chanTimer); chanTimer=setInterval(loadChannel,5000); }
+async function openChannel(){ sh("channel"); await loadChannel(); if(chanTimer) clearInterval(chanTimer); chanTimer=setInterval(()=>{ if(!document.hidden) loadChannel(); },10000); }
 function closeChannel(){ if(chanTimer){ clearInterval(chanTimer); chanTimer=null; } sh("app"); loadChats(); }
 async function loadChannel(){
   const r=await q("/api/channel","GET",auth()); if(!r.ok) return;
@@ -479,20 +495,27 @@ async function loadMsgs(scroll){
   lastSig = sig;
   const box = document.getElementById("msgs");
   box.innerHTML = r.messages.map(m => {
-    let inner = "";
-    if(m.type === "photo" && m.file_id){ inner = `<img src="${fileUrl(m.file_id,'photo')}">` + (m.text?esc(m.text):""); }
-    else if((m.type === "voice" || m.type === "audio") && m.file_id){
-      inner = `<div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div>`; }
-    else if(m.type === "video" && m.file_id){ inner = `<video controls style="max-width:230px;border-radius:12px" src="${fileUrl(m.file_id,'video')}"></video>`; }
-    else if(m.type === "sticker" && m.file_id){ inner = `<img src="${fileUrl(m.file_id,'sticker')}" style="width:118px;height:118px;object-fit:contain">`; }
-    else if(m.type !== "text" && m.type){ inner = (_MLBL[m.type]||"Fayl") + (m.text?": "+esc(m.text):""); }
-    else { inner = esc(m.text); }
-    return `<div class="b ${m.own?'o':'c'}">${inner}<div class="tm">${m.time}</div></div>`;
+    const cls = m.own?'o':'c';
+    if(m.type === "photo" && m.file_id){
+      const cap = m.text?`<div class="cap">${esc(m.text)}</div>`:"";
+      return `<div class="b ${cls} media"><img src="${fileUrl(m.file_id,'photo')}" onclick="openImg(this.src)">${cap}<div class="tm">${m.time}</div></div>`;
+    }
+    if(m.type === "video" && m.file_id){
+      return `<div class="b ${cls} media"><video controls src="${fileUrl(m.file_id,'video')}"></video><div class="tm">${m.time}</div></div>`;
+    }
+    if(m.type === "sticker" && m.file_id){
+      return `<div class="b ${cls} stick"><img src="${fileUrl(m.file_id,'sticker')}"><div class="tm">${m.time}</div></div>`;
+    }
+    if((m.type === "voice" || m.type === "audio") && m.file_id){
+      return `<div class="b ${cls}"><div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${m.time}</div></div>`;
+    }
+    const inner = (m.type !== "text" && m.type) ? (_MLBL[m.type]||"Fayl")+(m.text?": "+esc(m.text):"") : esc(m.text);
+    return `<div class="b ${cls}">${inner}<div class="tm">${m.time}</div></div>`;
   }).join("");
   initVoicePlayers();
   if(scroll) box.scrollTop = box.scrollHeight;
 }
-function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR) loadMsgs(false); }, 4000); }
+function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR && !document.hidden) loadMsgs(false); }, 7000); }
 function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
 function backToList(){ stopPoll(); CUR=null; sh("app"); loadChats(); }
 
@@ -592,6 +615,8 @@ function openMedia(data){ pendingMedia=data; document.getElementById("mm-img").s
   document.getElementById("mm-cap").value=""; document.getElementById("mediamodal").classList.remove("hide");
   setTimeout(()=>document.getElementById("mm-cap").focus(),120); }
 function closeMedia(){ pendingMedia=null; document.getElementById("mediamodal").classList.add("hide"); }
+function openImg(src){ document.getElementById("imgview-img").src=src; document.getElementById("imgview").classList.remove("hide"); }
+function closeImg(){ document.getElementById("imgview").classList.add("hide"); }
 async function sendMedia(){
   if(!pendingMedia||!CUR) return;
   const cap=document.getElementById("mm-cap").value.trim(); const data=pendingMedia; closeMedia();

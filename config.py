@@ -35,6 +35,8 @@ WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
 WEBAPP_PORT = int(os.getenv("PORT", "8080"))
 # Operator profil rasmlari (mini app) — baza papkasida saqlanadi (Railway /data volume'da doimiy)
 AVATAR_DIR = os.path.join(os.path.dirname(DB_PATH) or ".", "avatars")
+# Media kesh: mini app'da rasm/ovoz har safar Telegram'dan qayta yuklanmasin (egress tejash)
+MEDIA_CACHE = os.path.join(os.path.dirname(DB_PATH) or ".", "mediacache")
 
 if not BOT_TOKEN:
     raise RuntimeError(
