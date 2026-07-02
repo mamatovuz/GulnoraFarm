@@ -397,6 +397,52 @@ async def clients_full():
     return await cur.fetchall()
 
 
+async def stale_open_orders(cutoff):
+    """Cutoff'dan eski, hali ochiq (yangi/jarayonda) murojaatlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT id, operator_id, user_id FROM orders "
+        "WHERE status IN ('new','in_progress') AND created_at < ?", (cutoff,))
+    return await cur.fetchall()
+
+
+# ---- Rejalashtirilgan broadcast ----
+async def add_sched_bc(text, media, target, branch_id, send_at):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO scheduled_bc (text, media, target, branch_id, send_at) VALUES (?,?,?,?,?)",
+        (text, media, target, branch_id, send_at))
+    await db.commit()
+    return cur.lastrowid
+
+
+async def due_sched_bc(now_str):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM scheduled_bc WHERE done=0 AND send_at <= ?", (now_str,))
+    return await cur.fetchall()
+
+
+async def pending_sched_bc():
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT id, text, target, send_at, (media IS NOT NULL) AS has_media "
+        "FROM scheduled_bc WHERE done=0 ORDER BY send_at")
+    return await cur.fetchall()
+
+
+async def mark_sched_bc_done(bid):
+    db = await get_db()
+    await db.execute("UPDATE scheduled_bc SET done=1, media=NULL WHERE id=?", (bid,))
+    await db.commit()
+
+
+async def delete_sched_bc(bid):
+    db = await get_db()
+    await db.execute("DELETE FROM scheduled_bc WHERE id=?", (bid,))
+    await db.commit()
+
+
 async def monthly_op_stats(a, b):
     """Oylik hisobot: [a, b) oralig'ida har bir faol operatorning yakunlari va bahosi."""
     db = await get_db()
@@ -1069,7 +1115,10 @@ async def op_chats(operator_id):
         "(SELECT text FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_text, "
         "(SELECT content_type FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_ct, "
         "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at, "
-        "(SELECT sender FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_sender "
+        "(SELECT sender FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_sender, "
+        "(SELECT COUNT(*) FROM messages m2 WHERE m2.order_id=o.id AND m2.sender='client' "
+        " AND m2.id > COALESCE((SELECT MAX(m3.id) FROM messages m3 WHERE m3.order_id=o.id "
+        " AND m3.sender='operator'), 0)) AS unread "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         "WHERE o.status='in_progress' AND o.operator_id=? "
         "AND o.id NOT IN (SELECT order_id FROM hidden_chats WHERE operator_id=?) "

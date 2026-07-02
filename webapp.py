@@ -178,6 +178,7 @@ async def api_chats(request):
             "incoming": r["status"] == "new",
             "mine": r["operator_id"] == op["id"],
             "reply": r["last_sender"] == "client",   # javob kutyapti
+            "unread": r["unread"] or 0,
             "preview": (preview or "")[:60],
             "time": (r["last_at"] or r["created_at"] or "")[11:16],
         })
@@ -1533,6 +1534,52 @@ async def api_admin_note_save(request):
     return _json({"ok": True})
 
 
+# ---------------- Admin: eski ochiq murojaatlarni yopish ----------------
+async def api_admin_close_stale(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    try:
+        days = max(1, min(int(body.get("days", 7)), 90))
+    except (TypeError, ValueError):
+        days = 7
+    from datetime import timedelta
+    from config import now_local
+    cutoff = (now_local() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = await q.stale_open_orders(cutoff)
+    for r in rows:
+        await q.set_order_status(r["id"], "done", f"admin:stale:{tg}")
+        if r["operator_id"]:
+            await q.set_operator_active_order(r["operator_id"], None)
+            await q.set_operator_availability(r["operator_id"], "free")
+        await q.set_user_active_order(r["user_id"], None)
+    return _json({"ok": True, "closed": len(rows)})
+
+
+async def api_admin_bc_pending(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    rows = await q.pending_sched_bc()
+    return _json({"ok": True, "items": [
+        {"id": r["id"], "text": (r["text"] or "")[:60], "target": r["target"],
+         "send_at": r["send_at"], "has_media": bool(r["has_media"])} for r in rows]})
+
+
+async def api_admin_bc_cancel(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    await q.delete_sched_bc(int(body.get("id")))
+    return _json({"ok": True})
+
+
 # ================= Admin: SOZLAMALAR (3-bosqich) =================
 async def api_admin_branches(request):
     if not await _auth_admin(request, request.query):
@@ -1689,6 +1736,15 @@ async def api_admin_broadcast(request):
         return _json({"ok": False, "error": "Matn bo'sh"})
     target = body.get("target", "all")
     branch_id = body.get("branch_id")
+    # Rejalashtirilgan yuborish: vaqt berilsa navbatga qo'yiladi (bot fonda yuboradi)
+    send_at = str(body.get("send_at", "")).strip()
+    if send_at:
+        sa = send_at.replace("T", " ")[:16] + ":00"
+        if sa <= q.now():
+            return _json({"ok": False, "error": "Vaqt kelajakda bo'lishi kerak"})
+        await q.add_sched_bc(text, body.get("media_data") or None, target,
+                             int(branch_id) if (target == "branch" and branch_id) else None, sa)
+        return _json({"ok": True, "scheduled": True, "send_at": sa})
     from utils import cbot
     client = cbot()
     if not client:
@@ -1957,6 +2013,9 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/client_del", api_admin_client_del)
     app.router.add_post("/api/admin/note_save", api_admin_note_save)
     app.router.add_post("/api/admin/excel_clients", api_admin_excel_clients)
+    app.router.add_post("/api/admin/close_stale", api_admin_close_stale)
+    app.router.add_get("/api/admin/bc_pending", api_admin_bc_pending)
+    app.router.add_post("/api/admin/bc_cancel", api_admin_bc_cancel)
     app.router.add_get("/api/admin/settings", api_admin_settings)
     app.router.add_post("/api/admin/settings_save", api_admin_settings_save)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)

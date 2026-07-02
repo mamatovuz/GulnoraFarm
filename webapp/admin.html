@@ -353,6 +353,7 @@
       <div class="item" onclick="openSet('bc')"><svg class="ic" viewBox="0 0 24 24"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg><div class="lbl">Ommaviy xabar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('hours')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><div class="lbl">Ish vaqti</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('contact')"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg><div class="lbl">Bog'lanish matni</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('stale')"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg><div class="lbl">Eski murojaatlarni yopish</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('excel')"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><div class="lbl">Excel hisobot</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
   </div>
@@ -1058,13 +1059,14 @@ function compressImage(file, maxDim, quality){
 // ================= SOZLAMALAR =================
 const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
-            opbots:"Operator botlari",low:"Sifat nazorati",excel:"Excel hisobot"};
+            opbots:"Operator botlari",low:"Sifat nazorati",excel:"Excel hisobot",
+            stale:"Eski murojaatlar"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
-    ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel})[kind]();
+    ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel,stale:svStale})[kind]();
 }
 
 // ---- Operatorlar ----
@@ -1156,6 +1158,33 @@ async function svLow(){
           <div class="sub" style="white-space:normal">${esc(x.operator)}${x.feedback?" — «"+esc(x.feedback)+"»":""}</div></div>
       </div>`).join("")}</div>`
     : '<div class="empty">Past baholar yo\'q — ajoyib! 🎉</div>';
+}
+
+// ---- Eski murojaatlarni yopish ----
+async function svStale(){
+  document.getElementById("sv-body").innerHTML = `
+    <div class="card"><h3>Osilib qolgan murojaatlarni yopish</h3>
+    <div class="frm">
+      <label>Necha kundan eski ochiq murojaatlar yopilsin?</label>
+      <select id="st-days">
+        <option value="3">3 kundan eski</option>
+        <option value="7" selected>7 kundan eski</option>
+        <option value="14">14 kundan eski</option>
+        <option value="30">30 kundan eski</option>
+      </select>
+      <button class="sbtn" onclick="staleRun(this)">Yopish</button>
+      <div style="font-size:12px;color:var(--hint)">Mijozlarga hech narsa yuborilmaydi — jimgina "Yakunlangan" bo'ladi, operatorlar bo'shaydi.</div>
+    </div></div>`;
+}
+function staleRun(btn){
+  const days=document.getElementById("st-days").value;
+  tg.showConfirm(days+" kundan eski barcha ochiq murojaatlar yopilsinmi?", async ok=>{
+    if(!ok) return;
+    btn.disabled=true;
+    const r=await q("/api/admin/close_stale","POST",Object.assign(auth(),{days}));
+    btn.disabled=false;
+    tg.showAlert(r.ok?("Yopildi: "+r.closed+" ta murojaat"):(r.error||"Xatolik"));
+  });
 }
 
 // ---- Excel ----
@@ -1306,9 +1335,30 @@ async function svBc(){
         <option value="branch">Tanlangan filialga</option>
       </select>
       <select id="bc-branch" style="display:none">${(br.ok?br.items:[]).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("")}</select>
+      <label>Qachon yuborish</label>
+      <select id="bc-when" onchange="document.getElementById('bc-time').style.display=this.value==='sched'?'':'none'">
+        <option value="now">Hozir</option>
+        <option value="sched">Belgilangan vaqtda</option>
+      </select>
+      <input type="datetime-local" id="bc-time" style="display:none">
       <button class="sbtn" onclick="bcSend(this)">Yuborish</button>
-    </div></div>`;
+    </div></div>
+    <div class="card" id="bc-pend-card" style="display:none"><h3>Rejadagi e'lonlar</h3><div id="bc-pend"></div></div>`;
+  loadBcPending();
 }
+async function loadBcPending(){
+  const r=await q("/api/admin/bc_pending","GET",auth()); if(!r.ok) return;
+  const card=document.getElementById("bc-pend-card"); if(!card) return;
+  card.style.display = r.items.length ? "" : "none";
+  document.getElementById("bc-pend").innerHTML = r.items.map(x=>`
+    <div class="lrow" style="cursor:default">
+      <div class="mid"><div class="nm"><span>${esc(x.send_at.slice(0,16))}</span></div>
+        <div class="sub">${x.has_media?"🖼 ":""}${esc(x.text)} · ${x.target==="all"?"barchaga":x.target==="active"?"faollarga":"filialga"}</div></div>
+      <button class="delbtn" onclick="bcCancel(${x.id})">${DELSVG}</button>
+    </div>`).join("");
+}
+function bcCancel(id){ tg.showConfirm("Rejadagi e'lon bekor qilinsinmi?", async ok=>{
+  if(!ok) return; await q("/api/admin/bc_cancel","POST",Object.assign(auth(),{id})); loadBcPending(); }); }
 function bcSend(btn){
   const text=document.getElementById("bc-text").value.trim();
   if(!text){ tg.showAlert("Matn bo'sh"); return; }
@@ -1316,11 +1366,15 @@ function bcSend(btn){
     if(!ok) return;
     btn.disabled=true; btn.textContent="Yuborilmoqda...";
     const target=document.getElementById("bc-target").value;
-    const r=await q("/api/admin/broadcast","POST",Object.assign(auth(),{text,target,
+    const when=document.getElementById("bc-when").value;
+    const send_at = when==="sched" ? document.getElementById("bc-time").value : "";
+    if(when==="sched" && !send_at){ btn.disabled=false; btn.textContent="Yuborish"; tg.showAlert("Vaqtni tanlang"); return; }
+    const r=await q("/api/admin/broadcast","POST",Object.assign(auth(),{text,target,send_at,
       branch_id:document.getElementById("bc-branch").value, media_data:BCIMG||undefined}));
     btn.disabled=false; btn.textContent="Yuborish";
     if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
-    tg.showAlert(`Yuborildi: ${r.sent} ta · Yetkazilmadi: ${r.failed} ta`);
+    if(r.scheduled){ tg.showAlert("Rejaga qo'yildi: "+r.send_at.slice(0,16)); loadBcPending(); }
+    else tg.showAlert(`Yuborildi: ${r.sent} ta · Yetkazilmadi: ${r.failed} ta`);
     document.getElementById("bc-text").value="";
   });
 }

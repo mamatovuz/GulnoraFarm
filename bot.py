@@ -76,6 +76,59 @@ async def rate_remind_loop(bot):
             pass
 
 
+async def sched_bc_loop(bot):
+    """Rejalashtirilgan ommaviy xabarlarni vaqti kelganda yuboradi."""
+    import base64
+    import html as _h
+    from aiogram.types import BufferedInputFile
+    from config import ADMIN_IDS
+    while True:
+        await asyncio.sleep(60)
+        try:
+            for b in await q.due_sched_bc(q.now()):
+                media = b["media"]
+                await q.mark_sched_bc_done(b["id"])
+                if b["target"] == "active":
+                    users = await q.all_users(only_active=True)
+                elif b["target"] == "branch" and b["branch_id"]:
+                    users = await q.all_users(branch_id=b["branch_id"])
+                else:
+                    users = await q.all_users()
+                raw = None
+                if media:
+                    try:
+                        raw = base64.b64decode(str(media).split(",")[-1])
+                    except Exception:
+                        raw = None
+                sent = failed = 0
+                fid = None
+                for u in users:
+                    try:
+                        if raw:
+                            if fid:
+                                await bot.send_photo(u["telegram_id"], fid,
+                                                     caption=_h.escape(b["text"] or ""))
+                            else:
+                                m = await bot.send_photo(u["telegram_id"],
+                                                         BufferedInputFile(raw, "elon.jpg"),
+                                                         caption=_h.escape(b["text"] or ""))
+                                fid = m.photo[-1].file_id
+                        else:
+                            await bot.send_message(u["telegram_id"], _h.escape(b["text"] or ""))
+                        sent += 1
+                    except Exception:
+                        failed += 1
+                for aid in ADMIN_IDS:
+                    try:
+                        await bot.send_message(
+                            aid, f"📣 Rejalashtirilgan e'lon yuborildi ({b['send_at'][:16]})\n"
+                                 f"✅ {sent} ta · ❌ {failed} ta")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
 async def monthly_op_report_loop(bot):
     """Har oy 1-sanasida (09:00 dan keyin) har bir operatorga o'tgan oy natijalarini yuboradi."""
     from datetime import timedelta
@@ -224,6 +277,8 @@ async def main():
     asyncio.create_task(rate_remind_loop(bot))
     # Oylik operator hisoboti (har oy 1-sanasida)
     asyncio.create_task(monthly_op_report_loop(bot))
+    # Rejalashtirilgan ommaviy xabarlar
+    asyncio.create_task(sched_bc_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda
     try:
         import webapp

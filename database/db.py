@@ -148,6 +148,17 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- Rejalashtirilgan ommaviy xabarlar
+CREATE TABLE IF NOT EXISTS scheduled_bc (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    text      TEXT,
+    media     TEXT,          -- rasm (base64), bo'lmasa NULL
+    target    TEXT,          -- all | active | branch
+    branch_id INTEGER,
+    send_at   TEXT,
+    done      INTEGER DEFAULT 0
+);
+
 -- Operator eslatmalari ("1 soatdan keyin eslat")
 CREATE TABLE IF NOT EXISTS reminders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

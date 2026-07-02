@@ -585,15 +585,6 @@ async function loadChats(){
   updatePinBadge();
   const box = document.getElementById("rows");
   if(!r.chats.length){ box.innerHTML = '<div class="empty">Faol suhbat yo\'q.<br>Yangi murojaatlar yuqoridagi kanalda.</div>'; return; }
-  // Yangi mijoz javobi kelganda — ovoz + vibratsiya (chat ochiq bo'lmasa ham)
-  const replies = r.chats.filter(c=>c.reply);
-  let fresh=false;
-  replies.forEach(c=>{ const k=c.order_id+"|"+c.time; if(_replyInit && !_replySeen.has(k)) fresh=true; });
-  _replySeen = new Set(replies.map(c=>c.order_id+"|"+c.time));
-  _replyInit = true;
-  replyCount = replies.length;
-  if(fresh) beep();
-  updateTabBadge();
   box.innerHTML = r.chats.map(c => `
     <div class="row" onclick='openChat(${c.order_id}, ${JSON.stringify(c.name)})'>
       <div class="ava" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
@@ -602,7 +593,7 @@ async function loadChats(){
           <span class="tm">${c.time}</span></div>
         <div class="pv">${esc(c.preview)}</div>
       </div>
-      ${c.reply?'<div style="width:9px;height:9px;border-radius:50%;background:var(--accent);flex-shrink:0"></div>':''}
+      ${c.unread?`<div style="min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${c.unread}</div>`:''}
     </div>`).join("");
 }
 // ---- Bildirishnoma: bitta AudioContext (autoplay qulfi yechiladi) + vibratsiya ----
@@ -613,22 +604,57 @@ function _ensureAC(){
   return _ac;
 }
 ["touchstart","mousedown","keydown"].forEach(ev=>document.addEventListener(ev,_ensureAC,{passive:true}));
+function _tone(c,f,t0,d,vol){
+  const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
+  o.type="sine"; o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(vol,t0+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+d);
+  o.start(t0); o.stop(t0+d+0.03);
+}
 function beep(){
   try{ if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
   const m = localStorage.getItem("snd")||"on";
   if(m==="off") return;
-  const vol = m==="low" ? 0.045 : 0.16;
+  const vol = m==="low" ? 0.10 : 0.42;   // ancha balandroq
   const c=_ensureAC(); if(!c || c.state!=="running") return;
   try{
-    const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
-    o.type="sine"; o.frequency.value=880;
-    g.gain.setValueAtTime(0.0001,c.currentTime);
-    g.gain.exponentialRampToValueAtTime(vol,c.currentTime+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.25);
-    o.start(); o.stop(c.currentTime+0.26);
+    const t=c.currentTime;
+    _tone(c,1046,t,0.16,vol);        // ikki tonli "ding-dong" — eshitilarli
+    _tone(c,1568,t+0.14,0.26,vol);
   }catch(e){}
 }
 let prevNew=-1, lastNewCount=0, replyCount=0, _replySeen=new Set(), _replyInit=false;
+// ===== GLOBAL BILDIRISHNOMA: har 10 soniyada, QAYSI bo'limda bo'lsangiz ham =====
+setInterval(async ()=>{
+  if(document.hidden || !OP.token) return;
+  try{
+    // 1) Mijoz javoblari (ochiq chat bundan mustasno — u o'zi signal beradi)
+    const r = await q("/api/chats","GET",auth());
+    if(r.ok){
+      const all = r.chats.filter(c=>c.reply);
+      replyCount = all.length;
+      const others = all.filter(c=>c.order_id!==CUR);
+      let fresh=false;
+      others.forEach(c=>{ const k=c.order_id+"|"+c.time; if(_replyInit && !_replySeen.has(k)) fresh=true; });
+      _replySeen = new Set(others.map(c=>c.order_id+"|"+c.time));
+      _replyInit = true;
+      if(fresh) beep();
+    }
+    // 2) Yangi murojaatlar (kanal)
+    const n = await q("/api/newcount","GET",auth());
+    if(n.ok){
+      if(prevNew>=0 && n.count>prevNew) beep();
+      prevNew=n.count; lastNewCount=n.count;
+      const cb=document.getElementById("chan-badge");
+      cb.textContent=n.count; cb.classList.toggle("hide", !n.count);
+      document.getElementById("chan-sub").textContent =
+        n.count ? (n.count+" ta yangi murojaat") : "Yangi murojaatlar shu yerda";
+    }
+    updateTabBadge();
+  }catch(e){}
+}, 10000);
 function updateTabBadge(){
   const tot = lastNewCount + replyCount;
   const e=document.getElementById("tb-badge");
@@ -637,7 +663,6 @@ function updateTabBadge(){
 async function updatePinBadge(){
   const r = await q("/api/newcount","GET",auth()); if(!r.ok) return;
   const n = r.count||0;
-  if(prevNew>=0 && n>prevNew) beep();   // yangi murojaat keldi
   prevNew=n; lastNewCount=n;
   const cb=document.getElementById("chan-badge");
   cb.textContent=n; cb.classList.toggle("hide", n===0);
