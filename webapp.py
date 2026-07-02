@@ -218,16 +218,23 @@ async def api_file(request):
                                     headers={"Cache-Control": "public, max-age=604800"})
         except Exception:
             pass
-    # 2) Telegram'dan bir marta yuklab, keshga saqlaymiz
+    # 2) Telegram'dan bir marta yuklab, keshga saqlaymiz.
+    # file_id asosiy botniki ham, operator botiniki ham bo'lishi mumkin — hammasini sinaymiz
     from utils import cbot
-    client = cbot()
-    if not client:
+    import botreg
+    candidates = [b for b in ([cbot()] + list(botreg.all_operator_bots().values())) if b]
+    if not candidates:
         return web.Response(status=503)
-    try:
-        f = await client.get_file(fid)
-        buf = await client.download_file(f.file_path)
-        raw = buf.read()
-    except Exception:
+    raw = None
+    for b in candidates:
+        try:
+            f = await b.get_file(fid)
+            buf = await b.download_file(f.file_path)
+            raw = buf.read()
+            break
+        except Exception:
+            continue
+    if raw is None:
         return web.Response(status=404, text="not found")
     try:
         os.makedirs(MEDIA_CACHE, exist_ok=True)
@@ -888,7 +895,11 @@ async def api_admin_dash(request):
         except Exception:
             age = 0
         waiting.append({"id": w["id"], "name": w["full_name"] or "—", "mins": max(age, 0)})
-    return _json({"ok": True, "period": period, "waiting": waiting,
+    # Davr ichida eng ko'p murojaat yuborgan mijozlar
+    tc_rows, _tc_total = await q.top_clients(since, 6, 0)
+    topclients = [{"tg": r["telegram_id"], "name": r["full_name"] or "—",
+                   "phone": r["phone"] or "", "cnt": r["cnt"]} for r in tc_rows]
+    return _json({"ok": True, "period": period, "waiting": waiting, "topclients": topclients,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
                           "resp": rep["resp"], "resol": rep["resol"],

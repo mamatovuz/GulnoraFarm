@@ -199,6 +199,11 @@
       <h3>Operatorlar <span class="sub" id="ops-sub"></span></h3>
       <div id="opslist"></div>
     </div>
+
+    <div class="card">
+      <h3>Top mijozlar <span class="sub">eng ko'p murojaat yuborganlar</span></h3>
+      <div id="topcl"></div>
+    </div>
   </div>
 
   <!-- MUROJAATLAR -->
@@ -411,6 +416,21 @@ function renderAll(){
   renderDonut(DASH.kpi);
   renderBars(DASH.hours);
   renderOps(DASH.ops, DASH.kpi.online);
+  renderTopClients(DASH.topclients||[]);
+}
+
+// ---- Top mijozlar ----
+function renderTopClients(items){
+  const box=document.getElementById("topcl");
+  if(!items.length){ box.innerHTML='<div class="empty">Bu davrda murojaat yo\'q</div>'; return; }
+  const medals=["🥇","🥈","🥉"];
+  box.innerHTML = items.map((c,i)=>`
+    <div class="oprow" style="cursor:pointer" onclick="openClientV(${c.tg})">
+      <div class="ava" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
+      <div><div class="nm">${medals[i]||((i+1)+".")} ${esc(c.name)}</div>
+        <div class="st">${esc(c.phone)||"—"}</div></div>
+      <div class="cnt" style="font-size:15px;font-weight:700;color:var(--text)">${c.cnt}<br><span style="font-size:11px;font-weight:400;color:var(--hint)">murojaat</span></div>
+    </div>`).join("");
 }
 
 // ---- Javob kutayotganlar (jonli ogohlantirish) ----
@@ -721,19 +741,34 @@ async function openClientV(tg_){
   const r=await q("/api/admin/client","GET",Object.assign(auth(),{tg:tg_}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
   const c=r.client;
+  const done=r.orders.filter(o=>o.status==="done").length;
+  const canc=r.orders.filter(o=>o.status==="canceled").length;
+  const open=r.orders.filter(o=>o.status==="new"||o.status==="in_progress").length;
+  const rated=r.orders.filter(o=>o.rating);
+  const avg=rated.length?(rated.reduce((s,o)=>s+o.rating,0)/rated.length).toFixed(1):"—";
   document.getElementById("clientv-body").innerHTML = `
-    <div class="card" style="text-align:center">
-      <div class="ava2" style="width:76px;height:76px;font-size:30px;margin:0 auto 10px;background:${avaBg(c.name)}">${ini(c.name)}</div>
-      <div style="font-size:19px;font-weight:700">${esc(c.name)}</div>
-      <div style="color:var(--hint);font-size:14px;margin-top:4px">${esc(c.phone)||"—"}</div>
-      <div style="color:var(--hint);font-size:13px;margin-top:2px">${esc(c.branch)||"Filial tanlanmagan"} · ro'yxatdan: ${esc(c.reg)}</div>
-      ${c.note?`<div style="margin-top:10px;padding:9px 12px;background:#fff6d8;color:#7a5b00;border-radius:10px;font-size:13.5px;text-align:left">Izoh: ${esc(c.note)}</div>`:""}
+    <div class="card" style="text-align:center;padding-top:20px">
+      <div class="ava2" style="width:82px;height:82px;font-size:32px;margin:0 auto 10px;background:${avaBg(c.name)}">${ini(c.name)}</div>
+      <div style="font-size:20px;font-weight:700;letter-spacing:-.01em">${esc(c.name)}</div>
+      ${c.phone?`<a href="tel:${esc(c.phone)}" style="display:inline-block;margin-top:5px;color:var(--link);font-size:15px;text-decoration:none">${esc(c.phone)}</a>`:""}
+      <div style="display:flex;justify-content:center;gap:14px;margin-top:8px;color:var(--hint);font-size:12.5px">
+        <span>${esc(c.branch)||"Filial tanlanmagan"}</span><span>·</span><span>ro'yxatdan: ${esc(c.reg)||"—"}</span>
+      </div>
+      ${c.note?`<div style="margin-top:12px;padding:10px 13px;background:#fff6d8;color:#7a5b00;border-radius:11px;font-size:13.5px;text-align:left;line-height:1.4"><b>Izoh:</b> ${esc(c.note)}</div>`:""}
     </div>
-    <div class="card"><h3>Murojaatlar (${r.orders.length})</h3>
+    <div class="kpi">
+      <div class="tile"><div class="v">${r.orders.length}</div><div class="l">Jami murojaat</div></div>
+      <div class="tile"><div class="v">${avg}</div><div class="l">O'rtacha baho${rated.length?" ("+rated.length+" ta)":""}</div></div>
+      <div class="tile"><div class="v" style="color:${C.done}">${done}</div><div class="l">Yakunlangan</div></div>
+      <div class="tile"><div class="v" style="color:${open?C.prog:'inherit'}">${open}</div><div class="l">Ochiq · <span style="color:${C.canceled}">${canc} bekor</span></div></div>
+    </div>
+    <div class="card"><h3>Murojaatlar tarixi</h3>
       <div class="lrows" style="border-radius:10px">${
         r.orders.map(o=>`<div class="lrow" onclick='openTrans(${o.id},"client")'>
-          <div class="mid"><div class="nm"><span>#${o.id}</span><span class="tm">${esc(o.date)}</span></div>
-          <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.rating?" · "+o.rating+"★":""}</div></div>
+          <div class="ava2" style="width:36px;height:36px;font-size:13px;background:none;border:2px solid ${ST_COL[o.status]||'#999'};color:${ST_COL[o.status]||'#999'};font-weight:700">#${o.id}</div>
+          <div class="mid"><div class="nm"><span>${ST_LBL[o.status]||o.status}</span><span class="tm">${esc(o.date)}</span></div>
+          <div class="sub">${o.rating?"★".repeat(o.rating)+"☆".repeat(5-o.rating):"baholanmagan"}</div></div>
+          <svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg>
         </div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'
       }</div></div>`;
   document.getElementById("clientv").classList.remove("hide");
