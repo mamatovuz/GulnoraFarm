@@ -899,7 +899,8 @@ async def op_chats(operator_id):
         "u.full_name, u.phone, u.username, "
         "(SELECT text FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_text, "
         "(SELECT content_type FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_ct, "
-        "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at "
+        "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at, "
+        "(SELECT sender FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_sender "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         "WHERE o.status='in_progress' AND o.operator_id=? "
         "AND o.id NOT IN (SELECT order_id FROM hidden_chats WHERE operator_id=?) "
@@ -943,6 +944,22 @@ async def channel_feed():
         "LEFT JOIN branches b ON b.id=o.branch_id "
         "WHERE o.status='new' ORDER BY o.created_at DESC LIMIT 50")
     return await cur.fetchall()
+
+
+async def get_client_note(user_id):
+    db = await get_db()
+    cur = await db.execute("SELECT note FROM client_notes WHERE user_id = ?", (user_id,))
+    r = await cur.fetchone()
+    return r["note"] if r and r["note"] else ""
+
+
+async def set_client_note(user_id, note):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO client_notes (user_id, note, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at",
+        (user_id, note, now()))
+    await db.commit()
 
 
 async def last_order_of(tg):

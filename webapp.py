@@ -5,9 +5,11 @@ login/parol -> chat ro'yxati -> yozishma -> mijozga yuborish (bot orqali) -> cha
 """
 import os
 import json
+import time
 import hmac
 import base64
 import hashlib
+import asyncio
 import logging
 from urllib.parse import parse_qsl
 
@@ -154,6 +156,7 @@ async def api_chats(request):
             "status": r["status"],
             "incoming": r["status"] == "new",
             "mine": r["operator_id"] == op["id"],
+            "reply": r["last_sender"] == "client",   # javob kutyapti
             "preview": (preview or "")[:60],
             "time": (r["last_at"] or r["created_at"] or "")[11:16],
         })
@@ -689,6 +692,68 @@ async def api_send_sticker(request):
     return _json({"ok": True})
 
 
+# ---------------- API: matnli tayyor javoblar ----------------
+async def api_templates(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    tpls = await q.list_templates()
+    items = [{"id": t["id"], "text": t["text"]} for t in tpls if t["text"]]
+    return _json({"ok": True, "items": items})
+
+
+# ---------------- API: mijoz izohi ----------------
+async def api_note(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(request.query.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    return _json({"ok": True, "note": await q.get_client_note(order["user_id"])})
+
+
+async def api_note_save(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    await q.set_client_note(order["user_id"], str(body.get("note", "")).strip())
+    return _json({"ok": True})
+
+
+# ---------------- Kesh tozalash (disk to'lmasin) ----------------
+async def _cache_cleanup_loop():
+    while True:
+        try:
+            if os.path.isdir(MEDIA_CACHE):
+                cutoff = time.time() - 7 * 86400
+                for name in os.listdir(MEDIA_CACHE):
+                    p = os.path.join(MEDIA_CACHE, name)
+                    try:
+                        if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                            os.remove(p)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        await asyncio.sleep(24 * 3600)
+
+
 # ---------------- Server ----------------
 def build_app() -> web.Application:
     app = web.Application(client_max_size=25 * 1024 * 1024)
@@ -719,6 +784,9 @@ def build_app() -> web.Application:
     app.router.add_get("/api/rating", api_rating)
     app.router.add_get("/api/stickers", api_stickers)
     app.router.add_post("/api/send_sticker", api_send_sticker)
+    app.router.add_get("/api/templates", api_templates)
+    app.router.add_get("/api/note", api_note)
+    app.router.add_post("/api/note", api_note_save)
     return app
 
 
@@ -727,4 +795,5 @@ async def start(port: int):
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    asyncio.create_task(_cache_cleanup_loop())
     logger.info("🖥 Mini app server: 0.0.0.0:%s  (URL: %s)", port, WEBAPP_URL or "— sozlanmagan")
