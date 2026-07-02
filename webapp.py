@@ -98,7 +98,10 @@ def _json(data, status=200):
 # ---------------- Sahifa ----------------
 async def index(request):
     if os.path.exists(_HTML):
-        return web.FileResponse(_HTML)
+        # Kesh o'chirilgan: har ochilganda eng yangi dizayn yuklanadi
+        return web.FileResponse(_HTML, headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0"})
     return web.Response(text="Mini app fayli topilmadi.", status=404)
 
 
