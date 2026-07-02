@@ -217,9 +217,7 @@
   <!-- PROFILE TAB -->
   <div id="tab-prof" class="body hide">
     <div class="prof">
-      <div class="ava" id="p-ava" onclick="pickAvatar()"><span id="p-init">?</span>
-        <div class="cam"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
-      </div>
+      <div class="ava" id="p-ava"><span id="p-init">?</span></div>
       <h3 id="p-name">—</h3>
       <div class="sub" id="p-login"></div>
     </div>
@@ -303,7 +301,6 @@
   </div>
 </div>
 <input type="file" id="file-photo" accept="image/*" class="hide">
-<input type="file" id="file-ava" accept="image/*" class="hide">
 
 <!-- Rasmni to'liq ekranda ko'rish -->
 <div id="imgview" class="hide" onclick="closeImg()"><img id="imgview-img"></div>
@@ -812,24 +809,13 @@ async function loadProfile(){
   const free = r.availability === "free";
   document.getElementById("p-switch").classList.toggle("on", free);
   document.getElementById("p-stlbl").textContent = free ? "Bo'sh" : "Band";
-  const ava = document.getElementById("p-ava");
-  if(r.has_avatar){ ava.style.backgroundImage = `url(${fileUrl0("/api/avatar")})`; document.getElementById("p-init").style.display="none"; }
-  else { ava.style.backgroundImage=""; document.getElementById("p-init").style.display=""; }
 }
-function fileUrl0(path){ return path + "?" + new URLSearchParams(Object.assign(auth(),{_init:INIT,t:Date.now()})); }
 async function toggleStatus(){
   const r = await q("/api/status","POST",auth()); if(!r.ok) return;
   const free = r.availability==="free";
   document.getElementById("p-switch").classList.toggle("on", free);
   document.getElementById("p-stlbl").textContent = free?"Bo'sh":"Band";
 }
-function pickAvatar(){ document.getElementById("file-ava").click(); }
-document.getElementById("file-ava").onchange = async function(){
-  const f=this.files[0]; this.value=""; if(!f) return;
-  const data = await compressImage(f, 512, 0.8);
-  const r=await q("/api/avatar","POST",Object.assign(auth(),{data}));
-  if(r.ok) loadProfile();
-};
 
 // ---- start ----
 setTheme(localStorage.getItem("theme")||"auto");
