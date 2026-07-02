@@ -16,9 +16,12 @@
     --accent-text: var(--tg-theme-button-text-color, #fff);
     --sep: rgba(128,128,128,.18);
     --in: var(--tg-theme-bg-color, #fff);
+    --chat-bg: var(--tg-theme-secondary-bg-color, #dfe7ef);
   }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-  html,body{margin:0;height:100%;background:var(--sec);color:var(--text);font-size:15px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+  html,body{margin:0;height:100%;background:var(--sec);color:var(--text);font-size:15px;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
   .hide{display:none!important}
   button{font-family:inherit}
   .ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
@@ -48,7 +51,7 @@
   .tabbar .dot{position:absolute;top:4px;margin-left:16px;min-width:16px;height:16px;background:#e5484d;
     border-radius:9px;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 
-  .topbar{display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--bg);border-bottom:1px solid var(--sep)}
+  .topbar{display:flex;align-items:center;gap:8px;padding:11px 12px;background:var(--bg);border-bottom:1px solid var(--sep);box-shadow:0 1px 3px rgba(0,0,0,.04);z-index:5}
   .topbar .t{font-weight:600;font-size:17px;flex:1}
   .iconbtn{background:none;border:none;color:var(--link);cursor:pointer;padding:6px;display:flex;align-items:center}
 
@@ -68,14 +71,14 @@
   .empty{padding:60px 24px;text-align:center;color:var(--hint)}
 
   /* ---- Chat view ---- */
-  #chat{background:var(--sec)}
-  .msgs{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:3px}
-  .b{max-width:80%;padding:7px 11px;border-radius:16px;font-size:15px;line-height:1.35;word-wrap:break-word;
-    white-space:pre-wrap;position:relative}
-  .b.c{align-self:flex-start;background:var(--bg);border-bottom-left-radius:5px}
-  .b.o{align-self:flex-end;background:var(--accent);color:var(--accent-text);border-bottom-right-radius:5px}
-  .b .tm{font-size:10px;opacity:.6;margin-top:2px;text-align:right}
-  .b img{max-width:230px;border-radius:12px;display:block;margin:-2px 0 2px}
+  #chat{background:var(--chat-bg)}
+  .msgs{flex:1;overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:2px;background:var(--chat-bg)}
+  .b{max-width:80%;padding:6px 10px;border-radius:15px;font-size:15px;line-height:1.36;word-wrap:break-word;
+    white-space:pre-wrap;position:relative;box-shadow:0 1px 1.5px rgba(0,0,0,.13);margin-bottom:2px}
+  .b.c{align-self:flex-start;background:var(--bg);border-bottom-left-radius:4px}
+  .b.o{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .b .tm{font-size:10.5px;opacity:.62;margin-top:2px;text-align:right}
+  .b img{max-width:240px;border-radius:11px;display:block;margin:-1px 0 3px}
   .b audio{width:230px;margin:2px 0}
   .composer{display:flex;gap:6px;padding:7px 8px;background:var(--bg);border-top:1px solid var(--sep);align-items:flex-end}
   .composer textarea{flex:1;resize:none;border:none;border-radius:20px;padding:10px 14px;font-size:15px;
@@ -113,9 +116,9 @@
 
   /* ---- Manual light/dark (auto = Telegram temasi) ---- */
   html[data-theme="light"]{--bg:#ffffff;--sec:#f1f2f5;--text:#0f1419;--hint:#8a929c;--link:#3390ec;
-    --accent:#3390ec;--accent-text:#fff;--sep:rgba(0,0,0,.08)}
+    --accent:#3390ec;--accent-text:#fff;--sep:rgba(0,0,0,.08);--chat-bg:#dfe7ef}
   html[data-theme="dark"]{--bg:#17212b;--sec:#0e1621;--text:#f5f5f5;--hint:#7d8b99;--link:#6ab3f3;
-    --accent:#3390ec;--accent-text:#fff;--sep:rgba(255,255,255,.09)}
+    --accent:#3390ec;--accent-text:#fff;--sep:rgba(255,255,255,.09);--chat-bg:#0e1621}
   html[data-theme="dark"] .card,html[data-theme="dark"] .row,html[data-theme="dark"] .item,
   html[data-theme="dark"] .topbar,html[data-theme="dark"] .prof,html[data-theme="dark"] .b.c,
   html[data-theme="dark"] .tabbar,html[data-theme="dark"] #cmdpanel{background:#17212b}
@@ -221,7 +224,6 @@
     </div>
     <div class="list">
       <div class="item" onclick="openList('unfinished')"><svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" onclick="openList('done')"><svg class="ic" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3"/></svg><div class="lbl">Yakunlanganlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openList('rating')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Reyting</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
@@ -389,9 +391,9 @@ async function loadClients(){
   const r=await q("/api/clients","GET",Object.assign(auth(),{q:term}));
   if(!r.ok) return;
   const box=document.getElementById("clrows");
-  if(!r.clients.length){ box.innerHTML='<div class="empty">Mijoz topilmadi</div>'; return; }
+  if(!r.clients.length){ box.innerHTML='<div class="empty">Siz qabul qilgan mijozlar shu yerda ko\'rinadi</div>'; return; }
   box.innerHTML=r.clients.map(c=>`
-    <div class="row" onclick='openClient(${c.tg}, ${JSON.stringify(c.name)})'>
+    <div class="row" onclick='openChat(${c.last_order}, ${JSON.stringify(c.name)})'>
       <div class="ava">${ini(c.name)}</div>
       <div class="mid"><div class="nm"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span></div>
         <div class="pv">${esc(c.phone)} · ${c.cnt} murojaat</div></div>

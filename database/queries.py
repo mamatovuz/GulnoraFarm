@@ -914,6 +914,23 @@ async def new_count():
     return (await cur.fetchone())[0]
 
 
+async def my_clients(operator_id, search=None):
+    """Operator qabul qilgan (o'ziga biriktirilgan) mijozlar — har biri bo'yicha oxirgi murojaat."""
+    db = await get_db()
+    where = "WHERE o.operator_id = ?"
+    params = [operator_id]
+    if search:
+        s = search.strip()
+        where += " AND (u.full_name LIKE ? OR u.phone LIKE ?)"
+        params += [f"%{s}%", f"%{s}%"]
+    cur = await db.execute(
+        f"SELECT u.telegram_id, u.full_name, u.phone, u.username, "
+        f"COUNT(o.id) AS cnt, MAX(o.id) AS last_order, MAX(o.created_at) AS last_at "
+        f"FROM orders o JOIN users u ON u.telegram_id = o.user_id {where} "
+        f"GROUP BY u.telegram_id ORDER BY last_at DESC LIMIT 100", params)
+    return await cur.fetchall()
+
+
 async def channel_feed():
     """CRM kanali: yangi (kutayotgan) murojaatlar — mijoz ma'lumoti + birinchi kontent bilan."""
     db = await get_db()

@@ -412,10 +412,10 @@ async def api_clients(request):
     if not op:
         return _json({"ok": False}, 401)
     search = request.query.get("q") or None
-    rows, total = await q.users_page(50, 0, search)
-    out = [{"tg": r["telegram_id"], "name": r["full_name"] or "—",
-            "phone": r["phone"] or "", "cnt": r["cnt"]} for r in rows]
-    return _json({"ok": True, "total": total, "clients": out})
+    rows = await q.my_clients(op["id"], search)
+    out = [{"tg": r["telegram_id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
+            "cnt": r["cnt"], "last_order": r["last_order"]} for r in rows]
+    return _json({"ok": True, "total": len(out), "clients": out})
 
 
 async def api_client_open(request):
