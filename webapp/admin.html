@@ -55,7 +55,18 @@
   /* KPI kartalar */
   .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
   .tile{background:var(--bg);border-radius:14px;padding:13px 14px}
-  .tile .v{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+  .tile .v{font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile .v.dur{font-size:17.5px;padding-top:5px}
+  /* Sozlamalar formalari */
+  .frm{display:flex;flex-direction:column;gap:9px;padding:2px 0}
+  .frm input,.frm textarea,.frm select{width:100%;padding:11px 13px;border:1px solid var(--sep);
+    border-radius:11px;background:var(--bg);color:var(--text);font-size:15px;outline:none;font-family:inherit}
+  .frm textarea{resize:vertical;min-height:76px}
+  .frm label{font-size:12.5px;color:var(--hint);margin:2px 0 -5px 2px}
+  .sbtn{width:100%;padding:12px;border:none;border-radius:11px;background:var(--accent);color:#fff;
+    font-size:15px;font-weight:600;cursor:pointer}
+  .delbtn{background:none;border:none;color:#e5484d;cursor:pointer;padding:6px;flex-shrink:0}
   .tile .l{color:var(--hint);font-size:12.5px;margin-top:3px}
   .tile .sub{font-size:12px;color:var(--hint);margin-top:2px}
   .tile.wide{grid-column:1/-1;display:flex;gap:10px}
@@ -218,8 +229,13 @@
       </div>
     </div>
     <div class="list">
-      <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>
-        <div class="lbl" style="font-size:13.5px;color:var(--hint)">Murojaatlar, mijozlar, operatorlar va boshqa bo'limlar keyingi bosqichda qo'shiladi. Hozircha ular botdagi admin panelda.</div></div>
+      <div class="item" onclick="openSet('branches')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><div class="lbl">Filiallar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('faqs')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4M12 17.5v.5"/></svg><div class="lbl">FAQ (savol-javob)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('tpls')"><svg class="ic" viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg><div class="lbl">Tayyor javoblar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('bc')"><svg class="ic" viewBox="0 0 24 24"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg><div class="lbl">Ommaviy xabar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('hours')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><div class="lbl">Ish vaqti</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('contact')"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg><div class="lbl">Bog'lanish matni</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="sendExcel(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><div class="lbl">Excel hisobot (botga yuboriladi)</div></div>
     </div>
   </div>
 
@@ -241,6 +257,15 @@
       Sozlamalar
     </button>
   </div>
+</div>
+
+<!-- SOZLAMALAR BO'LIMI (overlay) -->
+<div id="setview" class="screen hide" style="z-index:18">
+  <div class="topbar">
+    <button class="iconbtn" onclick="closeSet()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="t" id="sv-title" style="font-size:17px">—</div>
+  </div>
+  <div class="body" id="sv-body"></div>
 </div>
 
 <!-- YOZISHMA (transcript) -->
@@ -281,8 +306,13 @@ const C = { done:"#2f9e44", nw:"#d97706", canceled:"#e5484d", prog:"#3390ec", ac
 function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
-function fmtDur(m){ m=m||0; if(m<=0) return "—"; if(m<1) return Math.round(m*60)+" son";
-  if(m<60) return Math.round(m)+" daq"; return Math.floor(m/60)+" s "+Math.round(m%60)+" daq"; }
+function fmtDur(m){ m=m||0; if(m<=0) return "—"; if(m<1) return Math.round(m*60)+" soniya";
+  if(m<60) return Math.round(m)+" daqiqa"; return Math.floor(m/60)+" soat "+Math.round(m%60)+" daq"; }
+// Telegramdek: avatar rangi ismga qarab
+const _AVA=[["#ff885e","#ff516a"],["#ffcd6a","#ffa85c"],["#82b1ff","#665fff"],["#a0de7e","#54cb68"],
+            ["#53edd6","#28c9b7"],["#72d5fd","#2a9ef1"],["#e0a2f3","#d669ed"]];
+function avaBg(n){ let h=0; for(const ch of (n||"?")) h=(h*31+ch.charCodeAt(0))>>>0;
+  const p=_AVA[h%7]; return `linear-gradient(135deg,${p[0]},${p[1]})`; }
 function q(path, method, body){
   const b = Object.assign({ _init: INIT }, body||{});
   const o = { method, headers:{ "X-Init-Data":INIT, "Content-Type":"application/json" } };
@@ -355,8 +385,8 @@ function renderKPI(k){
   g.innerHTML = `
     <div class="tile"><div class="v">${k.total}</div><div class="l">Jami murojaatlar</div></div>
     <div class="tile"><div class="v">${k.online}</div><div class="l">Online operatorlar</div></div>
-    <div class="tile"><div class="v">${fmtDur(k.resp)}</div><div class="l">O'rtacha javob vaqti</div></div>
-    <div class="tile"><div class="v">${fmtDur(k.resol)}</div><div class="l">O'rtacha yakunlash</div></div>
+    <div class="tile"><div class="v dur">${fmtDur(k.resp)}</div><div class="l">O'rtacha javob vaqti</div></div>
+    <div class="tile"><div class="v dur">${fmtDur(k.resol)}</div><div class="l">O'rtacha yakunlash</div></div>
     <div class="tile wide">
       <div><div class="v">${k.rating||"—"}</div><div class="l">O'rtacha baho</div><div class="sub">${k.rated} ta baho</div></div>
       <div><div class="v">${k.done}</div><div class="l">Yakunlangan</div><div class="sub">${k.total?Math.round(k.done/k.total*100):0}% ulush</div></div>
@@ -521,7 +551,7 @@ function renderOps(ops, online){
   const stLbl = { free:"bo'sh", busy:"band", offline:"oflayn" };
   box.innerHTML = ops.map(o=>`
     <div class="oprow">
-      <div class="ava">${ini(o.name)}</div>
+      <div class="ava" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
       <div><div class="nm">${esc(o.name)}</div>
         <div class="st"><span class="stdot" style="background:${stCol[o.state]}"></span>${stLbl[o.state]}</div></div>
       <div class="cnt">${o.cnt} jarayonda<br>${o.done_today} bugun yakun</div>
@@ -542,7 +572,7 @@ async function loadOrders(reset){
   const box=document.getElementById("ord-rows");
   box.innerHTML = ORD.items.length ? ORD.items.map(o=>`
     <div class="lrow" onclick='openTrans(${o.id},"orders")'>
-      <div class="ava2">${ini(o.name)}</div>
+      <div class="ava2" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
       <div class="mid">
         <div class="nm"><span>#${o.id} · ${esc(o.name)}</span><span class="tm">${esc(o.time)}</span></div>
         <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}</div>
@@ -600,7 +630,7 @@ async function loadClients(reset){
   const box=document.getElementById("cl-rows");
   box.innerHTML = CLI.items.length ? CLI.items.map(c=>`
     <div class="lrow" onclick='openClientV(${c.tg})'>
-      <div class="ava2">${ini(c.name)}</div>
+      <div class="ava2" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
       <div class="mid">
         <div class="nm"><span>${esc(c.name)}</span><span class="tm">${esc(c.last)}</span></div>
         <div class="sub">${esc(c.phone)}${c.branch?" · "+esc(c.branch):""} · ${c.cnt} murojaat</div>
@@ -614,7 +644,7 @@ async function openClientV(tg_){
   const c=r.client;
   document.getElementById("clientv-body").innerHTML = `
     <div class="card" style="text-align:center">
-      <div class="ava2" style="width:76px;height:76px;font-size:30px;margin:0 auto 10px">${ini(c.name)}</div>
+      <div class="ava2" style="width:76px;height:76px;font-size:30px;margin:0 auto 10px;background:${avaBg(c.name)}">${ini(c.name)}</div>
       <div style="font-size:19px;font-weight:700">${esc(c.name)}</div>
       <div style="color:var(--hint);font-size:14px;margin-top:4px">${esc(c.phone)||"—"}</div>
       <div style="color:var(--hint);font-size:13px;margin-top:2px">${esc(c.branch)||"Filial tanlanmagan"} · ro'yxatdan: ${esc(c.reg)}</div>
@@ -630,6 +660,187 @@ async function openClientV(tg_){
   document.getElementById("clientv").classList.remove("hide");
 }
 function closeClientV(){ document.getElementById("clientv").classList.add("hide"); }
+
+// ================= SOZLAMALAR =================
+const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
+            hours:"Ish vaqti",contact:"Bog'lanish matni"};
+function openSet(kind){
+  document.getElementById("sv-title").textContent=_SVT[kind]||"";
+  document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
+  document.getElementById("setview").classList.remove("hide");
+  ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact})[kind]();
+}
+function closeSet(){ document.getElementById("setview").classList.add("hide"); }
+const DELSVG='<svg class="ic" viewBox="0 0 24 24" style="width:19px;height:19px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
+
+// ---- Filiallar ----
+async function svBranches(){
+  const r=await q("/api/admin/branches","GET",auth()); if(!r.ok) return;
+  const box=document.getElementById("sv-body");
+  box.innerHTML = `
+    <div class="lrows">${r.items.map(b=>`
+      <div class="lrow" onclick='brForm(${JSON.stringify(b)})'>
+        <div class="mid"><div class="nm"><span>${esc(b.name)}</span></div>
+          <div class="sub">${esc(b.address)||"—"} · ${b.open}–${b.close}</div></div>
+        <button class="delbtn" onclick="event.stopPropagation();brDel(${b.id})">${DELSVG}</button>
+      </div>`).join("")||'<div class="empty">Filial yo\'q</div>'}</div>
+    <button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>
+    <div id="br-form"></div>`;
+}
+function brForm(b){
+  document.getElementById("br-form").innerHTML = `
+    <div class="card" style="margin-top:12px"><h3>${b?"Tahrirlash":"Yangi filial"}</h3>
+    <div class="frm">
+      <input id="br-name" placeholder="Nomi" value="${b?esc(b.name):''}">
+      <input id="br-addr" placeholder="Manzil" value="${b?esc(b.address):''}">
+      <input id="br-phone" placeholder="Telefon" value="${b?esc(b.phone):''}">
+      <div style="display:flex;gap:8px">
+        <input id="br-open" placeholder="08:00" value="${b?b.open:'08:00'}">
+        <input id="br-close" placeholder="23:00" value="${b?b.close:'23:00'}">
+      </div>
+      <button class="sbtn" onclick="brSave(${b?b.id:'null'})">Saqlash</button>
+      ${b&&!b.has_loc?'<div style="font-size:12px;color:var(--hint)">Lokatsiyani botdagi admin panel orqali qo\'shasiz</div>':''}
+    </div></div>`;
+  document.getElementById("br-name").focus();
+}
+async function brSave(id){
+  const r=await q("/api/admin/branch_save","POST",Object.assign(auth(),{id,
+    name:document.getElementById("br-name").value, address:document.getElementById("br-addr").value,
+    phone:document.getElementById("br-phone").value, open:document.getElementById("br-open").value,
+    close:document.getElementById("br-close").value}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svBranches();
+}
+function brDel(id){ tg.showConfirm("Filialni o'chirasizmi?", async ok=>{ if(!ok)return;
+  await q("/api/admin/branch_del","POST",Object.assign(auth(),{id})); svBranches(); }); }
+
+// ---- FAQ ----
+async function svFaqs(){
+  const r=await q("/api/admin/faqs","GET",auth()); if(!r.ok) return;
+  document.getElementById("sv-body").innerHTML = `
+    <div class="lrows">${r.items.map(f=>`
+      <div class="lrow" onclick='faqForm(${JSON.stringify(f)})'>
+        <div class="mid"><div class="nm"><span>${esc(f.title)}</span></div>
+          <div class="sub">${esc(f.answer)}</div></div>
+        <button class="delbtn" onclick="event.stopPropagation();faqDel(${f.id})">${DELSVG}</button>
+      </div>`).join("")||'<div class="empty">FAQ yo\'q</div>'}</div>
+    <button class="morebtn" onclick="faqForm(null)">＋ Savol qo'shish</button>
+    <div id="faq-form"></div>`;
+}
+function faqForm(f){
+  document.getElementById("faq-form").innerHTML = `
+    <div class="card" style="margin-top:12px"><h3>${f?"Tahrirlash":"Yangi savol"}</h3>
+    <div class="frm">
+      <input id="fq-title" placeholder="Savol (sarlavha)" value="${f?esc(f.title):''}">
+      <textarea id="fq-ans" placeholder="Javob">${f?esc(f.answer):''}</textarea>
+      <button class="sbtn" onclick="faqSave(${f?f.id:'null'})">Saqlash</button>
+    </div></div>`;
+}
+async function faqSave(id){
+  const r=await q("/api/admin/faq_save","POST",Object.assign(auth(),{id,
+    title:document.getElementById("fq-title").value, answer:document.getElementById("fq-ans").value}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svFaqs();
+}
+function faqDel(id){ tg.showConfirm("O'chirasizmi?", async ok=>{ if(!ok)return;
+  await q("/api/admin/faq_del","POST",Object.assign(auth(),{id})); svFaqs(); }); }
+
+// ---- Tayyor javoblar ----
+async function svTpls(){
+  const r=await q("/api/admin/tpls","GET",auth()); if(!r.ok) return;
+  document.getElementById("sv-body").innerHTML = `
+    <div class="lrows">${r.items.map(t=>`
+      <div class="lrow">
+        <div class="mid"><div class="sub" style="color:var(--text);white-space:normal">${t.sticker?"🎭 Stiker shablon":esc(t.text)}</div></div>
+        <button class="delbtn" onclick="tplDel(${t.id})">${DELSVG}</button>
+      </div>`).join("")||'<div class="empty">Shablon yo\'q</div>'}</div>
+    <div class="card" style="margin-top:12px"><h3>Yangi matnli javob</h3>
+      <div class="frm"><textarea id="tp-text" placeholder="Masalan: Assalomu alaykum! Sizga qanday yordam bera olaman?"></textarea>
+      <button class="sbtn" onclick="tplAdd()">Qo'shish</button>
+      <div style="font-size:12px;color:var(--hint)">Stiker shablonni botdagi admin panel orqali qo'shasiz</div></div></div>`;
+}
+async function tplAdd(){
+  const r=await q("/api/admin/tpl_add","POST",Object.assign(auth(),{text:document.getElementById("tp-text").value}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svTpls();
+}
+function tplDel(id){ tg.showConfirm("O'chirasizmi?", async ok=>{ if(!ok)return;
+  await q("/api/admin/tpl_del","POST",Object.assign(auth(),{id})); svTpls(); }); }
+
+// ---- Ommaviy xabar ----
+async function svBc(){
+  const br=await q("/api/admin/branches","GET",auth());
+  document.getElementById("sv-body").innerHTML = `
+    <div class="card"><h3>Ommaviy xabar yuborish</h3>
+    <div class="frm">
+      <textarea id="bc-text" placeholder="Xabar matni (barcha mijozlarga boradi)"></textarea>
+      <label>Kimga</label>
+      <select id="bc-target" onchange="document.getElementById('bc-branch').style.display=this.value==='branch'?'':'none'">
+        <option value="all">Barcha mijozlarga</option>
+        <option value="active">Faol mijozlarga</option>
+        <option value="branch">Tanlangan filialga</option>
+      </select>
+      <select id="bc-branch" style="display:none">${(br.ok?br.items:[]).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("")}</select>
+      <button class="sbtn" onclick="bcSend(this)">Yuborish</button>
+    </div></div>`;
+}
+function bcSend(btn){
+  const text=document.getElementById("bc-text").value.trim();
+  if(!text){ tg.showAlert("Matn bo'sh"); return; }
+  tg.showConfirm("Xabar yuborilsinmi? Bu qaytarib bo'lmaydi.", async ok=>{
+    if(!ok) return;
+    btn.disabled=true; btn.textContent="Yuborilmoqda...";
+    const target=document.getElementById("bc-target").value;
+    const r=await q("/api/admin/broadcast","POST",Object.assign(auth(),{text,target,
+      branch_id:document.getElementById("bc-branch").value}));
+    btn.disabled=false; btn.textContent="Yuborish";
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    tg.showAlert(`Yuborildi: ${r.sent} ta · Yetkazilmadi: ${r.failed} ta`);
+    document.getElementById("bc-text").value="";
+  });
+}
+
+// ---- Ish vaqti ----
+async function svHours(){
+  const r=await q("/api/admin/settings","GET",auth()); if(!r.ok) return;
+  document.getElementById("sv-body").innerHTML = `
+    <div class="card"><h3>Umumiy ish vaqti (mijozlar uchun)</h3>
+    <div class="frm"><div style="display:flex;gap:8px">
+      <input id="ws" value="${r.work_start}"><input id="we" value="${r.work_end}"></div></div></div>
+    <div class="card"><h3>Operatorlar ish vaqti (standart)</h3>
+    <div class="frm"><div style="display:flex;gap:8px">
+      <input id="ows" value="${r.op_work_start}"><input id="owe" value="${r.op_work_end}"></div></div></div>
+    <div class="card"><h3>Eskalatsiya (daqiqa)</h3>
+    <div class="frm"><input id="esc-min" value="${r.escalate_min}" placeholder="5">
+      <div style="font-size:12px;color:var(--hint)">Shu daqiqada hech kim qabul qilmasa — adminga ogohlantirish (0 = o'chiq)</div>
+      <button class="sbtn" onclick="hoursSave()">Saqlash</button></div></div>`;
+}
+async function hoursSave(){
+  const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{
+    work_start:document.getElementById("ws").value, work_end:document.getElementById("we").value,
+    op_work_start:document.getElementById("ows").value, op_work_end:document.getElementById("owe").value,
+    escalate_min:document.getElementById("esc-min").value}));
+  tg.showAlert(r.ok?"Saqlandi":"Xatolik");
+}
+
+// ---- Bog'lanish matni ----
+async function svContact(){
+  const r=await q("/api/admin/settings","GET",auth()); if(!r.ok) return;
+  document.getElementById("sv-body").innerHTML = `
+    <div class="card"><h3>"Bog'lanish" bo'limi matni</h3>
+    <div class="frm"><textarea id="ct-text" style="min-height:170px">${esc(r.contact_text)}</textarea>
+    <button class="sbtn" onclick="contactSave()">Saqlash</button></div></div>`;
+}
+async function contactSave(){
+  const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{
+    contact_text:document.getElementById("ct-text").value}));
+  tg.showAlert(r.ok?"Saqlandi":"Xatolik");
+}
+
+// ---- Excel ----
+async function sendExcel(el){
+  el.style.opacity=".5";
+  const r=await q("/api/admin/excel","POST",auth());
+  el.style.opacity="";
+  tg.showAlert(r.ok?"Excel hisobot botdagi chatingizga yuborildi":(r.error||"Xatolik"));
+}
 
 // ---- Tema ----
 function setTheme(mode){

@@ -405,6 +405,11 @@ function fileUrl(fid, kind){
 }
 function esc(s){ return (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
+// Telegramdek: avatar rangi ismga qarab (7 xil gradient)
+const _AVA=[["#ff885e","#ff516a"],["#ffcd6a","#ffa85c"],["#82b1ff","#665fff"],["#a0de7e","#54cb68"],
+            ["#53edd6","#28c9b7"],["#72d5fd","#2a9ef1"],["#e0a2f3","#d669ed"]];
+function avaBg(n){ let h=0; for(const ch of (n||"?")) h=(h*31+ch.charCodeAt(0))>>>0;
+  const p=_AVA[h%7]; return `linear-gradient(135deg,${p[0]},${p[1]})`; }
 function auth(){ return { operator_id: OP.id, token: OP.token }; }
 
 // ---- Login ----
@@ -443,7 +448,7 @@ async function loadClients(){
   if(!r.clients.length){ box.innerHTML='<div class="empty">Siz qabul qilgan mijozlar shu yerda ko\'rinadi</div>'; return; }
   box.innerHTML=r.clients.map(c=>`
     <div class="row" onclick='openChat(${c.last_order}, ${JSON.stringify(c.name)})'>
-      <div class="ava">${ini(c.name)}</div>
+      <div class="ava" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
       <div class="mid"><div class="nm"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span></div>
         <div class="pv">${esc(c.phone)} · ${c.cnt} murojaat</div></div>
     </div>`).join("");
@@ -463,7 +468,7 @@ async function loadChats(){
   if(!r.chats.length){ box.innerHTML = '<div class="empty">Faol suhbat yo\'q.<br>Yangi murojaatlar yuqoridagi kanalda.</div>'; return; }
   box.innerHTML = r.chats.map(c => `
     <div class="row" onclick='openChat(${c.order_id}, ${JSON.stringify(c.name)})'>
-      <div class="ava">${ini(c.name)}</div>
+      <div class="ava" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
       <div class="mid">
         <div class="nm"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
           <span class="tm">${c.time}</span></div>
@@ -505,7 +510,7 @@ async function loadChannel(){
     else if(it.file_id) media=`<div class="sub">${_MLBL[it.ftype]||"Fayl"}</div>`;
     const txt = it.text?`<div class="txt">${esc(it.text)}</div>`:"";
     return `<div class="ccard">
-      <div class="ch"><div class="ava" style="width:44px;height:44px;font-size:17px">${ini(it.name)}</div>
+      <div class="ch"><div class="ava" style="width:44px;height:44px;font-size:17px;background:${avaBg(it.name)}">${ini(it.name)}</div>
         <div class="mid"><div class="nm">${esc(it.name)}</div>
           <div class="sub">${esc(it.phone)}${it.branch?' · '+esc(it.branch):''} · ${it.time}</div></div></div>
       ${txt}${media}
@@ -523,7 +528,8 @@ async function acceptChannel(oid, name){
 // ---- Chat view ----
 async function openChat(oid, name){
   CUR = oid; sh("chat");
-  document.getElementById("c-ava").textContent = ini(name);
+  const cav=document.getElementById("c-ava");
+  cav.textContent = ini(name); cav.style.background = avaBg(name);
   document.getElementById("c-name").textContent = name || "";
   document.getElementById("msgs").innerHTML = ""; lastSig="";
   document.getElementById("notebanner").classList.add("hide");
@@ -619,10 +625,11 @@ ta.addEventListener("input", ()=>{
   updateCmd();
 });
 ta.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
+function exitBill(){ pendingBill=false; ta.placeholder="Xabar..."; }
 async function send(){
   const text = ta.value.trim(); if(!text||!CUR) return;
   if(pendingBill){
-    pendingBill=false; ta.placeholder="Xabar..."; ta.value=""; ta.dispatchEvent(new Event("input"));
+    exitBill(); ta.value=""; ta.dispatchEvent(new Event("input"));
     const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:text}));
     tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
   }
@@ -664,7 +671,8 @@ async function runCmd(c){
   } else if(c==="/filialmalumoti"){
     openBranchModal();
   } else if(c==="/hisoblash"){
-    pendingBill=true; ta.placeholder="Hisob-kitob: summa/izoh yozing va yuboring"; ta.focus();
+    pendingBill=true;
+    ta.placeholder="Hisob-kitob: matn yozing yoki rasm/ovoz/stiker yuboring"; ta.focus();
   }
 }
 async function openBranchModal(){
@@ -710,6 +718,11 @@ function closeImg(){ document.getElementById("imgview").classList.add("hide"); }
 async function sendMedia(){
   if(!pendingMedia||!CUR) return;
   const cap=document.getElementById("mm-cap").value.trim(); const data=pendingMedia; closeMedia();
+  if(pendingBill){
+    exitBill();
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:cap,media_kind:"photo",media_data:data}));
+    tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
+  }
   const r=await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:cap,media_kind:"photo",media_data:data}));
   if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true);
 }
@@ -739,6 +752,11 @@ async function toggleStickers(){
 }
 async function sendSticker(id){
   document.getElementById("stickerpanel").classList.add("hide");
+  if(pendingBill){
+    exitBill();
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",sticker_id:id}));
+    tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
+  }
   const r=await q("/api/send_sticker","POST",Object.assign(auth(),{order_id:CUR,sticker_id:id}));
   if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true);
 }
@@ -763,7 +781,7 @@ async function openList(kind){
       ? ((it.status==="new"?"Yangi":"Jarayonda")+(it.operator?" · "+esc(it.operator):"")+(it.mine?" · siznikida":""))
       : ((it.time||"")+(it.rating?" · "+it.rating+"★":""));
     return `<div class="row" onclick='openChat(${it.order_id}, ${JSON.stringify(it.name)})'>
-      <div class="ava">${ini(it.name)}</div>
+      <div class="ava" style="background:${avaBg(it.name)}">${ini(it.name)}</div>
       <div class="mid"><div class="nm">${esc(it.name)}</div><div class="pv">${sub}</div></div></div>`;
   }).join("");
 }
@@ -839,11 +857,15 @@ function stopSendRec(){ finishRec(true); }
 function cancelRec(){ finishRec(false); }
 async function _sendVoiceBlob(blob, mime, oid){
   if(blob.size<300){ tg.showAlert("Ovoz juda qisqa yoki yozilmadi"); return; }
+  const asBill = pendingBill; if(asBill) exitBill();
   const rd=new FileReader();
   rd.onerror=()=>tg.showAlert("Ovozni o'qib bo'lmadi");
   rd.onload=async()=>{ try{
-      const r=await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
+      const r = asBill
+        ? await q("/api/cmd","POST",Object.assign(auth(),{order_id:oid,cmd:"bill",media_kind:"voice",media_data:rd.result}))
+        : await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
       if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+      if(asBill) tg.showAlert(r.info||"Hisob-kitob yuborildi");
       if(CUR===oid) await loadMsgs(true);
     }catch(err){ tg.showAlert("Yuborishda xatolik: "+err); } };
   rd.readAsDataURL(blob);
@@ -926,6 +948,7 @@ async function loadProfile(){
   document.getElementById("p-name").textContent = r.name;
   document.getElementById("p-login").textContent = "@" + r.login;
   document.getElementById("p-init").textContent = ini(r.name);
+  document.getElementById("p-ava").style.background = avaBg(r.name);
   document.getElementById("p-acc").textContent = r.stats.accepted;
   document.getElementById("p-done").textContent = r.stats.done;
   document.getElementById("p-today").textContent = r.stats.today_done;

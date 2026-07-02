@@ -49,9 +49,11 @@ def _dur(m) -> str:
     m = m or 0
     if m <= 0:
         return "—"
+    if m < 1:
+        return f"{round(m * 60)} soniya"
     if m < 60:
-        return f"{round(m)} daq"
-    return f"{int(m // 60)}s {round(m % 60)}daq"
+        return f"{round(m)} daqiqa"
+    return f"{int(m // 60)} soat {round(m % 60)} daq"
 
 
 def _name_link(name, uname, tg) -> str:

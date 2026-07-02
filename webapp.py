@@ -604,10 +604,52 @@ async def api_cmd(request):
 
         if cmd == "bill":
             billtext = str(arg or "").strip()
-            await q.set_order_bill(order_id, billtext, None)
-            await client.send_message(uid, loc.t("bill_to_client", clang, id=order_id, bill=billtext))
-            await q.add_message(order_id, "operator", "text", f"🧾 Hisob-kitob: {billtext}", None, None)
-            await post_operator_to_channel(client, order, op["name"], text=f"🧾 Hisob-kitob: {billtext}")
+            media_kind = body.get("media_kind")
+            media_data = body.get("media_data")
+            sticker_id = body.get("sticker_id")
+            cap = loc.t("bill_to_client", clang, id=order_id, bill=_htm.escape(billtext))
+            if media_kind == "photo" and media_data:
+                raw = base64.b64decode(str(media_data).split(",")[-1])
+                sent = await client.send_photo(uid, BufferedInputFile(raw, "bill.jpg"), caption=cap)
+                fid = sent.photo[-1].file_id
+                await q.set_order_bill(order_id, billtext, fid)
+                await q.add_message(order_id, "operator", "photo",
+                                    f"🧾 Hisob-kitob: {billtext}", fid, None)
+                await post_operator_to_channel(client, order, op["name"], content_type="photo",
+                                               file_id=fid, src_bot=client,
+                                               text=f"🧾 Hisob-kitob: {billtext}")
+            elif media_kind == "voice" and media_data:
+                raw = base64.b64decode(str(media_data).split(",")[-1])
+                try:
+                    sent = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
+                    fid, ct2 = sent.voice.file_id, "voice"
+                except Exception:
+                    sent = await client.send_audio(uid, BufferedInputFile(raw, "bill_audio.ogg"))
+                    fid, ct2 = sent.audio.file_id, "audio"
+                await client.send_message(uid, cap)
+                await q.set_order_bill(order_id, billtext or "🎤 ovozli hisob-kitob", None)
+                await q.add_message(order_id, "operator", ct2, None, fid, None)
+                await post_operator_to_channel(client, order, op["name"], content_type=ct2,
+                                               file_id=fid, src_bot=client,
+                                               text="🧾 Hisob-kitob (ovozli)")
+            elif sticker_id:
+                tpl = await q.get_template(int(sticker_id))
+                if not tpl or not tpl["sticker"]:
+                    return _json({"ok": False, "error": "stiker topilmadi"})
+                await client.send_sticker(uid, tpl["sticker"])
+                await client.send_message(uid, cap)
+                await q.set_order_bill(order_id, billtext or "🎭 stiker", None)
+                await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
+                await post_operator_to_channel(client, order, op["name"], content_type="sticker",
+                                               file_id=tpl["sticker"], src_bot=client,
+                                               text="🧾 Hisob-kitob")
+            else:
+                await q.set_order_bill(order_id, billtext, None)
+                await client.send_message(uid, cap)
+                await q.add_message(order_id, "operator", "text",
+                                    f"🧾 Hisob-kitob: {billtext}", None, None)
+                await post_operator_to_channel(client, order, op["name"],
+                                               text=f"🧾 Hisob-kitob: {billtext}")
             return _json({"ok": True, "info": "Hisob-kitob yuborildi"})
     except Exception:
         return _json({"ok": False, "error": "bajarilmadi"}, 200)
@@ -924,6 +966,217 @@ async def api_admin_client(request):
                               "rating": o["rating"] or 0} for o in orders[:30]]})
 
 
+# ================= Admin: SOZLAMALAR (3-bosqich) =================
+async def api_admin_branches(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    bs = await q.list_branches()
+    return _json({"ok": True, "items": [
+        {"id": b["id"], "name": b["name"], "address": b["address"] or "",
+         "phone": b["phone"] or "", "open": b["open_time"], "close": b["close_time"],
+         "has_loc": b["lat"] is not None} for b in bs]})
+
+
+async def api_admin_branch_save(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return _json({"ok": False, "error": "Nomi bo'sh"})
+    addr = str(body.get("address", "")).strip()
+    phone = str(body.get("phone", "")).strip()
+    open_t = str(body.get("open", "08:00")).strip() or "08:00"
+    close_t = str(body.get("close", "23:00")).strip() or "23:00"
+    bid = body.get("id")
+    if bid:
+        for f, v in (("name", name), ("address", addr), ("phone", phone),
+                     ("open_time", open_t), ("close_time", close_t)):
+            await q.update_branch(int(bid), f, v)
+    else:
+        await q.add_branch(name, addr, phone, open_time=open_t, close_time=close_t)
+    return _json({"ok": True})
+
+
+async def api_admin_branch_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    await q.delete_branch(int(body.get("id")))
+    return _json({"ok": True})
+
+
+async def api_admin_faqs(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    fs = await q.list_faqs()
+    return _json({"ok": True, "items": [
+        {"id": f["id"], "title": f["title"], "answer": f["answer"]} for f in fs]})
+
+
+async def api_admin_faq_save(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    title = str(body.get("title", "")).strip()
+    answer = str(body.get("answer", "")).strip()
+    if not title or not answer:
+        return _json({"ok": False, "error": "Sarlavha va javob bo'sh bo'lmasin"})
+    fid = body.get("id")
+    if fid:
+        await q.update_faq(int(fid), title, answer)
+    else:
+        await q.add_faq(title, answer)
+    return _json({"ok": True})
+
+
+async def api_admin_faq_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    await q.delete_faq(int(body.get("id")))
+    return _json({"ok": True})
+
+
+async def api_admin_tpls(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    ts = await q.list_templates()
+    return _json({"ok": True, "items": [
+        {"id": t["id"], "text": t["text"] or "", "sticker": bool(t["sticker"])} for t in ts]})
+
+
+async def api_admin_tpl_add(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
+    await q.add_template(text)
+    return _json({"ok": True})
+
+
+async def api_admin_tpl_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    await q.delete_template(int(body.get("id")))
+    return _json({"ok": True})
+
+
+async def api_admin_settings(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    return _json({"ok": True,
+                  "work_start": await q.get_setting("work_start", "08:00"),
+                  "work_end": await q.get_setting("work_end", "23:00"),
+                  "op_work_start": await q.get_setting("op_work_start", "08:00"),
+                  "op_work_end": await q.get_setting("op_work_end", "23:00"),
+                  "escalate_min": await q.get_setting("escalate_min", "5"),
+                  "contact_text": await q.get_setting("contact_text", "")})
+
+
+async def api_admin_settings_save(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    for k in ("work_start", "work_end", "op_work_start", "op_work_end",
+              "escalate_min", "contact_text"):
+        if k in body and str(body[k]).strip() != "":
+            await q.set_setting(k, str(body[k]).strip())
+    return _json({"ok": True})
+
+
+async def api_admin_broadcast(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
+    target = body.get("target", "all")
+    branch_id = body.get("branch_id")
+    from utils import cbot
+    client = cbot()
+    if not client:
+        return _json({"ok": False, "error": "bot tayyor emas"})
+    if target == "active":
+        users = await q.all_users(only_active=True)
+    elif target == "branch" and branch_id:
+        users = await q.all_users(branch_id=int(branch_id))
+    else:
+        users = await q.all_users()
+    sent = failed = 0
+    for u in users:
+        try:
+            await client.send_message(u["telegram_id"], _htm.escape(text))
+            sent += 1
+        except Exception:
+            failed += 1
+    return _json({"ok": True, "sent": sent, "failed": failed, "total": len(users)})
+
+
+async def api_admin_excel(request):
+    """Excel hisobotni yaratib, adminning Telegram chatiga yuboradi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    from utils import cbot, STATUS_LABEL
+    client = cbot()
+    if not client:
+        return _json({"ok": False, "error": "bot tayyor emas"})
+    import io as _io
+    import openpyxl
+    rows = await q.all_orders_full()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Murojaatlar"
+    ws.append(["ID", "Mijoz", "Telefon", "Filial", "Operator", "Holat",
+               "Tur", "Hisob", "Boshlangan", "Yakunlangan", "Baho"])
+    for r in rows:
+        ws.append([r["id"], r["full_name"], r["phone"], r["branch"], r["operator"],
+                   STATUS_LABEL.get(r["status"], r["status"]), r["content_type"],
+                   r["bill"], r["created_at"], r["closed_at"], r["rating"]])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    try:
+        await client.send_document(tg, BufferedInputFile(buf.getvalue(), "hisobot.xlsx"),
+                                   caption="📥 Murojaatlar hisoboti (Excel)")
+    except Exception:
+        return _json({"ok": False, "error": "Botga yuborib bo'lmadi"})
+    return _json({"ok": True})
+
+
 # ---------------- Kesh tozalash (disk to'lmasin) ----------------
 async def _cache_cleanup_loop():
     while True:
@@ -984,6 +1237,19 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/close", api_admin_close)
     app.router.add_get("/api/admin/clients", api_admin_clients)
     app.router.add_get("/api/admin/client", api_admin_client)
+    app.router.add_get("/api/admin/branches", api_admin_branches)
+    app.router.add_post("/api/admin/branch_save", api_admin_branch_save)
+    app.router.add_post("/api/admin/branch_del", api_admin_branch_del)
+    app.router.add_get("/api/admin/faqs", api_admin_faqs)
+    app.router.add_post("/api/admin/faq_save", api_admin_faq_save)
+    app.router.add_post("/api/admin/faq_del", api_admin_faq_del)
+    app.router.add_get("/api/admin/tpls", api_admin_tpls)
+    app.router.add_post("/api/admin/tpl_add", api_admin_tpl_add)
+    app.router.add_post("/api/admin/tpl_del", api_admin_tpl_del)
+    app.router.add_get("/api/admin/settings", api_admin_settings)
+    app.router.add_post("/api/admin/settings_save", api_admin_settings_save)
+    app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
+    app.router.add_post("/api/admin/excel", api_admin_excel)
     return app
 
 

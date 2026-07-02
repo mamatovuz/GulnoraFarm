@@ -13,6 +13,17 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(("gulnorafarm_salt_" + password).encode()).hexdigest()
 
 
+def _median(vals) -> float:
+    """Median — chetga chiqqan qiymatlar (tunda qolgan, kunlar o'tib yopilgan murojaatlar)
+    o'rtachani buzmasligi uchun. Real ko'rsatkich shu."""
+    vals = sorted(v for v in vals if v is not None and v >= 0)
+    if not vals:
+        return 0
+    n = len(vals)
+    m = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+    return round(m, 1)
+
+
 # ============================ USERS ============================
 async def get_user(telegram_id: int):
     db = await get_db()
@@ -835,22 +846,16 @@ async def general_stats():
     stats["avg_rating"] = round(row[0], 1) if row[0] else 0
     stats["rated_count"] = row[1] or 0
 
-    # o'rtacha javob vaqti (murojaat -> qabul qilingan, daqiqa)
+    # javob/yakunlash vaqti — MEDIAN (chetga chiqqanlar buzmasin, real bo'lsin)
     cur = await db.execute(
-        "SELECT AVG(resp) FROM ("
-        "  SELECT (julianday(MIN(sl.changed_at)) - julianday(o.created_at)) * 1440 AS resp"
-        "  FROM orders o JOIN status_log sl ON sl.order_id = o.id "
-        "  WHERE sl.new_status = 'in_progress' GROUP BY o.id)"
-    )
-    r = (await cur.fetchone())[0]
-    stats["avg_response_min"] = round(r, 1) if r else 0
-    # o'rtacha yakunlash vaqti (murojaat -> yopilgan, daqiqa)
+        "SELECT (julianday(MIN(sl.changed_at)) - julianday(o.created_at)) * 1440 "
+        "FROM orders o JOIN status_log sl ON sl.order_id = o.id "
+        "WHERE sl.new_status = 'in_progress' GROUP BY o.id")
+    stats["avg_response_min"] = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
-        "SELECT AVG((julianday(closed_at) - julianday(created_at)) * 1440) "
-        "FROM orders WHERE status = 'done' AND closed_at IS NOT NULL"
-    )
-    r = (await cur.fetchone())[0]
-    stats["avg_resolve_min"] = round(r, 1) if r else 0
+        "SELECT (julianday(closed_at) - julianday(created_at)) * 1440 "
+        "FROM orders WHERE status = 'done' AND closed_at IS NOT NULL")
+    stats["avg_resolve_min"] = _median([r[0] for r in await cur.fetchall()])
 
     # filiallar kesimida
     cur = await db.execute(
@@ -1065,19 +1070,20 @@ async def operators_report(since):
                              (oid, since))
         done = await val("SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' "
                          "AND closed_at>=?", (oid, since))
-        resp = await val(
-            "SELECT AVG(resp) FROM (SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
-            "AS resp FROM orders o JOIN status_log sl ON sl.order_id=o.id "
-            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=? GROUP BY o.id)",
+        cur = await db.execute(
+            "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
+            "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
+            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=? GROUP BY o.id",
             (f"operator:{oid}", since))
-        resol = await val(
-            "SELECT AVG((julianday(closed_at)-julianday(created_at))*1440) FROM orders "
+        resp = _median([r[0] for r in await cur.fetchall()])
+        cur = await db.execute(
+            "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
             "WHERE operator_id=? AND status='done' AND closed_at>=?", (oid, since))
+        resol = _median([r[0] for r in await cur.fetchall()])
         rat = await val("SELECT AVG(rating) FROM orders WHERE operator_id=? AND rating IS NOT NULL",
                         (oid,))
         res.append({"name": op["name"], "accepted": accepted, "done": done,
-                    "resp": round(resp, 1) if resp else 0,
-                    "resol": round(resol, 1) if resol else 0,
+                    "resp": resp, "resol": resol,
                     "rating": round(rat, 1) if rat else 0})
     return res
 
@@ -1104,13 +1110,16 @@ async def period_report(since):
     prog = await val("SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?", (since,))
     done = await val("SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?", (since,))
     canceled = await val("SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?", (since,))
-    resp = await val(
-        "SELECT AVG(resp) FROM (SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
-        "AS resp FROM orders o JOIN status_log sl ON sl.order_id=o.id "
-        "WHERE sl.new_status='in_progress' AND o.created_at>=? GROUP BY o.id)", (since,))
-    resol = await val(
-        "SELECT AVG((julianday(closed_at)-julianday(created_at))*1440) FROM orders "
-        "WHERE status='done' AND closed_at>=?", (since,))
+    # MEDIAN — tunda javobsiz qolgan/kunlar o'tib yopilganlar o'rtachani buzmasin (real ko'rsatkich)
+    cur = await db.execute(
+        "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
+        "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
+        "WHERE sl.new_status='in_progress' AND o.created_at>=? GROUP BY o.id", (since,))
+    resp = _median([r[0] for r in await cur.fetchall()])
+    cur = await db.execute(
+        "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+        "WHERE status='done' AND closed_at>=? AND closed_at IS NOT NULL", (since,))
+    resol = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
         "SELECT date(created_at) AS d, COUNT(*), "
         "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
