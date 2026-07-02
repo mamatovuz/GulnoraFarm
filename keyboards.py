@@ -191,6 +191,9 @@ def order_accept_link_kb(order_id, bot_username) -> InlineKeyboardMarkup:
 # ========================= ADMIN =========================
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    if _WEBAPP_URL:
+        kb.row(InlineKeyboardButton(text="🖥 Mini app (boshqaruv)",
+                                    web_app=WebAppInfo(url=_WEBAPP_URL + "/admin")))
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data="adm:stats"))
     kb.row(InlineKeyboardButton(text="🔴 Real vaqt", callback_data="adm:live"))
     kb.row(InlineKeyboardButton(text="📚 Hisobotlar", callback_data="adm:reports"))

@@ -1121,6 +1121,26 @@ async def period_report(since):
             "days": days}
 
 
+async def series_counts(since, by="day"):
+    """Vaqt seriyasi: kun (yoki oy) kesimida jami va yakunlangan murojaatlar (ASC)."""
+    fmt = "%Y-%m" if by == "month" else "%Y-%m-%d"
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT strftime(?, created_at) AS d, COUNT(*) AS total, "
+        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
+        "FROM orders WHERE created_at >= ? GROUP BY d ORDER BY d ASC", (fmt, since))
+    return await cur.fetchall()
+
+
+async def period_rating(since):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT AVG(rating), COUNT(rating) FROM orders WHERE rating IS NOT NULL AND created_at>=?",
+        (since,))
+    row = await cur.fetchone()
+    return (round(row[0], 1) if row[0] else 0, row[1] or 0)
+
+
 # ============================ EXCEL HISOBOT UCHUN ============================
 async def all_orders_full():
     db = await get_db()

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Gulnora Farm — Boshqaruv</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg: var(--tg-theme-bg-color, #fff);
+    --sec: var(--tg-theme-secondary-bg-color, #f1f2f5);
+    --text: var(--tg-theme-text-color, #0f1419);
+    --hint: var(--tg-theme-hint-color, #8a929c);
+    --link: var(--tg-theme-link-color, #3390ec);
+    --accent: #3390ec;
+    --sep: rgba(128,128,128,.18);
+  }
+  html[data-theme="light"]{--bg:#fff;--sec:#f1f2f5;--text:#0f1419;--hint:#8a929c;--link:#3390ec;--sep:rgba(0,0,0,.08)}
+  html[data-theme="dark"]{--bg:#17212b;--sec:#0e1621;--text:#f5f5f5;--hint:#7d8b99;--link:#6ab3f3;--sep:rgba(255,255,255,.09)}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+  html,body{margin:0;height:100%;background:var(--sec);color:var(--text);font-size:15px;
+    -webkit-font-smoothing:antialiased}
+  .hide{display:none!important}
+  .screen{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--sec)}
+  .ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
+
+  /* Login / xato */
+  #gate{justify-content:center;align-items:center;padding:26px;gap:14px;background:var(--bg);text-align:center}
+  .logo{width:64px;height:64px;border-radius:18px;background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .spin{width:26px;height:26px;border:3px solid var(--sep);border-top-color:var(--accent);
+    border-radius:50%;animation:sp 0.9s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .err{color:#e5484d;font-size:14.5px;max-width:300px;line-height:1.45}
+
+  /* Shell */
+  .topbar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--bg);
+    border-bottom:1px solid var(--sep);box-shadow:0 1px 3px rgba(0,0,0,.04);z-index:5}
+  .topbar .t{font-weight:600;font-size:17px;flex:1;letter-spacing:-.01em}
+  .iconbtn{background:none;border:none;color:var(--link);cursor:pointer;padding:6px;display:flex}
+  .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 12px 20px}
+  .tabbar{display:flex;background:var(--bg);border-top:1px solid var(--sep)}
+  .tabbar button{flex:1;background:none;border:none;color:var(--hint);padding:8px 0 10px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;cursor:pointer}
+  .tabbar button.on{color:var(--accent)}
+
+  /* Davr tanlagich */
+  .seg{display:flex;gap:4px;background:var(--sec);border-radius:10px;padding:3px;margin-bottom:12px}
+  .seg button{flex:1;border:none;background:none;color:var(--text);padding:8px 4px;border-radius:8px;
+    font-size:13.5px;cursor:pointer;font-weight:500}
+  .seg button.on{background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.1);color:var(--accent);font-weight:600}
+  html[data-theme="dark"] .seg button.on{background:#232f3d}
+
+  /* KPI kartalar */
+  .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+  .tile{background:var(--bg);border-radius:14px;padding:13px 14px}
+  .tile .v{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+  .tile .l{color:var(--hint);font-size:12.5px;margin-top:3px}
+  .tile .sub{font-size:12px;color:var(--hint);margin-top:2px}
+  .tile.wide{grid-column:1/-1;display:flex;gap:10px}
+  .tile.wide>div{flex:1}
+
+  /* Grafik kartalari */
+  .card{background:var(--bg);border-radius:14px;padding:14px;margin-bottom:12px}
+  .card h3{margin:0 0 10px;font-size:14.5px;font-weight:600;color:var(--text)}
+  .card h3 .sub{color:var(--hint);font-weight:400;font-size:12.5px;margin-left:6px}
+  .chartwrap{position:relative}
+  svg text{font-family:inherit}
+  .empty{color:var(--hint);text-align:center;padding:26px 0;font-size:14px}
+
+  /* Legend (donut) */
+  .leg{display:flex;flex-direction:column;gap:7px;font-size:13.5px}
+  .leg .li{display:flex;align-items:center;gap:8px}
+  .leg .dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  .leg .nm{flex:1;color:var(--text)}
+  .leg .vl{color:var(--hint);font-variant-numeric:tabular-nums}
+  .donutrow{display:flex;align-items:center;gap:16px}
+
+  /* Operatorlar */
+  .oprow{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--sep)}
+  .oprow:last-child{border-bottom:none}
+  .oprow .ava{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#5eb5f7,#3390ec);
+    color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;flex-shrink:0}
+  .oprow .nm{font-weight:600;font-size:14.5px}
+  .oprow .st{font-size:12px;color:var(--hint);margin-top:1px}
+  .oprow .cnt{margin-left:auto;text-align:right;font-size:12.5px;color:var(--hint);line-height:1.5}
+  .stdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+
+  /* Tooltip */
+  #tip{position:fixed;z-index:60;background:var(--text);color:var(--bg);padding:6px 10px;border-radius:8px;
+    font-size:12.5px;pointer-events:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.25);
+    transform:translate(-50%,-130%);font-variant-numeric:tabular-nums}
+
+  /* Sozlamalar */
+  .list{margin:0 0 12px;background:var(--bg);border-radius:12px;overflow:hidden}
+  .item{display:flex;align-items:center;gap:14px;padding:13px 15px}
+  .item+.item{border-top:1px solid var(--sep)}
+  .item .lbl{flex:1}
+  .themeseg{display:flex;gap:6px;background:var(--sec);border-radius:10px;padding:3px;flex:1}
+  .themeseg button{flex:1;border:none;background:none;color:var(--text);padding:7px;border-radius:8px;font-size:13px;cursor:pointer}
+  .themeseg button.on{background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+
+<div id="tip" class="hide"></div>
+
+<!-- GATE: avto-login -->
+<div id="gate" class="screen">
+  <div class="logo"><svg class="ic" viewBox="0 0 24 24" style="width:30px;height:30px"><path d="M3 3v18h18M8 16v-5M13 16V8M18 16v-8"/></svg></div>
+  <div style="font-size:19px;font-weight:600">Boshqaruv paneli</div>
+  <div id="gate-spin" class="spin"></div>
+  <div id="gate-err" class="err hide"></div>
+</div>
+
+<!-- APP -->
+<div id="app" class="screen hide">
+  <div class="topbar">
+    <div class="t" id="pagetitle">Statistika</div>
+    <button class="iconbtn" onclick="loadDash()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dash" class="body">
+    <div class="seg" id="periodseg">
+      <button data-p="today" onclick="setPeriod('today')">Bugun</button>
+      <button data-p="week" class="on" onclick="setPeriod('week')">Hafta</button>
+      <button data-p="month" onclick="setPeriod('month')">Oy</button>
+      <button data-p="year" onclick="setPeriod('year')">Yil</button>
+    </div>
+
+    <div class="kpi" id="kpigrid"></div>
+
+    <div class="card">
+      <h3>Murojaatlar dinamikasi <span class="sub" id="line-sub"></span></h3>
+      <div class="chartwrap" id="linewrap"></div>
+    </div>
+
+    <div class="card">
+      <h3>Holatlar taqsimoti</h3>
+      <div class="donutrow">
+        <div class="chartwrap" id="donutwrap" style="flex-shrink:0"></div>
+        <div class="leg" id="donutleg"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Soatlik yuklanma <span class="sub">qaysi soatda ko'p murojaat</span></h3>
+      <div class="chartwrap" id="barwrap"></div>
+    </div>
+
+    <div class="card">
+      <h3>Operatorlar <span class="sub" id="ops-sub"></span></h3>
+      <div id="opslist"></div>
+    </div>
+  </div>
+
+  <!-- SOZLAMALAR -->
+  <div id="tab-set" class="body hide">
+    <div class="list">
+      <div class="item">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <div class="lbl">Mavzu</div>
+        <div class="themeseg" id="themeseg">
+          <button data-th="auto" onclick="setTheme('auto')">Avto</button>
+          <button data-th="light" onclick="setTheme('light')">Yorug'</button>
+          <button data-th="dark" onclick="setTheme('dark')">Tungi</button>
+        </div>
+      </div>
+    </div>
+    <div class="list">
+      <div class="item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>
+        <div class="lbl" style="font-size:13.5px;color:var(--hint)">Murojaatlar, mijozlar, operatorlar va boshqa bo'limlar keyingi bosqichda qo'shiladi. Hozircha ular botdagi admin panelda.</div></div>
+    </div>
+  </div>
+
+  <div class="tabbar">
+    <button id="tb-dash" class="on" onclick="showTab('dash')">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18M8 16v-5M13 16V8M18 16v-8"/></svg>
+      Statistika
+    </button>
+    <button id="tb-set" onclick="showTab('set')">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Sozlamalar
+    </button>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
+const INIT = tg.initData || "";
+let ADM = { id: localStorage.getItem("adm_id"), token: localStorage.getItem("adm_token") };
+let PERIOD = "week";
+let DASH = null;
+
+// Holat ranglari — validator (light+dark) dan o'tgan
+const C = { done:"#2f9e44", nw:"#d97706", canceled:"#e5484d", prog:"#3390ec", accent:"#3390ec" };
+
+function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
+function fmtDur(m){ m=m||0; if(m<=0) return "—"; if(m<1) return Math.round(m*60)+" son";
+  if(m<60) return Math.round(m)+" daq"; return Math.floor(m/60)+" s "+Math.round(m%60)+" daq"; }
+function q(path, method, body){
+  const b = Object.assign({ _init: INIT }, body||{});
+  const o = { method, headers:{ "X-Init-Data":INIT, "Content-Type":"application/json" } };
+  if(method==="GET"){ return fetch(path+"?"+new URLSearchParams(b), o).then(r=>r.json()); }
+  o.body = JSON.stringify(b); return fetch(path, o).then(r=>r.json());
+}
+function auth(){ return { admin_id: ADM.id, token: ADM.token }; }
+
+// ---- Tooltip ----
+const tip = document.getElementById("tip");
+function showTip(html, x, y){ tip.innerHTML = html; tip.classList.remove("hide");
+  tip.style.left = x+"px"; tip.style.top = y+"px"; }
+function hideTip(){ tip.classList.add("hide"); }
+document.addEventListener("scroll", hideTip, true);
+
+// ---- Gate / avto-login ----
+async function gate(){
+  const r = await q("/api/admin/login","POST",{});
+  const sp = document.getElementById("gate-spin"), er = document.getElementById("gate-err");
+  if(!r.ok){ sp.classList.add("hide"); er.textContent = r.error||"Xatolik"; er.classList.remove("hide"); return; }
+  ADM = { id: r.admin_id, token: r.token };
+  localStorage.setItem("adm_id", ADM.id); localStorage.setItem("adm_token", ADM.token);
+  document.getElementById("gate").classList.add("hide");
+  document.getElementById("app").classList.remove("hide");
+  loadDash();
+}
+
+// ---- Tabs / period ----
+function showTab(t){
+  ["dash","set"].forEach(x=>{
+    document.getElementById("tab-"+x).classList.toggle("hide", x!==t);
+    document.getElementById("tb-"+x).classList.toggle("on", x===t);
+  });
+  document.getElementById("pagetitle").textContent = t==="dash"?"Statistika":"Sozlamalar";
+}
+function setPeriod(p){
+  PERIOD = p;
+  document.querySelectorAll("#periodseg button").forEach(b=>b.classList.toggle("on", b.dataset.p===p));
+  loadDash();
+}
+
+// ---- Dashboard yuklash ----
+async function loadDash(){
+  const r = await q("/api/admin/dash","GET",Object.assign(auth(),{period:PERIOD}));
+  if(!r.ok){ if(r.error==="auth"){ localStorage.clear(); location.reload(); } return; }
+  DASH = r; renderAll();
+}
+function renderAll(){
+  if(!DASH) return;
+  renderKPI(DASH.kpi);
+  renderLine(DASH.series);
+  renderDonut(DASH.kpi);
+  renderBars(DASH.hours);
+  renderOps(DASH.ops, DASH.kpi.online);
+}
+
+// ---- KPI ----
+function renderKPI(k){
+  const g = document.getElementById("kpigrid");
+  g.innerHTML = `
+    <div class="tile"><div class="v">${k.total}</div><div class="l">Jami murojaatlar</div></div>
+    <div class="tile"><div class="v">${k.online}</div><div class="l">Online operatorlar</div></div>
+    <div class="tile"><div class="v">${fmtDur(k.resp)}</div><div class="l">O'rtacha javob vaqti</div></div>
+    <div class="tile"><div class="v">${fmtDur(k.resol)}</div><div class="l">O'rtacha yakunlash</div></div>
+    <div class="tile wide">
+      <div><div class="v">${k.rating||"—"}</div><div class="l">O'rtacha baho</div><div class="sub">${k.rated} ta baho</div></div>
+      <div><div class="v">${k.done}</div><div class="l">Yakunlangan</div><div class="sub">${k.total?Math.round(k.done/k.total*100):0}% ulush</div></div>
+      <div><div class="v">${k.new+k.prog}</div><div class="l">Ochiq</div><div class="sub">${k.new} yangi · ${k.prog} jarayonda</div></div>
+    </div>`;
+}
+
+// ---- Chiziqli grafik (dinamika) ----
+function renderLine(series){
+  const wrap = document.getElementById("linewrap");
+  document.getElementById("line-sub").textContent =
+    PERIOD==="year" ? "oylar bo'yicha" : "kunlar bo'yicha";
+  if(!series || series.length===0){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
+  const W = Math.max(wrap.clientWidth||300, 260), H = 170;
+  const padL=30, padR=14, padT=12, padB=22;
+  const pw = W-padL-padR, ph = H-padT-padB;
+  const mx = Math.max(...series.map(s=>s.total), 1);
+  const n = series.length;
+  const X = i => padL + (n===1 ? pw/2 : (i/(n-1))*pw);
+  const Y = v => padT + ph - (v/mx)*ph;
+  const hint = cssv("--hint")||"#8a929c", sep = cssv("--sep")||"rgba(128,128,128,.2)", bg = cssv("--bg")||"#fff";
+  // grid (3 chiziq) + y yorliqlar
+  let g="";
+  for(let i=0;i<=2;i++){ const v=Math.round(mx*i/2), y=Y(v);
+    g += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${sep}" stroke-width="1"/>`
+       + `<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="${hint}">${v}</text>`; }
+  // x yorliqlar: bosh / o'rta / oxiri
+  const lab = i => (series[i].d||"").slice(PERIOD==="year"?2:5);
+  const xIdx = n<=2 ? [...series.keys()] : [0, Math.floor((n-1)/2), n-1];
+  let xl=""; xIdx.forEach(i=>{ xl += `<text x="${X(i)}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="${hint}">${esc(lab(i))}</text>`; });
+  // chiziq + nuqtalar
+  let path="", dots="";
+  series.forEach((s,i)=>{ path += (i?" L":"M")+X(i).toFixed(1)+" "+Y(s.total).toFixed(1); });
+  if(n===1){ dots = `<circle cx="${X(0)}" cy="${Y(series[0].total)}" r="4.5" fill="${C.accent}"/>`; }
+  // oxirgi nuqta + qiymat yorlig'i
+  const li=n-1, lx=X(li), ly=Y(series[li].total);
+  const lastLbl = `<circle cx="${lx}" cy="${ly}" r="4" fill="${C.accent}" stroke="${bg}" stroke-width="2"/>
+    <text x="${lx}" y="${ly-9}" text-anchor="${li===n-1?'end':'middle'}" font-size="11.5" font-weight="600" fill="${cssv('--text')}">${series[li].total}</text>`;
+  wrap.innerHTML = `<svg width="${W}" height="${H}">
+    ${g}${xl}
+    <path d="${path}" fill="none" stroke="${C.accent}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${lastLbl}
+    <line id="ln-cross" x1="0" y1="${padT}" x2="0" y2="${padT+ph}" stroke="${hint}" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>
+    <circle id="ln-mark" r="4.5" fill="${C.accent}" stroke="${bg}" stroke-width="2" style="display:none"/>
+    <rect x="${padL}" y="${padT}" width="${pw}" height="${ph}" fill="transparent" id="ln-hit"/>
+  </svg>`;
+  const svg = wrap.querySelector("svg"), hit = svg.querySelector("#ln-hit"),
+        cross = svg.querySelector("#ln-cross"), mark = svg.querySelector("#ln-mark");
+  const move = ev => {
+    const rct = svg.getBoundingClientRect();
+    const cx = (ev.touches?ev.touches[0].clientX:ev.clientX) - rct.left;
+    let bi=0, bd=1e9;
+    for(let i=0;i<n;i++){ const d=Math.abs(X(i)-cx); if(d<bd){bd=d;bi=i;} }
+    cross.setAttribute("x1",X(bi)); cross.setAttribute("x2",X(bi)); cross.style.display="";
+    mark.setAttribute("cx",X(bi)); mark.setAttribute("cy",Y(series[bi].total)); mark.style.display="";
+    showTip(`${esc(series[bi].d)} · <b>${series[bi].total}</b> ta (🟢 ${series[bi].done})`,
+            rct.left+X(bi), rct.top+Y(series[bi].total));
+  };
+  const out = ()=>{ cross.style.display="none"; mark.style.display="none"; hideTip(); };
+  hit.addEventListener("mousemove",move); hit.addEventListener("touchstart",move,{passive:true});
+  hit.addEventListener("touchmove",move,{passive:true});
+  hit.addEventListener("mouseleave",out); hit.addEventListener("touchend",out);
+}
+
+// ---- Donut (holatlar) ----
+function renderDonut(k){
+  const wrap = document.getElementById("donutwrap"), leg = document.getElementById("donutleg");
+  const parts = [   // aylana tartibi validatordan o'tgan: yashil→amber→qizil→ko'k
+    {key:"done", label:"Yakunlangan", v:k.done, col:C.done},
+    {key:"new", label:"Yangi", v:k.new, col:C.nw},
+    {key:"canceled", label:"Bekor qilingan", v:k.canceled, col:C.canceled},
+    {key:"prog", label:"Jarayonda", v:k.prog, col:C.prog},
+  ];
+  const total = parts.reduce((s,p)=>s+p.v,0);
+  leg.innerHTML = parts.map(p=>`<div class="li"><span class="dot" style="background:${p.col}"></span>
+    <span class="nm">${p.label}</span><span class="vl">${p.v} · ${total?Math.round(p.v/total*100):0}%</span></div>`).join("");
+  if(total===0){ wrap.innerHTML = '<div class="empty" style="width:130px">Ma\'lumot yo\'q</div>'; return; }
+  const S=132, cx=S/2, cy=S/2, r=S/2-8, sw=16, bg=cssv("--bg")||"#fff";
+  let a0=-Math.PI/2, segs="";
+  const bounds=[];   // segment chegara burchaklari (oraliq chiziqlar uchun)
+  const visible=parts.filter(p=>p.v).length;
+  parts.forEach(p=>{
+    if(!p.v) return;
+    const frac=p.v/total, a1=a0+frac*2*Math.PI;
+    const large = (a1-a0)>Math.PI?1:0;
+    const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0), x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+    segs += frac>=0.999
+      ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.col}" stroke-width="${sw}" data-l="${p.label}" data-v="${p.v}"/>`
+      : `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}"
+           fill="none" stroke="${p.col}" stroke-width="${sw}" data-l="${p.label}" data-v="${p.v}"/>`;
+    bounds.push(a0);
+    a0=a1;
+  });
+  // 2px sirt-rang oraliq — aynan segment CHEGARALARIDA (radial chiziqlar)
+  let gaps="";
+  if(visible>1){
+    bounds.forEach(a=>{
+      const xi=cx+(r-sw/2-1.5)*Math.cos(a), yi=cy+(r-sw/2-1.5)*Math.sin(a);
+      const xo=cx+(r+sw/2+1.5)*Math.cos(a), yo=cy+(r+sw/2+1.5)*Math.sin(a);
+      gaps += `<line x1="${xi.toFixed(2)}" y1="${yi.toFixed(2)}" x2="${xo.toFixed(2)}" y2="${yo.toFixed(2)}"
+        stroke="${bg}" stroke-width="2.5"/>`;
+    });
+  }
+  wrap.innerHTML = `<svg width="${S}" height="${S}" style="display:block">
+    <g stroke-linecap="butt">${segs}</g>${gaps}
+    <text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="21" font-weight="700" fill="${cssv('--text')}">${total}</text>
+    <text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="10.5" fill="${cssv('--hint')}">murojaat</text>
+  </svg>`;
+  wrap.querySelectorAll("[data-l]").forEach(el=>{
+    const show = ev=>{ const t=ev.touches?ev.touches[0]:ev;
+      showTip(`${el.dataset.l}: <b>${el.dataset.v}</b>`, t.clientX, t.clientY); };
+    el.addEventListener("mousemove",show); el.addEventListener("touchstart",show,{passive:true});
+    el.addEventListener("mouseleave",hideTip); el.addEventListener("touchend",hideTip);
+  });
+}
+
+// ---- Soatlik ustunlar ----
+function renderBars(hours){
+  const wrap = document.getElementById("barwrap");
+  const data = hours.filter(h=>h.h>=6 || h.c>0);   // tungi bo'sh soatlarni qisqartiramiz
+  const mx = Math.max(...data.map(d=>d.c), 1);
+  if(mx===0 || data.every(d=>d.c===0)){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
+  const W = Math.max(wrap.clientWidth||300, 260), H = 150;
+  const padL=26, padR=8, padT=14, padB=20;
+  const pw=W-padL-padR, ph=H-padT-padB, n=data.length;
+  const bw = Math.max(3, pw/n - 2);
+  const hint=cssv("--hint"), sep=cssv("--sep");
+  const peak = data.reduce((a,b)=> b.c>a.c?b:a, data[0]);
+  let bars="", xl="";
+  data.forEach((d,i)=>{
+    const x = padL + i*(pw/n) + (pw/n - bw)/2;
+    const h = Math.max(d.c? 3:1.5, (d.c/mx)*ph);
+    const y = padT+ph-h;
+    const rx = Math.min(4, bw/2, h/2);   // past ustunlarda radius balandlikdan oshmasin
+    bars += d.c
+      ? `<path d="M ${x.toFixed(1)} ${(padT+ph).toFixed(1)} v ${(-(h-rx)).toFixed(1)} q 0 ${(-rx).toFixed(1)} ${rx.toFixed(1)} ${(-rx).toFixed(1)} h ${(bw-2*rx).toFixed(1)} q ${rx.toFixed(1)} 0 ${rx.toFixed(1)} ${rx.toFixed(1)} v ${(h-rx).toFixed(1)} z"
+          fill="${C.accent}" data-h="${d.h}" data-c="${d.c}"/>`
+      : `<rect x="${x.toFixed(1)}" y="${(padT+ph-1.5).toFixed(1)}" width="${bw.toFixed(1)}" height="1.5"
+          fill="${sep}" data-h="${d.h}" data-c="0"/>`;
+    if(d.h%4===0) xl += `<text x="${(x+bw/2).toFixed(1)}" y="${H-5}" text-anchor="middle" font-size="10" fill="${hint}">${String(d.h).padStart(2,"0")}</text>`;
+    if(d.h===peak.h && d.c>0)
+      bars += `<text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${cssv('--text')}">${d.c}</text>`;
+  });
+  wrap.innerHTML = `<svg width="${W}" height="${H}">
+    <line x1="${padL}" y1="${padT+ph}" x2="${W-padR}" y2="${padT+ph}" stroke="${sep}" stroke-width="1"/>
+    ${bars}${xl}
+  </svg>`;
+  wrap.querySelectorAll("[data-h]").forEach(el=>{
+    const show = ev=>{ const t=ev.touches?ev.touches[0]:ev;
+      showTip(`${String(el.dataset.h).padStart(2,"0")}:00 — <b>${el.dataset.c}</b> ta`, t.clientX, t.clientY); };
+    el.addEventListener("mousemove",show); el.addEventListener("touchstart",show,{passive:true});
+    el.addEventListener("mouseleave",hideTip); el.addEventListener("touchend",hideTip);
+  });
+}
+
+// ---- Operatorlar ----
+function renderOps(ops, online){
+  document.getElementById("ops-sub").textContent = online + " ta online";
+  const box = document.getElementById("opslist");
+  if(!ops || !ops.length){ box.innerHTML = '<div class="empty">Operator yo\'q</div>'; return; }
+  const stCol = { free:C.done, busy:C.canceled, offline:"#9aa4ae" };
+  const stLbl = { free:"bo'sh", busy:"band", offline:"oflayn" };
+  box.innerHTML = ops.map(o=>`
+    <div class="oprow">
+      <div class="ava">${ini(o.name)}</div>
+      <div><div class="nm">${esc(o.name)}</div>
+        <div class="st"><span class="stdot" style="background:${stCol[o.state]}"></span>${stLbl[o.state]}</div></div>
+      <div class="cnt">${o.cnt} jarayonda<br>${o.done_today} bugun yakun</div>
+    </div>`).join("");
+}
+
+// ---- Tema ----
+function setTheme(mode){
+  localStorage.setItem("adm_theme", mode);
+  if(mode==="auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+  document.querySelectorAll("#themeseg button").forEach(b=>b.classList.toggle("on", b.dataset.th===mode));
+  renderAll();   // grafiklar yangi tema ranglari bilan qayta chiziladi
+}
+
+let rsT=null;
+window.addEventListener("resize", ()=>{ clearTimeout(rsT); rsT=setTimeout(renderAll, 200); });
+
+// ---- start ----
+setTheme(localStorage.getItem("adm_theme")||"auto");
+gate();
+</script>
+</body>
+</html>

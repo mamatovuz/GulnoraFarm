@@ -16,12 +16,13 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 from aiogram.types import BufferedInputFile
 
-from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE
+from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE, ADMIN_IDS
 from database import queries as q
 import locales as loc
 
 logger = logging.getLogger("bot")
 _HTML = os.path.join(os.path.dirname(__file__), "webapp", "operator.html")
+_ADMIN_HTML = os.path.join(os.path.dirname(__file__), "webapp", "admin.html")
 
 
 # ---------------- Auth: Telegram WebApp initData ----------------
@@ -736,6 +737,93 @@ async def api_note_save(request):
     return _json({"ok": True})
 
 
+# ================================================================
+#                        ADMIN MINI APP
+# ================================================================
+def _admin_sign(tg_id) -> str:
+    return hmac.new(BOT_TOKEN.encode(), f"admin-session:{tg_id}".encode(),
+                    hashlib.sha256).hexdigest()
+
+
+async def _auth_admin(request, data):
+    """Admin sessiya tokenini tekshiradi (avto-login orqali olingan)."""
+    try:
+        tg = int(data.get("admin_id"))
+    except (TypeError, ValueError):
+        return None
+    token = str(data.get("token", ""))
+    if tg not in ADMIN_IDS:
+        return None
+    if not token or not hmac.compare_digest(_admin_sign(tg), token):
+        return None
+    return tg
+
+
+async def admin_index(request):
+    if os.path.exists(_ADMIN_HTML):
+        return web.FileResponse(_ADMIN_HTML, headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0"})
+    return web.Response(text="Admin mini app topilmadi.", status=404)
+
+
+async def api_admin_login(request):
+    """Avto-login: Telegram initData imzosi tekshiriladi, ADMIN_IDS'da bo'lsa kiradi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    user = await _auth_user(request, body)
+    if not user:
+        return _json({"ok": False, "error": "Telegram tekshiruvi o'tmadi. "
+                                            "Asosiy botdagi Mini app tugmasidan oching."})
+    if user["id"] not in ADMIN_IDS:
+        return _json({"ok": False, "error": "Siz admin emassiz."})
+    return _json({"ok": True, "admin_id": user["id"],
+                  "name": user.get("first_name") or "Admin",
+                  "token": _admin_sign(user["id"])})
+
+
+def _period_start_str(period: str) -> str:
+    from datetime import timedelta
+    from config import now_local
+    n = now_local()
+    if period == "today":
+        return n.strftime("%Y-%m-%d 00:00:00")
+    if period == "week":
+        return (n - timedelta(days=n.weekday())).strftime("%Y-%m-%d 00:00:00")
+    if period == "month":
+        return n.strftime("%Y-%m-01 00:00:00")
+    if period == "year":
+        return n.strftime("%Y-01-01 00:00:00")
+    return "0000-01-01 00:00:00"
+
+
+async def api_admin_dash(request):
+    tg = await _auth_admin(request, request.query)
+    if not tg:
+        return _json({"ok": False, "error": "auth"}, 401)
+    period = request.query.get("period", "week")
+    since = _period_start_str(period)
+    rep = await q.period_report(since)
+    hours = await q.hourly_load(since)
+    live = await q.live_stats()
+    series = await q.series_counts(since, "month" if period == "year" else "day")
+    rating, rated = await q.period_rating(since)
+    ops = []
+    for o in live["per_op"]:
+        st = "offline" if not o["telegram_id"] else ("busy" if o["availability"] == "busy" else "free")
+        ops.append({"name": o["name"], "state": st, "cnt": o["cnt"], "done_today": o["done_today"]})
+    return _json({"ok": True, "period": period,
+                  "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
+                          "done": rep["done"], "canceled": rep["canceled"],
+                          "resp": rep["resp"], "resol": rep["resol"],
+                          "rating": rating, "rated": rated, "online": live["online"]},
+                  "series": [{"d": s["d"], "total": s["total"], "done": s["done"] or 0} for s in series],
+                  "hours": [{"h": h, "c": hours.get(h, 0)} for h in range(24)],
+                  "ops": ops})
+
+
 # ---------------- Kesh tozalash (disk to'lmasin) ----------------
 async def _cache_cleanup_loop():
     while True:
@@ -787,6 +875,10 @@ def build_app() -> web.Application:
     app.router.add_get("/api/templates", api_templates)
     app.router.add_get("/api/note", api_note)
     app.router.add_post("/api/note", api_note_save)
+    # Admin mini app
+    app.router.add_get("/admin", admin_index)
+    app.router.add_post("/api/admin/login", api_admin_login)
+    app.router.add_get("/api/admin/dash", api_admin_dash)
     return app
 
 
