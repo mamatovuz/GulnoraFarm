@@ -201,7 +201,7 @@ async def _create_order(message, state, bot, content_type):
 
 # -------- Proxy-chat: ochiq murojaati bor mijozning erkin xabari operatorga ketadi --------
 @router.message(F.chat.type == "private",
-                F.content_type.in_({"text", "photo", "document", "video"}))
+                F.content_type.in_({"text", "photo", "document", "video", "voice", "location"}))
 async def client_proxy(message: Message, state: FSMContext, bot: Bot):
     # FSM holatda bo'lsa, bu handlerga tushmaydi (yuqoridagilar ushlaydi)
     user = await q.get_user(message.from_user.id)

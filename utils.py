@@ -233,6 +233,17 @@ async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=
         kwargs["reply_to_message_id"] = reply_to
         kwargs["allow_sending_without_reply"] = True
     ct, fid, _ = extract_content(message)
+    if ct == "location" and message.location:
+        # lokatsiya — haqiqiy xarita nuqtasi sifatida (matn emas)
+        try:
+            if caption:
+                await bot.send_message(chat_id, caption, **kwargs)
+                kwargs.pop("reply_to_message_id", None)
+            return await bot.send_location(chat_id, latitude=message.location.latitude,
+                                           longitude=message.location.longitude,
+                                           reply_markup=markup)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            return None
     if ct == "text" or not fid:
         try:
             return await bot.send_message(chat_id, caption or "—", **kwargs)
@@ -270,8 +281,22 @@ async def send_content_message(bot: Bot, chat_id, message, caption: str, markup=
         return None
 
 
+def msg_html(message) -> str:
+    """Xabar matnini ENTITY'lari bilan (premium emoji, link, qalin...) HTML ko'rinishda qaytaradi.
+    Shunda boshqa bot orqali qayta yuborilganda formatlash yo'qolmaydi."""
+    try:
+        if message.text:
+            return message.html_text or ""
+        if message.caption:
+            from aiogram.utils.text_decorations import html_decoration as hd
+            return hd.unparse(message.caption, message.caption_entities or [])
+    except Exception:
+        pass
+    return (message.caption or message.text or "")
+
+
 def _client_note(message) -> str:
-    return (message.caption or message.text or "").strip()
+    return msg_html(message).strip()
 
 
 def extract_content(message):
@@ -288,6 +313,8 @@ def extract_content(message):
         return "voice", message.voice.file_id, message.caption
     if message.document:
         return "document", message.document.file_id, message.caption
+    if message.location:
+        return "location", None, f"{message.location.latitude},{message.location.longitude}"
     return "text", None, message.text
 
 

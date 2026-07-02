@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Gulnora Farm — Operator</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- OGG/Opus enkoder: ovozli xabar haqiqiy Telegram voice bo'lib boradi -->
+<script src="https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/recorder.min.js"></script>
 <style>
   :root{
     --bg: var(--tg-theme-bg-color, #fff);
@@ -767,33 +769,52 @@ async function openList(kind){
 }
 function closeList(){ sh("app"); showTab("prof"); }
 // ---- Voice yozish (Telegram uslubi: taymer + jonli to'lqin) ----
+// opus-recorder bo'lsa — HAQIQIY OGG/Opus (Telegram voice); bo'lmasa MediaRecorder (fallback)
+const OPUS_ENC="https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/encoderWorker.min.js";
 let audioCtx=null, analyser=null, recStream=null, recAnim=null, recStart=0, recBars=[];
+let opusRec=null;
 function getAccent(){ return (getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#3390ec').trim(); }
 async function startRec(){
   if(!navigator.mediaDevices){ tg.showAlert("Mikrofon mavjud emas"); return; }
   try{ recStream = await navigator.mediaDevices.getUserMedia({audio:true}); }
   catch(e){ tg.showAlert("Mikrofonga ruxsat berilmadi"); return; }
-  recChunks=[];
-  if(!window.MediaRecorder){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Bu qurilma ovoz yozishni qo'llamaydi"); return; }
-  let mime="";
-  ["audio/ogg;codecs=opus","audio/webm;codecs=opus","audio/webm","audio/mp4"].forEach(m=>{
-    if(!mime && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) mime=m; });
-  try{ rec = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream); }
-  catch(e){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Ovoz yozib bo'lmadi"); return; }
-  rec.ondataavailable = e => { if(e.data && e.data.size>0) recChunks.push(e.data); };
-  rec.start(200);
+  recChunks=[]; opusRec=null; rec=null;
+  // to'lqin uchun analyser (ikkala rejimda ham kerak)
+  let srcNode=null;
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    try{ audioCtx.resume(); }catch(e){}
+    srcNode = audioCtx.createMediaStreamSource(recStream);
+    analyser = audioCtx.createAnalyser(); analyser.fftSize=256; srcNode.connect(analyser);
+  }catch(e){}
+  // 1) OGG/Opus yo'li — mijozga haqiqiy "voice" bo'lib boradi
+  if(window.Recorder && srcNode){
+    try{
+      opusRec = new Recorder({ encoderPath: OPUS_ENC, numberOfChannels: 1,
+        encoderSampleRate: 48000, streamPages: false, encoderApplication: 2048,
+        sourceNode: srcNode });
+      await opusRec.start();
+    }catch(e){ try{ if(opusRec) opusRec.close(); }catch(_){}; opusRec=null; }
+  }
+  // 2) Fallback — MediaRecorder
+  if(!opusRec){
+    if(!window.MediaRecorder){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Bu qurilma ovoz yozishni qo'llamaydi"); return; }
+    let mime="";
+    ["audio/ogg;codecs=opus","audio/webm;codecs=opus","audio/webm","audio/mp4"].forEach(m=>{
+      if(!mime && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) mime=m; });
+    try{ rec = mime ? new MediaRecorder(recStream,{mimeType:mime}) : new MediaRecorder(recStream); }
+    catch(e){ recStream.getTracks().forEach(t=>t.stop()); tg.showAlert("Ovoz yozib bo'lmadi"); return; }
+    rec.ondataavailable = e => { if(e.data && e.data.size>0) recChunks.push(e.data); };
+    rec.start(200);
+  }
   document.getElementById("composer").classList.add("hide");
   document.getElementById("recbar").classList.remove("hide");
   recStart=Date.now(); recBars=[]; tickTime();
-  try{
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    const src = audioCtx.createMediaStreamSource(recStream);
-    analyser = audioCtx.createAnalyser(); analyser.fftSize=256; src.connect(analyser);
-    drawWave();
-  }catch(e){}
+  drawWave();
 }
 function tickTime(){
-  if(!rec || rec.state!=="recording") return;
+  const active = opusRec || (rec && rec.state==="recording");
+  if(!active) return;
   const s=Math.floor((Date.now()-recStart)/1000);
   document.getElementById("rectime").textContent = Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
   setTimeout(tickTime,200);
@@ -816,27 +837,38 @@ function drawWave(){
 }
 function stopSendRec(){ finishRec(true); }
 function cancelRec(){ finishRec(false); }
+async function _sendVoiceBlob(blob, mime, oid){
+  if(blob.size<300){ tg.showAlert("Ovoz juda qisqa yoki yozilmadi"); return; }
+  const rd=new FileReader();
+  rd.onerror=()=>tg.showAlert("Ovozni o'qib bo'lmadi");
+  rd.onload=async()=>{ try{
+      const r=await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
+      if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+      if(CUR===oid) await loadMsgs(true);
+    }catch(err){ tg.showAlert("Yuborishda xatolik: "+err); } };
+  rd.readAsDataURL(blob);
+}
 function finishRec(sendIt){
   const doneUI=()=>{ if(recAnim) cancelAnimationFrame(recAnim); recAnim=null;
     if(recStream){ recStream.getTracks().forEach(t=>t.stop()); recStream=null; }
     if(audioCtx){ try{audioCtx.close();}catch(e){} audioCtx=null; } analyser=null;
     document.getElementById("recbar").classList.add("hide");
     document.getElementById("composer").classList.remove("hide"); };
+  // 1) OGG/Opus rejimi — haqiqiy Telegram voice
+  if(opusRec){
+    const orc=opusRec, oid=CUR; opusRec=null;
+    orc.ondataavailable = t => {
+      try{ orc.close(); }catch(e){}
+      if(sendIt) _sendVoiceBlob(new Blob([t],{type:"audio/ogg"}), "audio/ogg", oid);
+    };
+    try{ orc.stop(); }catch(e){ try{ orc.close(); }catch(_){} }
+    doneUI();
+    return;
+  }
+  // 2) MediaRecorder fallback
   if(rec && rec.state==="recording"){
     const oid=CUR, mime=(rec && rec.mimeType) || "audio/webm";
-    rec.onstop=async()=>{ doneUI();
-      if(!sendIt) return;
-      const blob=new Blob(recChunks,{type:mime});
-      if(blob.size<300){ tg.showAlert("Ovoz juda qisqa yoki yozilmadi"); return; }
-      const rd=new FileReader();
-      rd.onerror=()=>tg.showAlert("Ovozni o'qib bo'lmadi");
-      rd.onload=async()=>{ try{
-          const r=await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
-          if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
-          if(CUR===oid) await loadMsgs(true);
-        }catch(err){ tg.showAlert("Yuborishda xatolik: "+err); } };
-      rd.readAsDataURL(blob);
-    };
+    rec.onstop=()=>{ doneUI(); if(sendIt) _sendVoiceBlob(new Blob(recChunks,{type:mime}), mime, oid); };
     try{ rec.stop(); }catch(e){ doneUI(); tg.showAlert("Ovoz to'xtatilmadi"); }
   } else { doneUI(); }
 }

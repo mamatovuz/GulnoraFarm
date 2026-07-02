@@ -4,6 +4,7 @@ Bot bilan bitta jarayonda ishlaydi, bitta bazaga ulanadi. Operator mini app'da:
 login/parol -> chat ro'yxati -> yozishma -> mijozga yuborish (bot orqali) -> chatni o'chirish.
 """
 import os
+import html as _htm
 import json
 import time
 import hmac
@@ -199,7 +200,7 @@ async def api_messages(request):
 # ---------------- API: media (rasm/ovoz) ko'rsatish ----------------
 async def api_file(request):
     op, _ = await _auth_op(request, request.query)
-    if not op:
+    if not op and not await _auth_admin(request, request.query):
         return web.Response(status=401, text="auth")
     fid = request.query.get("fid", "")
     kind = request.query.get("kind", "")
@@ -308,7 +309,8 @@ async def api_send(request):
                                                file_id=fid, src_bot=client, text="🎤 ovozli xabar")
         else:
             await q.add_message(order_id, "operator", "text", text, None, None)
-            await client.send_message(uid, loc.t("operator_reply", clang, name=op["name"], text=text))
+            await client.send_message(uid, loc.t("operator_reply", clang, name=op["name"],
+                                                 text=_htm.escape(text)))
             await post_operator_to_channel(client, order, op["name"], text=text)
     except Exception:
         return _json({"ok": False, "error": "mijozga yuborilmadi (bloklagan bo'lishi mumkin)"}, 200)
@@ -824,6 +826,104 @@ async def api_admin_dash(request):
                   "ops": ops})
 
 
+# ---------------- Admin: murojaatlar ro'yxati + yozishma ----------------
+async def api_admin_orders(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        page = int(request.query.get("page", "0") or 0)
+    except ValueError:
+        page = 0
+    search = request.query.get("q") or None
+    rows, total = await q.orders_page(20, page * 20, search)
+    items = [{"id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
+              "status": r["status"], "operator": r["operator"] or "",
+              "time": (r["created_at"] or "")[5:16], "rating": r["rating"] or 0} for r in rows]
+    return _json({"ok": True, "total": total, "page": page, "items": items})
+
+
+async def api_admin_msgs(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(request.query.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    user = await q.get_user(order["user_id"])
+    op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    msgs = await q.order_messages(order_id)
+    out = [{"own": m["sender"] == "operator", "type": m["content_type"] or "text",
+            "text": m["text"] or "", "file_id": m["file_id"] or "",
+            "time": (m["created_at"] or "")[11:16]} for m in msgs]
+    return _json({"ok": True, "order_id": order_id, "status": order["status"],
+                  "operator": op["name"] if op else "",
+                  "rating": order["rating"] or 0,
+                  "client": {"name": user["full_name"] if user else "—",
+                             "phone": user["phone"] if user else ""},
+                  "messages": out})
+
+
+async def api_admin_close(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order or order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Bu murojaat allaqachon yopilgan"})
+    from utils import cbot
+    from handlers.operator import _finish_with_rating
+    await _finish_with_rating(cbot(), order_id, f"admin:{tg}")
+    return _json({"ok": True})
+
+
+# ---------------- Admin: mijozlar ----------------
+async def api_admin_clients(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        page = int(request.query.get("page", "0") or 0)
+    except ValueError:
+        page = 0
+    search = request.query.get("q") or None
+    rows, total = await q.users_page(20, page * 20, search)
+    items = [{"tg": r["telegram_id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
+              "branch": r["branch"] or "", "cnt": r["cnt"],
+              "last": (r["last_at"] or "")[:10]} for r in rows]
+    return _json({"ok": True, "total": total, "page": page, "items": items})
+
+
+async def api_admin_client(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        tg_ = int(request.query.get("tg"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "tg"}, 400)
+    u = await q.user_full(tg_)
+    if not u:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    orders = await q.orders_by_user(tg_)
+    note = await q.get_client_note(tg_)
+    return _json({"ok": True,
+                  "client": {"tg": tg_, "name": u["full_name"] or "—", "phone": u["phone"] or "",
+                             "branch": u["branch"] or "", "reg": (u["registered_at"] or "")[:10],
+                             "note": note},
+                  "orders": [{"id": o["id"], "status": o["status"],
+                              "date": (o["created_at"] or "")[:10],
+                              "rating": o["rating"] or 0} for o in orders[:30]]})
+
+
 # ---------------- Kesh tozalash (disk to'lmasin) ----------------
 async def _cache_cleanup_loop():
     while True:
@@ -879,6 +979,11 @@ def build_app() -> web.Application:
     app.router.add_get("/admin", admin_index)
     app.router.add_post("/api/admin/login", api_admin_login)
     app.router.add_get("/api/admin/dash", api_admin_dash)
+    app.router.add_get("/api/admin/orders", api_admin_orders)
+    app.router.add_get("/api/admin/msgs", api_admin_msgs)
+    app.router.add_post("/api/admin/close", api_admin_close)
+    app.router.add_get("/api/admin/clients", api_admin_clients)
+    app.router.add_get("/api/admin/client", api_admin_client)
     return app
 
 

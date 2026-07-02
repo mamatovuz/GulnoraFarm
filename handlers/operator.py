@@ -321,7 +321,8 @@ async def op_view_new(call: CallbackQuery):
 
 
 _LABELS = {"photo": "📷 rasm", "video": "🎥 video", "document": "📄 hujjat",
-           "sticker": "🎭 stiker", "animation": "🎞 GIF", "voice": "🎤 ovozli xabar"}
+           "sticker": "🎭 stiker", "animation": "🎞 GIF", "voice": "🎤 ovozli xabar",
+           "location": "📍 lokatsiya"}
 
 
 async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
@@ -833,14 +834,15 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
     await update_group_card(bot, order_id)
     clang = await q.get_lang(order["user_id"])
     client = cbot() or bot
-    try:
-        await client.send_message(
-            order["user_id"],
-            loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
-            reply_markup=kb.rating_kb(order_id),
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+    if client:
+        try:
+            await client.send_message(
+                order["user_id"],
+                loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
+                reply_markup=kb.rating_kb(order_id),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
 
 
 async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: int):
@@ -964,7 +966,8 @@ async def op_rating(message: Message):
 
 # ---------------- Operator proxy: erkin xabar -> mijozga ----------------
 @router.message(IsOperator(), F.chat.type == "private",
-                F.content_type.in_({"text", "photo", "document", "video", "sticker", "animation", "voice"}),
+                F.content_type.in_({"text", "photo", "document", "video", "sticker", "animation",
+                                    "voice", "location"}),
                 ~F.text.in_(kb.ALL_MENU_BUTTONS))
 async def operator_proxy(message: Message, bot: Bot):
     op = await _op_of(message)
@@ -997,8 +1000,9 @@ async def operator_proxy(message: Message, bot: Bot):
     active = target
     await save_message_from_message(active, "operator", message)
     clang = await q.get_lang(order["user_id"])
-    caption = loc.t("operator_reply", clang, name=op["name"],
-                    text=message.caption or message.text or "")
+    from utils import msg_html
+    # entity'lar saqlanadi: premium emoji, havolalar, qalin matn — mijozga asl ko'rinishda boradi
+    caption = loc.t("operator_reply", clang, name=op["name"], text=msg_html(message))
 
     # tirkash: reply bo'lmasa mijozning oxirgi xabariga
     if reply_to is None:
