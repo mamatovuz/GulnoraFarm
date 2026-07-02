@@ -196,6 +196,61 @@
   html[data-theme="dark"] #notebanner{background:#3a3320;color:#e8d48a}
   #newdot-badge{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:10px;height:10px;
     border-radius:50%;background:var(--accent)}
+
+  /* ================= DIZAYN SAYQALI ================= */
+  /* Silliq o'tishlar va bosish effekti */
+  button,.row,.item,.lrow,.qr,.stk{transition:background .15s ease, transform .12s ease, opacity .15s ease}
+  .cbtn:active,.btn:active,.accept:active,.sbtn:active{transform:scale(.94)}
+  .row:active,.item:active{transform:scale(.985)}
+
+  /* Tab-bar: faol ikonka pill ichida, iPhone safe-area */
+  .tabbar{padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+  .tabbar button{font-weight:500}
+  .tabbar button .ic{padding:3px 14px;border-radius:13px;box-sizing:content-box;transition:background .18s}
+  .tabbar button.on .ic{background:color-mix(in srgb, var(--accent) 14%, transparent)}
+  .tabbar button.on{font-weight:600}
+
+  /* Header: nozik blur hissi va aniq chegara */
+  .topbar{box-shadow:0 1px 6px rgba(0,0,0,.05)}
+
+  /* Kirish maydonlari fokusda akцент halqa */
+  input:focus,textarea:focus{border-color:var(--accent)!important;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent)}
+  .composer textarea:focus{box-shadow:none;background:var(--sec)}
+
+  /* Chat pufakchalari: yumshoqroq soya, media burchaklari */
+  .b{box-shadow:0 1px 2px rgba(0,0,0,.10)}
+  .b.o{box-shadow:0 1px 3px rgba(47,127,212,.28)}
+
+  /* Composer tugmalari: bosganda fon */
+  .cbtn:active{background:var(--sec)}
+  .cbtn.acc:active{background:var(--accent);opacity:.85}
+
+  /* Bottom-sheet'lar: tortish dastagi + chuqur soya */
+  .sheet{position:relative;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+  .sheet::before{content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);
+    width:38px;height:4px;border-radius:3px;background:var(--sep)}
+  .sheet{padding-top:14px}
+
+  /* Panellar (buyruq/tez javob/stiker) — tepasi yumaloq, soya */
+  .panel,#stickerpanel{border-radius:14px 14px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+
+  /* Ro'yxat kartalari bir xil: radius va chekka bo'shliq */
+  .list{margin:10px 12px;border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card{border-radius:14px}
+
+  /* Bo'sh holat chiroyliroq */
+  .empty{padding:44px 24px;font-size:14.5px;line-height:1.5}
+
+  /* Avatarlarga nozik ichki halqa */
+  .ava,.ava2{box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+
+  /* Yozuv paneli: dumaloq mikrofon/yuborish sohasi tekis */
+  .composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+
+  /* Kanal kartalari: yumshoq ko'tarilish */
+  .ccard{box-shadow:0 1px 3px rgba(0,0,0,.07)}
+  .ccard .accept{transition:transform .12s}
 </style>
 </head>
 <body>
@@ -413,7 +468,7 @@
 
 <!-- Xabar amallari (tahrirlash/o'chirish) -->
 <div id="msheet" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:40" onclick="closeSheet()">
-  <div style="background:var(--bg);border-radius:16px 16px 0 0" onclick="event.stopPropagation()">
+  <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0" onclick="event.stopPropagation()">
     <div class="item" id="ms-edit" onclick="msEdit()"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg><div class="lbl">Tahrirlash</div></div>
     <div class="item" onclick="msDelete()" style="color:#e5484d"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg><div class="lbl">O'chirish (mijozda ham)</div></div>
     <div class="item" onclick="closeSheet()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg><div class="lbl">Bekor</div></div>
@@ -422,7 +477,7 @@
 
 <!-- Eslatma qo'yish -->
 <div id="remindmodal" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:40" onclick="closeRemind()">
-  <div style="background:var(--bg);border-radius:16px 16px 0 0;padding-bottom:8px" onclick="event.stopPropagation()">
+  <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;padding-bottom:8px" onclick="event.stopPropagation()">
     <div class="topbar" style="box-shadow:none"><div class="t">Eslatma qo'yish</div></div>
     <div style="padding:10px 14px 4px">
       <input id="rm-note" placeholder="Izoh (ixtiyoriy): masalan, narxni aytish"
@@ -437,14 +492,14 @@
 
 <!-- Mijoz kartasi (chat ichida) -->
 <div id="clientsheet" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:38" onclick="this.classList.add('hide')">
-  <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:78%;overflow-y:auto;padding-bottom:10px" onclick="event.stopPropagation()">
+  <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;max-height:78%;overflow-y:auto;padding-bottom:10px" onclick="event.stopPropagation()">
     <div id="cs-body"></div>
   </div>
 </div>
 
 <!-- Filial tanlash modal -->
 <div id="branchmodal" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end">
-  <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:72%;overflow-y:auto">
+  <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;max-height:72%;overflow-y:auto">
     <div class="topbar"><div class="t">Filialni tanlang</div>
       <button class="iconbtn" onclick="closeBranch()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
     <div id="branchrows"></div>
@@ -530,6 +585,15 @@ async function loadChats(){
   updatePinBadge();
   const box = document.getElementById("rows");
   if(!r.chats.length){ box.innerHTML = '<div class="empty">Faol suhbat yo\'q.<br>Yangi murojaatlar yuqoridagi kanalda.</div>'; return; }
+  // Yangi mijoz javobi kelganda — ovoz + vibratsiya (chat ochiq bo'lmasa ham)
+  const replies = r.chats.filter(c=>c.reply);
+  let fresh=false;
+  replies.forEach(c=>{ const k=c.order_id+"|"+c.time; if(_replyInit && !_replySeen.has(k)) fresh=true; });
+  _replySeen = new Set(replies.map(c=>c.order_id+"|"+c.time));
+  _replyInit = true;
+  replyCount = replies.length;
+  if(fresh) beep();
+  updateTabBadge();
   box.innerHTML = r.chats.map(c => `
     <div class="row" onclick='openChat(${c.order_id}, ${JSON.stringify(c.name)})'>
       <div class="ava" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
@@ -541,26 +605,44 @@ async function loadChats(){
       ${c.reply?'<div style="width:9px;height:9px;border-radius:50%;background:var(--accent);flex-shrink:0"></div>':''}
     </div>`).join("");
 }
-// Bildirishnoma ovozi (qisqa "pop")
+// ---- Bildirishnoma: bitta AudioContext (autoplay qulfi yechiladi) + vibratsiya ----
+let _ac=null;
+function _ensureAC(){
+  if(!_ac){ try{ _ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(_ac && _ac.state==="suspended"){ try{ _ac.resume(); }catch(e){} }
+  return _ac;
+}
+["touchstart","mousedown","keydown"].forEach(ev=>document.addEventListener(ev,_ensureAC,{passive:true}));
 function beep(){
+  try{ if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); }catch(e){}
   const m = localStorage.getItem("snd")||"on";
   if(m==="off") return;
   const vol = m==="low" ? 0.045 : 0.16;
-  try{ const c=new (window.AudioContext||window.webkitAudioContext)();
-  const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
-  o.type="sine"; o.frequency.value=880; g.gain.setValueAtTime(0.0001,c.currentTime);
-  g.gain.exponentialRampToValueAtTime(vol,c.currentTime+0.02);
-  g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.25);
-  o.start(); o.stop(c.currentTime+0.26); setTimeout(()=>{try{c.close();}catch(e){}},400);
-}catch(e){} }
-let prevNew=-1;
+  const c=_ensureAC(); if(!c || c.state!=="running") return;
+  try{
+    const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
+    o.type="sine"; o.frequency.value=880;
+    g.gain.setValueAtTime(0.0001,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(vol,c.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.25);
+    o.start(); o.stop(c.currentTime+0.26);
+  }catch(e){}
+}
+let prevNew=-1, lastNewCount=0, replyCount=0, _replySeen=new Set(), _replyInit=false;
+function updateTabBadge(){
+  const tot = lastNewCount + replyCount;
+  const e=document.getElementById("tb-badge");
+  e.textContent=tot; e.classList.toggle("hide", tot===0);
+}
 async function updatePinBadge(){
   const r = await q("/api/newcount","GET",auth()); if(!r.ok) return;
   const n = r.count||0;
   if(prevNew>=0 && n>prevNew) beep();   // yangi murojaat keldi
-  prevNew=n;
-  ["chan-badge","tb-badge"].forEach(id=>{ const e=document.getElementById(id); e.textContent=n; e.classList.toggle("hide", n===0); });
+  prevNew=n; lastNewCount=n;
+  const cb=document.getElementById("chan-badge");
+  cb.textContent=n; cb.classList.toggle("hide", n===0);
   document.getElementById("chan-sub").textContent = n ? (n+" ta yangi murojaat") : "Yangi murojaatlar shu yerda";
+  updateTabBadge();
 }
 let pinTimer=null;
 // ---- CRM kanali ----

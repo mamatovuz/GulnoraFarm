@@ -174,6 +174,50 @@
   .themeseg{display:flex;gap:6px;background:var(--sec);border-radius:10px;padding:3px;flex:1}
   .themeseg button{flex:1;border:none;background:none;color:var(--text);padding:7px;border-radius:8px;font-size:13px;cursor:pointer}
   .themeseg button.on{background:var(--accent);color:#fff}
+
+  /* ================= DIZAYN SAYQALI ================= */
+  button,.lrow,.item,.oprow,.tcrow{transition:background .15s ease, transform .12s ease, opacity .15s ease}
+  .sbtn:active,.dbtn:active,.morebtn:active,.accept:active{transform:scale(.96)}
+  .lrow:active,.item:active{transform:scale(.99)}
+
+  /* Tab-bar: faol pill + safe-area */
+  .tabbar{padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+  .tabbar button .ic{padding:3px 13px;border-radius:13px;box-sizing:content-box;transition:background .18s}
+  .tabbar button.on .ic{background:color-mix(in srgb, var(--accent) 14%, transparent)}
+  .tabbar button.on{font-weight:600}
+
+  /* Kartalar: yumshoqroq radius + qatlamli soya */
+  .card,.tile{border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.05), 0 4px 14px rgba(0,0,0,.03)}
+  .kpi{gap:9px}
+  .tile .v{font-size:24px}
+
+  /* Fokus halqasi */
+  input:focus,textarea:focus,select:focus{border-color:var(--accent)!important;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent)}
+  .searchbar input:focus{box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent)}
+
+  /* Chiplar bosish effekti */
+  .chips button:active{transform:scale(.95)}
+
+  /* Davr tanlagich biroz kattaroq va markazda */
+  .seg button{padding:9px 4px}
+
+  /* Bottom-sheet dastagi */
+  .sheet{position:relative;box-shadow:0 -8px 30px rgba(0,0,0,.18);padding-top:12px}
+  .sheet::before{content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);
+    width:38px;height:4px;border-radius:3px;background:var(--sep)}
+
+  /* Bo'sh holat */
+  .empty{padding:44px 24px;font-size:14.5px;line-height:1.5}
+
+  /* Avatar ichki halqa */
+  .ava2,.oprow .ava{box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+
+  /* Yozishma futeri safe-area */
+  .transfoot{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+
+  /* Grafik kartalari sarlavhalari bir tekis */
+  .card h3{letter-spacing:-.01em}
 </style>
 </head>
 <body>
@@ -377,7 +421,7 @@
     </div>
   </div>
   <div id="trsheet" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;flex-direction:column;justify-content:flex-end" onclick="this.classList.add('hide')">
-    <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:62%;overflow-y:auto" onclick="event.stopPropagation()">
+    <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;max-height:62%;overflow-y:auto" onclick="event.stopPropagation()">
       <div class="topbar" style="box-shadow:none"><div class="t">Operatorni tanlang</div></div>
       <div id="trsheet-body"></div>
     </div>
