@@ -190,10 +190,6 @@
 
 <!-- APP -->
 <div id="app" class="screen hide">
-  <div class="topbar">
-    <div class="t" id="pagetitle">Statistika</div>
-  </div>
-
   <!-- DASHBOARD -->
   <div id="tab-dash" class="body">
     <div class="seg" id="periodseg">
@@ -453,7 +449,6 @@ function showTab(t){
     document.getElementById("tab-"+x).classList.toggle("hide", x!==t);
     document.getElementById("tb-"+x).classList.toggle("on", x===t);
   });
-  document.getElementById("pagetitle").textContent = _TITLES[t];
   if(t==="orders" && !ORD.loaded) loadOrders(true);
   if(t==="clients" && !CLI.loaded) loadClients(true);
 }
