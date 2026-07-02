@@ -76,6 +76,43 @@ async def rate_remind_loop(bot):
             pass
 
 
+async def monthly_op_report_loop(bot):
+    """Har oy 1-sanasida (09:00 dan keyin) har bir operatorga o'tgan oy natijalarini yuboradi."""
+    from datetime import timedelta
+    from config import now_local
+    months = ["", "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+              "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"]
+    while True:
+        await asyncio.sleep(1800)
+        try:
+            n = now_local()
+            key = n.strftime("%Y-%m")
+            if n.day == 1 and n.hour >= 9 and (await q.get_setting("last_monthly_op", "")) != key:
+                b_end = n.replace(day=1).strftime("%Y-%m-%d 00:00:00")
+                prev = (n.replace(day=1) - timedelta(days=1))
+                a_start = prev.replace(day=1).strftime("%Y-%m-%d 00:00:00")
+                rows = await q.monthly_op_stats(a_start, b_end)
+                total_ops = len(rows)
+                medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+                for i, r in enumerate(rows, 1):
+                    if not r["telegram_id"]:
+                        continue
+                    ob = (botreg.get_operator_bot(r["bot_id"]) if r["bot_id"] else bot) or bot
+                    place = medals.get(i, f"{i}-o'rin")
+                    text = (f"📊 <b>Oylik natijangiz — {months[prev.month]}</b>\n\n"
+                            f"🟢 Yakunlangan murojaatlar: <b>{r['done'] or 0}</b>\n"
+                            f"⭐ O'rtacha baho: {r['rating'] or '—'}\n"
+                            f"🏆 Reyting: {place} ({total_ops} operator ichida)\n\n"
+                            f"Yangi oyda omad, {r['name']}! 💪")
+                    try:
+                        await ob.send_message(r["telegram_id"], text)
+                    except Exception:
+                        pass
+                await q.set_setting("last_monthly_op", key)
+        except Exception:
+            pass
+
+
 async def reminders_loop(bot):
     """Operator eslatmalari: vaqti kelganda operatorga (o'z boti orqali) xabar beradi."""
     while True:
@@ -185,6 +222,8 @@ async def main():
     asyncio.create_task(backup_loop(bot))
     # Baholash eslatmasi (24 soatdan keyin, bir marta)
     asyncio.create_task(rate_remind_loop(bot))
+    # Oylik operator hisoboti (har oy 1-sanasida)
+    asyncio.create_task(monthly_op_report_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda
     try:
         import webapp

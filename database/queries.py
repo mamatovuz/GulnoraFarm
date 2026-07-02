@@ -397,6 +397,28 @@ async def clients_full():
     return await cur.fetchall()
 
 
+async def monthly_op_stats(a, b):
+    """Oylik hisobot: [a, b) oralig'ida har bir faol operatorning yakunlari va bahosi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT op.id, op.name, op.telegram_id, op.bot_id, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='done' "
+        " AND o.closed_at>=? AND o.closed_at<?) AS done, "
+        "(SELECT ROUND(AVG(rating),1) FROM orders o WHERE o.operator_id=op.id "
+        " AND o.rating IS NOT NULL AND o.closed_at>=? AND o.closed_at<?) AS rating "
+        "FROM operators op WHERE op.status='active'", (a, b, a, b))
+    rows = await cur.fetchall()
+    return sorted(rows, key=lambda r: r["done"] or 0, reverse=True)
+
+
+async def recent_orders_count(user_id, since):
+    """Anti-spam: mijoz so'nggi davr ichida nechta murojaat ochgan."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM orders WHERE user_id=? AND created_at>=?", (user_id, since))
+    return (await cur.fetchone())[0]
+
+
 async def checkpoint_wal():
     """WAL'dagi yozuvlarni asosiy .db faylga o'tkazadi (backup oldidan shart)."""
     db = await get_db()

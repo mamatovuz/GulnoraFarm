@@ -205,12 +205,35 @@ async def _night_autoreply(message, lang):
         pass
 
 
+FLOOD_LIMIT = 5          # soatiga eng ko'p yangi murojaat
+FLOOD_WINDOW_MIN = 60
+
+
+async def _flood_blocked(message, lang) -> bool:
+    """Anti-spam: bir mijoz qisqa vaqtda juda ko'p murojaat ochsa cheklaydi."""
+    from datetime import timedelta
+    from config import now_local
+    since = (now_local() - timedelta(minutes=FLOOD_WINDOW_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+    cnt = await q.recent_orders_count(message.from_user.id, since)
+    if cnt >= FLOOD_LIMIT:
+        await message.answer(
+            "⚠️ Qisqa vaqtda juda ko'p murojaat ochdingiz.\n"
+            "Ochiq murojaatingizga yozishingiz mumkin — yangi murojaatni birozdan keyin oching."
+            if lang != "ru" else
+            "⚠️ Слишком много обращений за короткое время.\n"
+            "Вы можете писать в открытое обращение — новое откройте чуть позже.")
+        return True
+    return False
+
+
 async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
     await q.set_user_username(message.from_user.id, message.from_user.username)
     user = await q.get_user(message.from_user.id)
     if user and user["status"] == "blocked":
         await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
+        return
+    if await _flood_blocked(message, lang):
         return
     order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
     await save_message_from_message(order_id, "client", message)

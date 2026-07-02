@@ -216,9 +216,23 @@ DEFAULT_SETTINGS = {
 }
 
 
+INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_orders_user     ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status   ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_operator ON orders(operator_id);
+CREATE INDEX IF NOT EXISTS idx_orders_created  ON orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_order  ON messages(order_id);
+CREATE INDEX IF NOT EXISTS idx_statuslog_order ON status_log(order_id);
+CREATE INDEX IF NOT EXISTS idx_msglinks_op     ON msg_links(operator_msg_id, operator_tg);
+CREATE INDEX IF NOT EXISTS idx_reminders_due   ON reminders(done, remind_at);
+"""
+
+
 async def init_db():
     db = await get_db()
     await db.executescript(SCHEMA)
+    # Indekslar — ma'lumot ko'payganda ham ro'yxat/qidiruv tez ishlashi uchun
+    await db.executescript(INDEXES)
     await db.commit()
 
     # Migratsiya: eski bazada tg_msg_id ustuni bo'lmasa qo'shamiz

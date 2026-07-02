@@ -74,9 +74,11 @@ async def _auth_user(request, body=None):
     return None
 
 
-def _sign(operator_id) -> str:
-    """Operator sessiya tokeni (login/parol bilan olinadi, server siri bilan imzolanadi)."""
-    return hmac.new(BOT_TOKEN.encode(), f"op-session:{operator_id}".encode(),
+def _sign(operator_id, password_hash="") -> str:
+    """Operator sessiya tokeni. Parol hash'iga bog'langan — parol o'zgartirilsa
+    BARCHA eski sessiyalar avtomatik bekor bo'ladi (xavfsizlik)."""
+    return hmac.new(BOT_TOKEN.encode(),
+                    f"op-session:{operator_id}:{password_hash}".encode(),
                     hashlib.sha256).hexdigest()
 
 
@@ -87,10 +89,12 @@ async def _auth_op(request, data):
     except (TypeError, ValueError):
         return None, None
     token = str(data.get("token", ""))
-    if not token or not hmac.compare_digest(_sign(operator_id), token):
+    if not token:
         return None, None
     op = await q.get_operator(operator_id)
     if not op or op["status"] != "active":
+        return None, None
+    if not hmac.compare_digest(_sign(operator_id, op["password_hash"] or ""), token):
         return None, None
     # Ish vaqti tekshiruvi: vaqt tugagach mini app sessiyasi ham yopiladi
     try:
@@ -149,7 +153,7 @@ async def api_login(request):
         except Exception:
             pass
     return _json({"ok": True, "operator_id": op["id"], "name": op["name"],
-                  "token": _sign(op["id"])})
+                  "token": _sign(op["id"], op["password_hash"] or "")})
 
 
 # ---------------- API: chatlar ----------------
