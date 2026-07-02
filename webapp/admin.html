@@ -73,7 +73,23 @@
   .tile.wide>div{flex:1}
 
   /* Grafik kartalari */
-  .card{background:var(--bg);border-radius:14px;padding:14px;margin-bottom:12px}
+  .card{background:var(--bg);border-radius:14px;padding:14px;margin-bottom:12px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .tile{box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  /* Karta ichidagi mini ko'rinish almashtirgich (ro'yxat/diagramma) */
+  .mini-seg{display:flex;gap:2px;background:var(--sec);border-radius:8px;padding:2px;margin-left:auto}
+  .mini-seg button{border:none;background:none;padding:4px 9px;border-radius:6px;color:var(--hint);
+    cursor:pointer;display:flex;align-items:center}
+  .mini-seg button.on{background:var(--bg);color:var(--accent);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .mini-seg .ic{width:16px;height:16px}
+  /* Top mijozlar — gorizontal diagramma */
+  .tcrow{display:flex;align-items:center;gap:9px;padding:5px 0;cursor:pointer}
+  .tcrow:active{opacity:.7}
+  .tcname{width:96px;font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;text-align:right;flex-shrink:0}
+  .tcbarwrap{flex:1;height:15px;background:var(--sec);border-radius:4px;overflow:hidden}
+  .tcbar{height:100%;background:var(--accent);border-radius:0 4px 4px 0;transition:width .45s ease}
+  .tcval{width:36px;font-size:12.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
   .card h3{margin:0 0 10px;font-size:14.5px;font-weight:600;color:var(--text)}
   .card h3 .sub{color:var(--hint);font-weight:400;font-size:12.5px;margin-left:6px}
   .chartwrap{position:relative}
@@ -111,7 +127,7 @@
   .lrow{display:flex;align-items:center;gap:12px;padding:10px 13px;cursor:pointer}
   .lrow:active{background:var(--sec)}
   .lrow+.lrow{border-top:1px solid var(--sep)}
-  .lrow .ava2{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#5eb5f7,#3390ec);
+  .ava2{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#5eb5f7,#3390ec);
     color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:17px;flex-shrink:0}
   .lrow .mid{flex:1;min-width:0}
   .lrow .nm{font-weight:600;font-size:15px;display:flex;justify-content:space-between;gap:8px}
@@ -201,7 +217,11 @@
     </div>
 
     <div class="card">
-      <h3>Top mijozlar <span class="sub">eng ko'p murojaat yuborganlar</span></h3>
+      <h3 style="display:flex;align-items:center">Top mijozlar <span class="sub">eng ko'p murojaat</span>
+        <span class="mini-seg">
+          <button id="tcm-list" onclick="setTcMode('list')" title="Ro'yxat"><svg class="ic" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+          <button id="tcm-chart" onclick="setTcMode('chart')" title="Diagramma"><svg class="ic" viewBox="0 0 24 24"><path d="M3 5h12M3 12h18M3 19h8"/></svg></button>
+        </span></h3>
       <div id="topcl"></div>
     </div>
   </div>
@@ -419,10 +439,28 @@ function renderAll(){
   renderTopClients(DASH.topclients||[]);
 }
 
-// ---- Top mijozlar ----
+// ---- Top mijozlar (ro'yxat / diagramma) ----
+let TCMODE = localStorage.getItem("tc_mode") || "list";
+function setTcMode(m){
+  TCMODE=m; localStorage.setItem("tc_mode",m);
+  renderTopClients(DASH ? (DASH.topclients||[]) : []);
+}
 function renderTopClients(items){
+  ["list","chart"].forEach(m=>{
+    const b=document.getElementById("tcm-"+m); if(b) b.classList.toggle("on", TCMODE===m); });
   const box=document.getElementById("topcl");
   if(!items.length){ box.innerHTML='<div class="empty">Bu davrda murojaat yo\'q</div>'; return; }
+  if(TCMODE==="chart"){
+    // gorizontal ustunlar — kim nechta murojaat yuborgani bir qarashda
+    const mx=Math.max(...items.map(c=>c.cnt),1);
+    box.innerHTML = items.map(c=>`
+      <div class="tcrow" onclick="openClientV(${c.tg})">
+        <div class="tcname">${esc(c.name)}</div>
+        <div class="tcbarwrap"><div class="tcbar" style="width:${Math.max(5,(c.cnt/mx)*100).toFixed(1)}%"></div></div>
+        <div class="tcval">${c.cnt}</div>
+      </div>`).join("");
+    return;
+  }
   const medals=["🥇","🥈","🥉"];
   box.innerHTML = items.map((c,i)=>`
     <div class="oprow" style="cursor:pointer" onclick="openClientV(${c.tg})">

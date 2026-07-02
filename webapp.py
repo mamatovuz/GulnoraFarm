@@ -92,6 +92,14 @@ async def _auth_op(request, data):
     op = await q.get_operator(operator_id)
     if not op or op["status"] != "active":
         return None, None
+    # Ish vaqti tekshiruvi: vaqt tugagach mini app sessiyasi ham yopiladi
+    try:
+        from utils import operator_in_hours
+        within, _ws, _we = operator_in_hours(op)
+        if not within:
+            return None, None
+    except Exception:
+        pass
     return op, None
 
 
@@ -126,6 +134,13 @@ async def api_login(request):
         return _json({"ok": False, "error": "Login yoki parol xato"}, 200)
     if op["status"] != "active":
         return _json({"ok": False, "error": "Hisob bloklangan"}, 200)
+    # Ish vaqtidan tashqarida mini appga kirib bo'lmaydi
+    from utils import operator_in_hours
+    within, ws, we = operator_in_hours(op)
+    if not within:
+        return _json({"ok": False, "error": f"Hozir ish vaqtingiz emas.\n"
+                                            f"Ish vaqtingiz: {ws}–{we}. "
+                                            f"Faqat shu oraliqda kira olasiz."}, 200)
     # Telegram foydalanuvchisini (imzo to'g'ri bo'lsa) operatorga bog'laymiz — online bo'ladi
     user = await _auth_user(request, body)
     if user:
