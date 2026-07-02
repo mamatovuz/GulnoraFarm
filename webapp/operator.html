@@ -253,6 +253,16 @@
       </div>
     </div>
     <div class="list">
+      <div class="item">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <div class="lbl">Bildirishnoma ovozi</div>
+        <div class="switch on" id="snd-switch" onclick="toggleSnd()"></div>
+      </div>
+    </div>
+    <div class="card" style="margin:10px 12px"><h3 style="margin:0 0 10px;font-size:14px;font-weight:600">Mening haftam <span style="color:var(--hint);font-weight:400;font-size:12px">kunlik yakunlar</span></h3>
+      <div id="mychart" style="display:flex;align-items:flex-end;gap:7px;height:96px"></div>
+    </div>
+    <div class="list">
       <div class="item" onclick="openList('unfinished')"><svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openList('rating')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Reyting</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
@@ -297,6 +307,7 @@
     <div class="ava" id="c-ava" style="width:38px;height:38px;font-size:16px"></div>
     <div style="flex:1;min-width:0"><div class="t" id="c-name" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div>
       <div class="val" id="c-phone" style="color:var(--hint);font-size:12px"></div></div>
+    <button class="iconbtn" onclick="openRemind()" title="Eslatma"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
     <button class="iconbtn" onclick="openNote()" title="Izoh"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
     <button class="iconbtn" onclick="closeChat()" title="Yakunlash"><svg class="ic" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
     <button class="iconbtn" onclick="hideChat()" title="O'chirish"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
@@ -331,7 +342,7 @@
     <button class="cbtn acc" onclick="stopSendRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
   </div>
 </div>
-<input type="file" id="file-photo" accept="image/*" class="hide">
+<input type="file" id="file-photo" accept="image/*" multiple class="hide">
 <input type="file" id="file-doc" class="hide">
 
 <!-- Rasmni to'liq ekranda ko'rish -->
@@ -367,7 +378,7 @@
   <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto">
     <img id="mm-img" style="max-width:100%;max-height:100%;border-radius:12px">
   </div>
-  <div style="padding:8px 12px;text-align:center;color:var(--hint);font-size:13px">Caption yozing (ixtiyoriy)</div>
+  <div style="padding:8px 12px;text-align:center;color:var(--hint);font-size:13px"><span id="mm-count"></span>Caption yozing (ixtiyoriy)</div>
   <div class="composer">
     <textarea id="mm-cap" rows="1" placeholder="Sarlavha..."></textarea>
     <button class="cbtn" onclick="closeMedia()" style="color:#e5484d"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -385,6 +396,30 @@
     <textarea id="note-text" rows="5" placeholder="Bu mijoz haqida eslatma (masalan: doimiy mijoz, diabetik, faqat naqd to'laydi)"
       style="width:100%;padding:13px;border:1px solid var(--sep);border-radius:12px;background:var(--bg);color:var(--text);font-size:15px;resize:vertical;outline:none"></textarea>
     <button class="btn" onclick="saveNote()" style="margin-top:12px;max-width:none">Saqlash</button>
+  </div>
+</div>
+
+<!-- Xabar amallari (tahrirlash/o'chirish) -->
+<div id="msheet" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:40" onclick="closeSheet()">
+  <div style="background:var(--bg);border-radius:16px 16px 0 0" onclick="event.stopPropagation()">
+    <div class="item" id="ms-edit" onclick="msEdit()"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg><div class="lbl">Tahrirlash</div></div>
+    <div class="item" onclick="msDelete()" style="color:#e5484d"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg><div class="lbl">O'chirish (mijozda ham)</div></div>
+    <div class="item" onclick="closeSheet()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg><div class="lbl">Bekor</div></div>
+  </div>
+</div>
+
+<!-- Eslatma qo'yish -->
+<div id="remindmodal" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:40" onclick="closeRemind()">
+  <div style="background:var(--bg);border-radius:16px 16px 0 0;padding-bottom:8px" onclick="event.stopPropagation()">
+    <div class="topbar" style="box-shadow:none"><div class="t">Eslatma qo'yish</div></div>
+    <div style="padding:10px 14px 4px">
+      <input id="rm-note" placeholder="Izoh (ixtiyoriy): masalan, narxni aytish"
+        style="width:100%;padding:11px 13px;border:1px solid var(--sep);border-radius:11px;background:var(--sec);color:var(--text);font-size:14.5px;outline:none">
+    </div>
+    <div class="item" onclick="setRemind(15)"><div class="lbl">15 daqiqadan keyin</div></div>
+    <div class="item" onclick="setRemind(60)"><div class="lbl">1 soatdan keyin</div></div>
+    <div class="item" onclick="setRemind(180)"><div class="lbl">3 soatdan keyin</div></div>
+    <div class="item" onclick="setRemindTomorrow()"><div class="lbl">Ertaga 09:00 da</div></div>
   </div>
 </div>
 
@@ -488,7 +523,7 @@ async function loadChats(){
     </div>`).join("");
 }
 // Bildirishnoma ovozi (qisqa "pop")
-function beep(){ try{ const c=new (window.AudioContext||window.webkitAudioContext)();
+function beep(){ if(localStorage.getItem("snd")==="off") return; try{ const c=new (window.AudioContext||window.webkitAudioContext)();
   const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
   o.type="sine"; o.frequency.value=880; g.gain.setValueAtTime(0.0001,c.currentTime);
   g.gain.exponentialRampToValueAtTime(0.16,c.currentTime+0.02);
@@ -545,7 +580,12 @@ function setReplyIdx(i){
   document.getElementById("replybar").classList.remove("hide");
   ta.focus();
 }
-function clearReply(){ replyCtx=null; document.getElementById("replybar").classList.add("hide"); }
+function clearReply(){
+  replyCtx=null;
+  if(editingMid){ editingMid=null; ta.value=""; ta.dispatchEvent(new Event("input")); }
+  document.querySelector("#replybar div div").textContent = "Mijozga javob";
+  document.getElementById("replybar").classList.add("hide");
+}
 
 async function openChat(oid, name){
   CUR = oid; sh("chat");
@@ -616,7 +656,8 @@ async function loadMsgs(scroll){
   box.innerHTML = r.messages.map((m,i) => {
     const cls = m.own?'o':'c';
     const tmv = m.time + (m.own?' ✓':'');
-    const rep = (!m.own && m.tgid) ? ` onclick="setReplyIdx(${i})"` : "";
+    const rep = (!m.own && m.tgid) ? ` onclick="setReplyIdx(${i})"`
+              : ((m.own && m.cmid) ? ` onclick="msgActions(${i})"` : "");
     if(m.type === "photo" && m.file_id){
       const cap = m.text?`<div class="cap">${esc(m.text)}</div>`:"";
       return `<div class="b ${cls} media"${rep}><img src="${fileUrl(m.file_id,'photo')}" onclick="event.stopPropagation();openImg(this.src)">${cap}<div class="tm">${tmv}</div></div>`;
@@ -631,7 +672,7 @@ async function loadMsgs(scroll){
       return `<div class="b ${cls}"${rep}><a href="${fileUrl(m.file_id,'document')}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.text||"Hujjat")}</span></a><div class="tm">${tmv}</div></div>`;
     }
     if((m.type === "voice" || m.type === "audio") && m.file_id){
-      return `<div class="b ${cls}"><div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${tmv}</div></div>`;
+      return `<div class="b ${cls}"><div class="vp" onclick="event.stopPropagation()" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${tmv}</div></div>`;
     }
     const inner = (m.type !== "text" && m.type) ? (_MLBL[m.type]||"Fayl")+(m.text?": "+esc(m.text):"") : esc(m.text);
     return `<div class="b ${cls}"${rep}>${inner}<div class="tm">${tmv}</div></div>`;
@@ -656,6 +697,15 @@ ta.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventD
 function exitBill(){ pendingBill=false; ta.placeholder="Xabar..."; }
 async function send(){
   const text = ta.value.trim(); if(!text||!CUR) return;
+  if(editingMid){
+    const mid=editingMid; editingMid=null;
+    document.getElementById("replybar").classList.add("hide");
+    document.querySelector("#replybar div div").textContent="Mijozga javob";
+    ta.value=""; ta.dispatchEvent(new Event("input"));
+    const r=await q("/api/msg_edit","POST",Object.assign(auth(),{mid,text}));
+    if(!r.ok){ tg.showAlert(r.error||"Tahrirlanmadi"); return; }
+    lastSig=""; await loadMsgs(true); return;
+  }
   if(pendingBill){
     exitBill(); ta.value=""; ta.dispatchEvent(new Event("input"));
     const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:text}));
@@ -692,6 +742,68 @@ document.getElementById("file-doc").onchange = function(){
   };
   rd.readAsDataURL(f);
 };
+
+// ---- Xabar amallari (o'z xabarini o'chirish/tahrirlash) ----
+let sheetMsg=null, editingMid=null;
+function msgActions(i){
+  const m=MSGS[i]; if(!m||!m.own||!m.cmid) return;
+  sheetMsg=m;
+  document.getElementById("ms-edit").style.display = (m.type==="text")?"":"none";
+  document.getElementById("msheet").classList.remove("hide");
+}
+function closeSheet(){ document.getElementById("msheet").classList.add("hide"); }
+function msDelete(){
+  const m=sheetMsg; closeSheet(); if(!m) return;
+  tg.showConfirm("Xabar mijozda ham o'chiriladi. O'chirasizmi?", async ok=>{
+    if(!ok) return;
+    const r=await q("/api/msg_del","POST",Object.assign(auth(),{mid:m.mid}));
+    if(!r.ok){ tg.showAlert(r.error||"O'chirilmadi"); return; }
+    lastSig=""; await loadMsgs(true);
+  });
+}
+function msEdit(){
+  const m=sheetMsg; closeSheet(); if(!m) return;
+  editingMid=m.mid; replyCtx=null;
+  document.getElementById("rb-text").textContent = m.text.slice(0,80);
+  document.querySelector("#replybar div div").textContent = "Xabarni tahrirlash";
+  document.getElementById("replybar").classList.remove("hide");
+  ta.value=m.text; ta.dispatchEvent(new Event("input")); ta.focus();
+}
+
+// ---- Eslatma ----
+function openRemind(){ if(!CUR) return; document.getElementById("remindmodal").classList.remove("hide"); }
+function closeRemind(){ document.getElementById("remindmodal").classList.add("hide"); }
+async function setRemind(minutes){
+  closeRemind();
+  const note=document.getElementById("rm-note").value.trim();
+  document.getElementById("rm-note").value="";
+  const r=await q("/api/remind","POST",Object.assign(auth(),{order_id:CUR,minutes,note}));
+  tg.showAlert(r.ok?r.info:(r.error||"Xatolik"));
+}
+function setRemindTomorrow(){
+  const n=new Date(); const t=new Date(n); t.setDate(t.getDate()+1); t.setHours(9,0,0,0);
+  setRemind(Math.max(1, Math.round((t-n)/60000)));
+}
+
+// ---- Tovush sozlamasi ----
+function toggleSnd(){
+  const off = localStorage.getItem("snd")==="off";
+  localStorage.setItem("snd", off?"on":"off");
+  document.getElementById("snd-switch").classList.toggle("on", off);
+}
+
+// ---- Mening haftam (mini diagramma) ----
+async function loadMyChart(){
+  const r=await q("/api/mystats","GET",auth()); if(!r.ok) return;
+  const box=document.getElementById("mychart"); if(!box) return;
+  const mx=Math.max(...r.days.map(d=>d.c),1);
+  box.innerHTML=r.days.map(d=>`
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;height:100%;justify-content:flex-end">
+      <div style="font-size:10.5px;color:var(--text);font-weight:600">${d.c||""}</div>
+      <div style="width:100%;max-width:26px;height:${Math.max(4,(d.c/mx)*58)}px;border-radius:4px 4px 2px 2px;background:${d.c?"var(--accent)":"var(--sep)"};transition:height .4s"></div>
+      <div style="font-size:10px;color:var(--hint)">${d.label}</div>
+    </div>`).join("");
+}
 
 // ---- Chat buyruqlari (/) ----
 const CMDS=[
@@ -758,27 +870,37 @@ function compressImage(file, maxDim, quality){
 }
 function pickPhoto(){ document.getElementById("file-photo").click(); }
 document.getElementById("file-photo").onchange = async function(){
-  const f=this.files[0]; this.value=""; if(!f||!CUR) return;
-  openMedia(await compressImage(f, 1600, 0.72));
+  const files=[...this.files].slice(0,10); this.value=""; if(!files.length||!CUR) return;
+  const datas=[];
+  for(const f of files) datas.push(await compressImage(f, 1600, 0.72));
+  openMedia(datas);
 };
 // ---- Rasm oldindan ko'rish (caption + Cancel/Send) ----
 let pendingMedia=null;
-function openMedia(data){ pendingMedia=data; document.getElementById("mm-img").src=data;
+function openMedia(data){
+  pendingMedia = Array.isArray(data) ? data : [data];
+  document.getElementById("mm-img").src = pendingMedia[0];
+  document.getElementById("mm-count").textContent = pendingMedia.length>1 ? (pendingMedia.length+" ta rasm · ") : "";
   document.getElementById("mm-cap").value=""; document.getElementById("mediamodal").classList.remove("hide");
   setTimeout(()=>document.getElementById("mm-cap").focus(),120); }
 function closeMedia(){ pendingMedia=null; document.getElementById("mediamodal").classList.add("hide"); }
 function openImg(src){ document.getElementById("imgview-img").src=src; document.getElementById("imgview").classList.remove("hide"); }
 function closeImg(){ document.getElementById("imgview").classList.add("hide"); }
 async function sendMedia(){
-  if(!pendingMedia||!CUR) return;
-  const cap=document.getElementById("mm-cap").value.trim(); const data=pendingMedia; closeMedia();
+  if(!pendingMedia||!pendingMedia.length||!CUR) return;
+  const cap=document.getElementById("mm-cap").value.trim(); const datas=pendingMedia; closeMedia();
   if(pendingBill){
     exitBill();
-    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:cap,media_kind:"photo",media_data:data}));
+    const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:cap,media_kind:"photo",media_data:datas[0]}));
     tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
   }
-  const r=await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text:cap,media_kind:"photo",media_data:data}));
-  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; } await loadMsgs(true);
+  const rep=replyCtx?replyCtx.tgid:0; clearReply();
+  for(let i=0;i<datas.length;i++){
+    const r=await q("/api/send","POST",Object.assign(auth(),
+      {order_id:CUR,text:i===0?cap:"",media_kind:"photo",media_data:datas[i],reply_tgid:i===0?rep:0}));
+    if(!r.ok){ tg.showAlert((r.error||"Yuborilmadi")+(datas.length>1?` (${i+1}-rasm)`:"")); break; }
+  }
+  await loadMsgs(true);
 }
 document.getElementById("mm-cap").addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendMedia(); } });
 // Skrinshot / clipboard rasmni qo'yish (Ctrl+V)
@@ -1010,6 +1132,8 @@ async function loadProfile(){
   const free = r.availability === "free";
   document.getElementById("p-switch").classList.toggle("on", free);
   document.getElementById("p-stlbl").textContent = free ? "Bo'sh" : "Band";
+  document.getElementById("snd-switch").classList.toggle("on", localStorage.getItem("snd")!=="off");
+  loadMyChart();
 }
 async function toggleStatus(){
   const r = await q("/api/status","POST",auth()); if(!r.ok) return;

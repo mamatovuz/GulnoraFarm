@@ -23,6 +23,28 @@ for name in ("aiogram", "aiogram.event", "aiogram.dispatcher", "aiogram.middlewa
 logger = logging.getLogger("bot")
 
 
+async def reminders_loop(bot):
+    """Operator eslatmalari: vaqti kelganda operatorga (o'z boti orqali) xabar beradi."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            for r in await q.due_reminders(q.now()):
+                await q.mark_reminder_done(r["id"])
+                op = await q.get_operator(r["operator_id"])
+                if not op or not op["telegram_id"]:
+                    continue
+                ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+                text = (f"⏰ <b>Eslatma</b> — murojaat #{r['order_id']}"
+                        f" ({r['full_name'] or 'mijoz'})"
+                        + (f"\n📝 {r['note']}" if r["note"] else ""))
+                try:
+                    await ob.send_message(op["telegram_id"], text)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
 async def weekly_report_loop(bot):
     """Har dushanba 09:00 da adminlarga o'tgan hafta hisobotini yuboradi."""
     from datetime import timedelta
@@ -104,6 +126,8 @@ async def main():
     asyncio.create_task(operator.op_workhours_loop(bot))
     # Haftalik avto-hisobot (dushanba 09:00)
     asyncio.create_task(weekly_report_loop(bot))
+    # Operator eslatmalari
+    asyncio.create_task(reminders_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda
     try:
         import webapp

@@ -289,14 +289,122 @@ async def log_status(order_id, old, new, changed_by):
 
 
 # ============================ MESSAGES (proxy-chat) ============================
-async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None):
+async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None,
+                      client_msg_id=None):
     db = await get_db()
-    await db.execute(
-        "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (order_id, sender, content_type, text, file_id, tg_msg_id, now()),
+    cur = await db.execute(
+        "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, "
+        "client_msg_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id, now()),
     )
     await db.commit()
+    return cur.lastrowid
+
+
+async def get_message(mid):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM messages WHERE id = ?", (mid,))
+    return await cur.fetchone()
+
+
+async def set_message_client_id(mid, client_msg_id):
+    db = await get_db()
+    await db.execute("UPDATE messages SET client_msg_id = ? WHERE id = ?", (client_msg_id, mid))
+    await db.commit()
+
+
+async def update_message_text(mid, text):
+    db = await get_db()
+    await db.execute("UPDATE messages SET text = ? WHERE id = ?", (text, mid))
+    await db.commit()
+
+
+async def delete_message_row(mid):
+    db = await get_db()
+    await db.execute("DELETE FROM messages WHERE id = ?", (mid,))
+    await db.commit()
+
+
+# ============================ ESLATMALAR ============================
+async def add_reminder(operator_id, order_id, remind_at, note=""):
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO reminders (operator_id, order_id, remind_at, note) VALUES (?, ?, ?, ?)",
+        (operator_id, order_id, remind_at, note))
+    await db.commit()
+
+
+async def due_reminders(now_str):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT r.*, u.full_name FROM reminders r "
+        "LEFT JOIN orders o ON o.id = r.order_id "
+        "LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "WHERE r.done = 0 AND r.remind_at <= ?", (now_str,))
+    return await cur.fetchall()
+
+
+async def mark_reminder_done(rid):
+    db = await get_db()
+    await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
+    await db.commit()
+
+
+# ============================ MIJOZNI TO'LIQ O'CHIRISH ============================
+async def delete_client_full(tg):
+    """Mijozning BARCHA ma'lumotlarini o'chiradi: profil, murojaatlar, yozishmalar, izohlar."""
+    db = await get_db()
+    cur = await db.execute("SELECT id FROM orders WHERE user_id = ?", (tg,))
+    oids = [r[0] for r in await cur.fetchall()]
+    if oids:
+        ph = ",".join("?" * len(oids))
+        await db.execute(f"DELETE FROM messages WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM msg_links WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM order_notifs WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM status_log WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM hidden_chats WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM reminders WHERE order_id IN ({ph})", oids)
+        await db.execute(f"DELETE FROM orders WHERE id IN ({ph})", oids)
+        await db.execute("UPDATE operators SET active_order_id = NULL "
+                         f"WHERE active_order_id IN ({ph})", oids)
+    await db.execute("DELETE FROM client_notes WHERE user_id = ?", (tg,))
+    await db.execute("DELETE FROM users WHERE telegram_id = ?", (tg,))
+    await db.commit()
+    return len(oids)
+
+
+async def branch_counts(since):
+    """Filial kesimida murojaatlar soni (davr ichida)."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT b.name, COUNT(o.id) AS cnt FROM branches b "
+        "LEFT JOIN orders o ON o.branch_id = b.id AND o.created_at >= ? "
+        "GROUP BY b.id ORDER BY cnt DESC", (since,))
+    return await cur.fetchall()
+
+
+async def clients_full():
+    """Excel uchun: barcha mijozlar + murojaat statistikasi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT u.telegram_id, u.full_name, u.phone, u.status, u.registered_at, "
+        "b.name AS branch, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.user_id=u.telegram_id) AS cnt, "
+        "(SELECT MAX(created_at) FROM orders o WHERE o.user_id=u.telegram_id) AS last_at, "
+        "(SELECT ROUND(AVG(rating),1) FROM orders o WHERE o.user_id=u.telegram_id "
+        " AND rating IS NOT NULL) AS avg_r "
+        "FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.registered_at DESC")
+    return await cur.fetchall()
+
+
+async def my_daily_done(operator_id, days=7):
+    """Operatorning so'nggi N kunlik yakunlari (kun kesimida)."""
+    db = await get_db()
+    since = (now_local() - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
+    cur = await db.execute(
+        "SELECT date(closed_at) AS d, COUNT(*) AS c FROM orders "
+        "WHERE operator_id=? AND status='done' AND closed_at>=? GROUP BY d", (operator_id, since))
+    return {r["d"]: r["c"] for r in await cur.fetchall()}
 
 
 async def order_messages(order_id):

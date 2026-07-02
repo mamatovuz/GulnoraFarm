@@ -148,6 +148,16 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- Operator eslatmalari ("1 soatdan keyin eslat")
+CREATE TABLE IF NOT EXISTS reminders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    operator_id INTEGER,
+    order_id    INTEGER,
+    remind_at   TEXT,
+    note        TEXT,
+    done        INTEGER DEFAULT 0
+);
+
 -- Mijoz haqida operator izohi (CRM profilida ko'rinadi)
 CREATE TABLE IF NOT EXISTS client_notes (
     user_id    INTEGER PRIMARY KEY,
@@ -216,6 +226,10 @@ async def init_db():
     cols = [row[1] for row in await cur.fetchall()]
     if "tg_msg_id" not in cols:
         await db.execute("ALTER TABLE messages ADD COLUMN tg_msg_id INTEGER")
+        await db.commit()
+    if "client_msg_id" not in cols:
+        # mijoz chatidagi message_id — CRM'dan o'chirish/tahrirlash uchun
+        await db.execute("ALTER TABLE messages ADD COLUMN client_msg_id INTEGER")
         await db.commit()
 
     # Migratsiya: orders.rating ustuni

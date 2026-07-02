@@ -212,8 +212,17 @@
     </div>
 
     <div class="card">
-      <h3>Operatorlar <span class="sub" id="ops-sub"></span></h3>
+      <h3 style="display:flex;align-items:center">Operatorlar <span class="sub" id="ops-sub"></span>
+        <span class="mini-seg">
+          <button id="opm-list" onclick="setOpsMode('list')" title="Ro'yxat"><svg class="ic" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+          <button id="opm-chart" onclick="setOpsMode('chart')" title="Diagramma"><svg class="ic" viewBox="0 0 24 24"><path d="M3 5h12M3 12h18M3 19h8"/></svg></button>
+        </span></h3>
       <div id="opslist"></div>
+    </div>
+
+    <div class="card">
+      <h3>Filiallar kesimi <span class="sub">qaysi filialga ko'p murojaat</span></h3>
+      <div id="brchart"></div>
     </div>
 
     <div class="card">
@@ -334,7 +343,21 @@
   </div>
   <div id="tr-msgs" class="msgs2"></div>
   <div id="tr-foot" class="transfoot hide">
-    <button class="dbtn" onclick="adminClose()">Yakunlash (mijozga baholash boradi)</button>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="tr-msg" placeholder="Mijozga yozish (Admin nomidan)..."
+        style="flex:1;padding:11px 13px;border:1px solid var(--sep);border-radius:11px;background:var(--sec);color:var(--text);font-size:14.5px;outline:none">
+      <button class="dbtn" style="width:52px;padding:0" onclick="adminSend()"><svg class="ic" viewBox="0 0 24 24" style="margin:0 auto"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="dbtn" style="background:var(--sec);color:var(--text)" onclick="adminTransfer()">O'tkazish</button>
+      <button class="dbtn" onclick="adminClose()">Yakunlash</button>
+    </div>
+  </div>
+  <div id="trsheet" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;flex-direction:column;justify-content:flex-end" onclick="this.classList.add('hide')">
+    <div style="background:var(--bg);border-radius:16px 16px 0 0;max-height:62%;overflow-y:auto" onclick="event.stopPropagation()">
+      <div class="topbar" style="box-shadow:none"><div class="t">Operatorni tanlang</div></div>
+      <div id="trsheet-body"></div>
+    </div>
   </div>
 </div>
 
@@ -437,6 +460,21 @@ function renderAll(){
   renderBars(DASH.hours);
   renderOps(DASH.ops, DASH.kpi.online);
   renderTopClients(DASH.topclients||[]);
+  renderBranches(DASH.branches||[]);
+}
+
+// ---- Filiallar kesimi ----
+function renderBranches(items){
+  const box=document.getElementById("brchart");
+  const tot=items.reduce((s,b)=>s+b.cnt,0);
+  if(!tot){ box.innerHTML=`<div class="empty">Bu davrda malumot yoq</div>`; return; }
+  const mx=Math.max(...items.map(b=>b.cnt),1);
+  box.innerHTML=items.map(b=>`
+    <div class="tcrow" style="cursor:default">
+      <div class="tcname" style="width:118px">${esc(b.name)}</div>
+      <div class="tcbarwrap"><div class="tcbar" style="width:${Math.max(4,(b.cnt/mx)*100).toFixed(1)}%"></div></div>
+      <div class="tcval">${b.cnt}</div>
+    </div>`).join("");
 }
 
 // ---- Top mijozlar (ro'yxat / diagramma) ----
@@ -673,9 +711,26 @@ function renderBars(hours){
 }
 
 // ---- Operatorlar ----
+let OPSMODE = localStorage.getItem("ops_mode") || "list";
+function setOpsMode(m){ OPSMODE=m; localStorage.setItem("ops_mode",m);
+  if(DASH) renderOps(DASH.ops, DASH.kpi.online); }
 function renderOps(ops, online){
+  ["list","chart"].forEach(m=>{ const b=document.getElementById("opm-"+m);
+    if(b) b.classList.toggle("on", OPSMODE===m); });
   document.getElementById("ops-sub").textContent = online + " ta online";
   const box = document.getElementById("opslist");
+  if(OPSMODE==="chart"){
+    const st=(DASH&&DASH.opstats)||[];
+    if(!st.length){ box.innerHTML=`<div class="empty">Bu davrda yakunlangan murojaat yoq</div>`; return; }
+    const mx=Math.max(...st.map(o=>o.done),1);
+    box.innerHTML=st.map(o=>`
+      <div class="tcrow" style="cursor:default">
+        <div class="tcname">${esc(o.name)}</div>
+        <div class="tcbarwrap"><div class="tcbar" style="width:${Math.max(4,(o.done/mx)*100).toFixed(1)}%;background:#2f9e44"></div></div>
+        <div class="tcval">${o.done}</div>
+      </div>`).join("");
+    return;
+  }
   if(!ops || !ops.length){ box.innerHTML = '<div class="empty">Operator yo\'q</div>'; return; }
   const stCol = { free:C.done, busy:C.canceled, offline:"#9aa4ae" };
   const stLbl = { free:"bo'sh", busy:"band", offline:"oflayn" };
@@ -746,6 +801,32 @@ async function openTrans(oid, back){
   const bx=document.getElementById("tr-msgs"); bx.scrollTop=bx.scrollHeight;
 }
 function closeTrans(){ document.getElementById("trans").classList.add("hide"); TRO=null; }
+async function adminSend(){
+  const inp=document.getElementById("tr-msg"); const text=inp.value.trim();
+  if(!text||!TRO) return;
+  inp.value="";
+  const r=await q("/api/admin/send","POST",Object.assign(auth(),{order_id:TRO,text}));
+  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+  openTrans(TRO, TRBACK);
+}
+document.getElementById("tr-msg").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); adminSend(); } });
+async function adminTransfer(){
+  const r=await q("/api/admin/ops","GET",auth());
+  if(!r.ok) return;
+  const acts=r.items.filter(o=>o.active);
+  document.getElementById("trsheet-body").innerHTML = acts.map(o=>`
+    <div class="item" onclick="doTransfer(${o.id})">
+      <div class="ava2" style="width:38px;height:38px;font-size:15px;background:${avaBg(o.name)}">${ini(o.name)}</div>
+      <div class="lbl">${esc(o.name)}<div style="font-size:12px;color:var(--hint)">${o.online?"online":"oflayn"} · ${esc(o.bot)}</div></div>
+    </div>`).join("") || `<div class="empty">Faol operator yoq</div>`;
+  document.getElementById("trsheet").classList.remove("hide");
+}
+async function doTransfer(opId){
+  document.getElementById("trsheet").classList.add("hide");
+  const r=await q("/api/admin/transfer","POST",Object.assign(auth(),{order_id:TRO,operator_id:opId}));
+  tg.showAlert(r.ok?(r.info||"Otkazildi"):(r.error||"Xatolik"));
+  if(r.ok) openTrans(TRO, TRBACK);
+}
 function adminClose(){
   tg.showConfirm("Murojaatni yakunlaysizmi? Mijozga baholash yuboriladi.", async ok=>{
     if(!ok) return;
@@ -792,8 +873,19 @@ async function openClientV(tg_){
       <div style="display:flex;justify-content:center;gap:14px;margin-top:8px;color:var(--hint);font-size:12.5px">
         <span>${esc(c.branch)||"Filial tanlanmagan"}</span><span>·</span><span>ro'yxatdan: ${esc(c.reg)||"—"}</span>
       </div>
-      ${c.note?`<div style="margin-top:12px;padding:10px 13px;background:#fff6d8;color:#7a5b00;border-radius:11px;font-size:13.5px;text-align:left;line-height:1.4"><b>Izoh:</b> ${esc(c.note)}</div>`:""}
+      ${c.blocked?`<div style="margin-top:10px;display:inline-block;padding:3px 12px;background:#e5484d;color:#fff;border-radius:9px;font-size:12.5px;font-weight:600">BLOKLANGAN</div>`:""}
     </div>
+    <div class="card"><div class="frm">
+      <label>Mijoz haqida izoh (operatorlar ham ko'radi)</label>
+      <textarea id="cl-note" placeholder="Masalan: doimiy mijoz, faqat naqd to'laydi...">${esc(c.note)}</textarea>
+      <button class="sbtn" onclick="clNoteSave(${c.tg})">Izohni saqlash</button>
+      <div style="display:flex;gap:8px">
+        <button class="sbtn" style="background:${c.blocked?"#2f9e44":"#e5484d"}"
+          onclick="clBlock(${c.tg},${c.blocked?"false":"true"})">${c.blocked?"Blokdan ochish":"Bloklash"}</button>
+        <button class="sbtn" style="background:var(--sec);color:#e5484d"
+          onclick="clDelete(${c.tg})">To'liq o'chirish</button>
+      </div>
+    </div></div>
     <div class="kpi">
       <div class="tile"><div class="v">${r.orders.length}</div><div class="l">Jami murojaat</div></div>
       <div class="tile"><div class="v">${avg}</div><div class="l">O'rtacha baho${rated.length?" ("+rated.length+" ta)":""}</div></div>
@@ -812,6 +904,45 @@ async function openClientV(tg_){
   document.getElementById("clientv").classList.remove("hide");
 }
 function closeClientV(){ document.getElementById("clientv").classList.add("hide"); }
+async function clNoteSave(tg_){
+  const note=document.getElementById("cl-note").value.trim();
+  const r=await q("/api/admin/note_save","POST",Object.assign(auth(),{tg:tg_,note}));
+  tg.showAlert(r.ok?"Izoh saqlandi":"Xatolik");
+}
+function clBlock(tg_, block){
+  tg.showConfirm(block?"Mijoz bloklansinmi? U botdan foydalana olmaydi.":"Blokdan ochilsinmi?", async ok=>{
+    if(!ok) return;
+    const r=await q("/api/admin/client_block","POST",Object.assign(auth(),{tg:tg_,block}));
+    if(!r.ok){ tg.showAlert("Xatolik"); return; }
+    openClientV(tg_);
+  });
+}
+function clDelete(tg_){
+  tg.showConfirm("DIQQAT! Mijozning BARCHA malumotlari (profil, murojaatlar, yozishmalar) butunlay o'chiriladi. Davom etasizmi?", ok=>{
+    if(!ok) return;
+    tg.showConfirm("Qaytarib bo'lmaydi. Rostdan o'chirilsinmi?", async ok2=>{
+      if(!ok2) return;
+      const r=await q("/api/admin/client_del","POST",Object.assign(auth(),{tg:tg_}));
+      if(!r.ok){ tg.showAlert("Xatolik"); return; }
+      tg.showAlert("O'chirildi ("+r.orders_removed+" ta murojaat bilan)");
+      closeClientV(); loadClients(true);
+    });
+  });
+}
+// rasmni siqish (broadcast uchun)
+function compressImage(file, maxDim, quality){
+  return new Promise(res=>{
+    const rd=new FileReader();
+    rd.onload=()=>{ const img=new Image();
+      img.onload=()=>{ let w=img.width, h=img.height;
+        if(w>maxDim||h>maxDim){ if(w>=h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+        const c=document.createElement("canvas"); c.width=w; c.height=h;
+        c.getContext("2d").drawImage(img,0,0,w,h);
+        try{ res(c.toDataURL("image/jpeg",quality)); }catch(e){ res(rd.result); } };
+      img.onerror=()=>res(rd.result); img.src=rd.result; };
+    rd.readAsDataURL(file);
+  });
+}
 
 // ================= SOZLAMALAR =================
 const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
@@ -929,9 +1060,16 @@ async function svExcel(){
         <option value="month">Joriy oy</option>
         <option value="year">Joriy yil</option>
       </select>
-      <button class="sbtn" onclick="exSend(this)">Yuborish</button>
-      <div style="font-size:12px;color:var(--hint)">Chiroyli formatlangan .xlsx fayl botdagi chatingizga boradi</div>
+      <button class="sbtn" onclick="exSend(this)">Murojaatlar hisobotini yuborish</button>
+      <button class="sbtn" style="background:var(--sec);color:var(--link)" onclick="exClients(this)">Mijozlar ro'yxatini yuborish</button>
+      <div style="font-size:12px;color:var(--hint)">Chiroyli formatlangan .xlsx fayllar botdagi chatingizga boradi</div>
     </div></div>`;
+}
+async function exClients(btn){
+  btn.disabled=true; const t=btn.textContent; btn.textContent="Tayyorlanmoqda...";
+  const r=await q("/api/admin/excel_clients","POST",auth());
+  btn.disabled=false; btn.textContent=t;
+  tg.showAlert(r.ok?"Mijozlar royxati botga yuborildi":(r.error||"Xatolik"));
 }
 async function exSend(btn){
   btn.disabled=true; btn.textContent="Tayyorlanmoqda...";
@@ -1034,12 +1172,22 @@ function tplDel(id){ tg.showConfirm("O'chirasizmi?", async ok=>{ if(!ok)return;
   await q("/api/admin/tpl_del","POST",Object.assign(auth(),{id})); svTpls(); }); }
 
 // ---- Ommaviy xabar ----
+let BCIMG=null;
+async function bcPreview(inp){
+  const f=inp.files[0]; if(!f){ BCIMG=null; return; }
+  BCIMG=await compressImage(f,1280,0.72);
+  const t=document.getElementById("bc-thumb"); t.src=BCIMG; t.classList.remove("hide");
+}
 async function svBc(){
+  BCIMG=null;
   const br=await q("/api/admin/branches","GET",auth());
   document.getElementById("sv-body").innerHTML = `
     <div class="card"><h3>Ommaviy xabar yuborish</h3>
     <div class="frm">
       <textarea id="bc-text" placeholder="Xabar matni (barcha mijozlarga boradi)"></textarea>
+      <label>Rasm (ixtiyoriy)</label>
+      <input type="file" id="bc-photo" accept="image/*" onchange="bcPreview(this)">
+      <img id="bc-thumb" class="hide" style="max-width:130px;border-radius:10px">
       <label>Kimga</label>
       <select id="bc-target" onchange="document.getElementById('bc-branch').style.display=this.value==='branch'?'':'none'">
         <option value="all">Barcha mijozlarga</option>
@@ -1058,7 +1206,7 @@ function bcSend(btn){
     btn.disabled=true; btn.textContent="Yuborilmoqda...";
     const target=document.getElementById("bc-target").value;
     const r=await q("/api/admin/broadcast","POST",Object.assign(auth(),{text,target,
-      branch_id:document.getElementById("bc-branch").value}));
+      branch_id:document.getElementById("bc-branch").value, media_data:BCIMG||undefined}));
     btn.disabled=false; btn.textContent="Yuborish";
     if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
     tg.showAlert(`Yuborildi: ${r.sent} ta · Yetkazilmadi: ${r.failed} ta`);

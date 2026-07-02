@@ -998,7 +998,7 @@ async def operator_proxy(message: Message, bot: Bot):
     if target != op["active_order_id"]:
         await q.set_operator_active_order(op["id"], target)
     active = target
-    await save_message_from_message(active, "operator", message)
+    mid = await save_message_from_message(active, "operator", message)
     clang = await q.get_lang(order["user_id"])
     from utils import msg_html
     # entity'lar saqlanadi: premium emoji, havolalar, qalin matn — mijozga asl ko'rinishda boradi
@@ -1013,6 +1013,7 @@ async def operator_proxy(message: Message, bot: Bot):
     if sent:
         # operatorning bu xabarini bog'laymiz: mijoz keyin shunga reply qilsa ishlasin
         await q.add_link(active, sent.message_id, message.message_id, message.from_user.id)
+        await q.set_message_client_id(mid, sent.message_id)
         # Kanalga ham reply qilib joylaymiz (mijozning savoliga javob sifatida)
         await post_operator_to_channel(bot, order, op["name"], message=message)
         await message.answer(f"✅ Mijozga yuborildi (#{active}).")

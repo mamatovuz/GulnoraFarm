@@ -190,6 +190,9 @@ async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
     await q.set_user_username(message.from_user.id, message.from_user.username)
     user = await q.get_user(message.from_user.id)
+    if user and user["status"] == "blocked":
+        await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
+        return
     order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
     await save_message_from_message(order_id, "client", message)
     await q.set_user_active_order(message.from_user.id, order_id)
@@ -205,6 +208,9 @@ async def _create_order(message, state, bot, content_type):
 async def client_proxy(message: Message, state: FSMContext, bot: Bot):
     # FSM holatda bo'lsa, bu handlerga tushmaydi (yuqoridagilar ushlaydi)
     user = await q.get_user(message.from_user.id)
+    if user and user["status"] == "blocked":
+        await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
+        return
     if not user:
         await message.answer("/start")
         return

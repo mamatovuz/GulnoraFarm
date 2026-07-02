@@ -511,4 +511,4 @@ async def update_group_card(bot: Bot, order_id):
 
 async def save_message_from_message(order_id, sender, message):
     ct, fid, txt = extract_content(message)
-    await q.add_message(order_id, sender, ct, txt, fid, message.message_id)
+    return await q.add_message(order_id, sender, ct, txt, fid, message.message_id)
