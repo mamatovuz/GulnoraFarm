@@ -187,6 +187,7 @@ async def api_messages(request):
             "type": m["content_type"] or "text",
             "text": m["text"] or "",
             "file_id": m["file_id"] or "",
+            "tgid": m["tg_msg_id"] or 0,   # reply (iqtibos) uchun — mijoz xabari IDsi
             "time": (m["created_at"] or "")[11:16],
         })
     uname = user["username"] if user and "username" in user.keys() else ""
@@ -272,12 +273,30 @@ async def api_send(request):
         return _json({"ok": False, "error": "bot tayyor emas"}, 200)
     uid = order["user_id"]
     clang = await q.get_lang(uid)
+    # Reply (iqtibos): operator mijozning aniq xabariga javob bersa — Telegramda o'sha xabarga tirkaladi
+    rkw = {}
+    try:
+        rtg = int(body.get("reply_tgid") or 0)
+        if rtg:
+            rkw = {"reply_to_message_id": rtg, "allow_sending_without_reply": True}
+    except (TypeError, ValueError):
+        pass
     try:
         if media_kind and media_data:
             raw = base64.b64decode(str(media_data).split(",")[-1])
-            cap = f"👨‍⚕️ {op['name']}" + (f": {text}" if text else "")
-            if media_kind == "photo":
-                sent = await client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"), caption=cap)
+            cap = f"👨‍⚕️ {op['name']}" + (f": {_htm.escape(text)}" if text else "")
+            if media_kind == "document":
+                fname = str(body.get("media_name") or "hujjat")[:64] or "hujjat"
+                sent = await client.send_document(uid, BufferedInputFile(raw, fname),
+                                                  caption=cap, **rkw)
+                fid = sent.document.file_id
+                await q.add_message(order_id, "operator", "document",
+                                    text or fname, fid, None)
+                await post_operator_to_channel(client, order, op["name"], content_type="document",
+                                               file_id=fid, src_bot=client, text=text or fname)
+            elif media_kind == "photo":
+                sent = await client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"),
+                                               caption=cap, **rkw)
                 fid = sent.photo[-1].file_id
                 await q.add_message(order_id, "operator", "photo", text or None, fid, None)
                 await post_operator_to_channel(client, order, op["name"], content_type="photo",
@@ -290,14 +309,14 @@ async def api_send(request):
                 for kind in ("voice", "audio", "document"):
                     try:
                         if kind == "voice":
-                            snt = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
+                            snt = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"), **rkw)
                             fid, ctype = snt.voice.file_id, "voice"
                         elif kind == "audio":
-                            snt = await client.send_audio(uid, BufferedInputFile(raw, "audio." + ext))
+                            snt = await client.send_audio(uid, BufferedInputFile(raw, "audio." + ext), **rkw)
                             fid, ctype = snt.audio.file_id, "audio"
                         else:
                             snt = await client.send_document(uid, BufferedInputFile(raw, "voice." + ext),
-                                                             caption="🎤 ovozli xabar")
+                                                             caption="🎤 ovozli xabar", **rkw)
                             fid, ctype = snt.document.file_id, "document"
                         break
                     except Exception:
@@ -310,7 +329,7 @@ async def api_send(request):
         else:
             await q.add_message(order_id, "operator", "text", text, None, None)
             await client.send_message(uid, loc.t("operator_reply", clang, name=op["name"],
-                                                 text=_htm.escape(text)))
+                                                 text=_htm.escape(text)), **rkw)
             await post_operator_to_channel(client, order, op["name"], text=text)
     except Exception:
         return _json({"ok": False, "error": "mijozga yuborilmadi (bloklagan bo'lishi mumkin)"}, 200)
@@ -857,8 +876,19 @@ async def api_admin_dash(request):
     ops = []
     for o in live["per_op"]:
         st = "offline" if not o["telegram_id"] else ("busy" if o["availability"] == "busy" else "free")
-        ops.append({"name": o["name"], "state": st, "cnt": o["cnt"], "done_today": o["done_today"]})
-    return _json({"ok": True, "period": period,
+        ops.append({"id": o["id"], "name": o["name"], "state": st,
+                    "cnt": o["cnt"], "done_today": o["done_today"]})
+    # Hozir javob kutayotgan murojaatlar (necha daqiqadan beri)
+    from datetime import datetime as _dt
+    from config import now_local as _nl
+    waiting = []
+    for w in await q.waiting_orders():
+        try:
+            age = int((_nl() - _dt.strptime(w["created_at"], "%Y-%m-%d %H:%M:%S")).total_seconds() // 60)
+        except Exception:
+            age = 0
+        waiting.append({"id": w["id"], "name": w["full_name"] or "—", "mins": max(age, 0)})
+    return _json({"ok": True, "period": period, "waiting": waiting,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
                           "resp": rep["resp"], "resol": rep["resol"],
@@ -877,7 +907,10 @@ async def api_admin_orders(request):
     except ValueError:
         page = 0
     search = request.query.get("q") or None
-    rows, total = await q.orders_page(20, page * 20, search)
+    status = request.query.get("status") or None
+    period = request.query.get("period") or None
+    since = _period_start_str(period) if period and period != "all" else None
+    rows, total = await q.orders_page(20, page * 20, search, status, since)
     items = [{"id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
               "status": r["status"], "operator": r["operator"] or "",
               "time": (r["created_at"] or "")[5:16], "rating": r["rating"] or 0} for r in rows]
@@ -964,6 +997,205 @@ async def api_admin_client(request):
                   "orders": [{"id": o["id"], "status": o["status"],
                               "date": (o["created_at"] or "")[:10],
                               "rating": o["rating"] or 0} for o in orders[:30]]})
+
+
+# ================= Admin: OPERATORLAR BOSHQARUVI =================
+async def api_admin_ops(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    ops = await q.list_operators()
+    bots = {b["id"]: b["username"] for b in await q.list_operator_bots()}
+    items = []
+    for o in ops:
+        items.append({"id": o["id"], "name": o["name"], "login": o["login"],
+                      "active": o["status"] == "active",
+                      "online": bool(o["telegram_id"]),
+                      "avail": o["availability"],
+                      "ws": o["work_start"], "we": o["work_end"],
+                      "bot": ("@" + bots[o["bot_id"]]) if o["bot_id"] in bots else "asosiy bot"})
+    return _json({"ok": True, "items": items})
+
+
+async def api_admin_op_save(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    name = str(body.get("name", "")).strip()
+    login = str(body.get("login", "")).strip()
+    password = str(body.get("password", "")).strip()
+    ws = str(body.get("ws", "08:00")).strip() or "08:00"
+    we = str(body.get("we", "23:00")).strip() or "23:00"
+    oid = body.get("id")
+    if not name or not login:
+        return _json({"ok": False, "error": "Ism va login bo'sh bo'lmasin"})
+    existing = await q.get_operator_by_login(login)
+    if existing and (not oid or existing["id"] != int(oid)):
+        return _json({"ok": False, "error": "Bu login band"})
+    if oid:
+        oid = int(oid)
+        await q.update_operator(oid, "name", name)
+        await q.update_operator(oid, "login", login)
+        await q.update_operator(oid, "work_start", ws)
+        await q.update_operator(oid, "work_end", we)
+        if password:
+            await q.update_operator_password(oid, password)
+            await q.clear_operator_session(oid)
+    else:
+        if not password:
+            return _json({"ok": False, "error": "Parol kiriting"})
+        await q.add_operator(name, login, password, bot_id=None)
+    return _json({"ok": True})
+
+
+async def api_admin_op_toggle(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    oid = int(body.get("id"))
+    op = await q.get_operator(oid)
+    if not op:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    new = "inactive" if op["status"] == "active" else "active"
+    await q.update_operator(oid, "status", new)
+    if new == "inactive" and op["telegram_id"]:
+        await q.logout_operator(op["telegram_id"], op["bot_id"])
+    return _json({"ok": True, "active": new == "active"})
+
+
+async def api_admin_op_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    await q.delete_operator(int(body.get("id")))
+    return _json({"ok": True})
+
+
+async def api_admin_op_detail(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    try:
+        oid = int(request.query.get("id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    op = await q.get_operator(oid)
+    if not op:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    s = await q.operator_stats(oid)
+    recent = await q.orders_by_operator(oid)
+    return _json({"ok": True,
+                  "op": {"name": op["name"], "login": op["login"],
+                         "active": op["status"] == "active", "online": bool(op["telegram_id"]),
+                         "ws": op["work_start"], "we": op["work_end"]},
+                  "stats": s,
+                  "recent": [{"id": r["id"], "name": r["full_name"] or "—", "status": r["status"],
+                              "date": (r["created_at"] or "")[:10], "rating": r["rating"] or 0}
+                             for r in recent[:15]]})
+
+
+async def api_admin_opbots(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    bots = await q.list_operator_bots()
+    items = []
+    for b in bots:
+        ops = await q.operators_by_bot(b["id"])
+        items.append({"id": b["id"], "username": b["username"], "title": b["title"],
+                      "enabled": bool(b["enabled"]), "ops": len(ops),
+                      "logins": ", ".join(o["login"] for o in ops)})
+    return _json({"ok": True, "items": items})
+
+
+async def api_admin_opbot_add(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    token = str(body.get("token", "")).strip()
+    login = str(body.get("login", "")).strip()
+    password = str(body.get("password", "")).strip()
+    if not token or not login or not password:
+        return _json({"ok": False, "error": "Token, login va parolni kiriting"})
+    if await q.get_operator_bot_by_token(token):
+        return _json({"ok": False, "error": "Bu bot allaqachon qo'shilgan"})
+    if await q.get_operator_by_login(login):
+        return _json({"ok": False, "error": "Bu login band"})
+    from aiogram import Bot as _TgBot
+    try:
+        tb = _TgBot(token)
+        me = await tb.get_me()
+        await tb.session.close()
+    except Exception:
+        return _json({"ok": False, "error": "Token noto'g'ri yoki bot topilmadi"})
+    bot_id = await q.add_operator_bot(token, me.username, me.first_name)
+    await q.add_operator(me.first_name, login, password, bot_id=bot_id)
+    import botreg
+    try:
+        await botreg.start_operator_bot(bot_id, token)
+    except Exception:
+        pass
+    return _json({"ok": True, "username": me.username})
+
+
+async def api_admin_opbot_toggle(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    bid = int(body.get("id"))
+    b = await q.get_operator_bot(bid)
+    if not b:
+        return _json({"ok": False}, 404)
+    import botreg
+    new = not b["enabled"]
+    await q.set_operator_bot_enabled(bid, new)
+    try:
+        if new:
+            await botreg.start_operator_bot(bid, b["token"])
+        else:
+            await botreg.stop_operator_bot(bid)
+    except Exception:
+        pass
+    return _json({"ok": True, "enabled": new})
+
+
+async def api_admin_opbot_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    bid = int(body.get("id"))
+    import botreg
+    try:
+        await botreg.stop_operator_bot(bid)
+    except Exception:
+        pass
+    await q.delete_operator_bot(bid)
+    return _json({"ok": True})
+
+
+async def api_admin_lowratings(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    rows = await q.low_rated_orders()
+    return _json({"ok": True, "items": [
+        {"id": r["id"], "rating": r["rating"], "feedback": r["feedback"] or "",
+         "name": r["full_name"] or "—", "operator": r["operator"] or "—",
+         "date": (r["closed_at"] or "")[:10]} for r in rows]})
 
 
 # ================= Admin: SOZLAMALAR (3-bosqich) =================
@@ -1155,23 +1387,63 @@ async def api_admin_excel(request):
     client = cbot()
     if not client:
         return _json({"ok": False, "error": "bot tayyor emas"})
+    period = body.get("period") or "all"
+    since = _period_start_str(period) if period != "all" else None
+    plabel = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy",
+              "year": "Joriy yil", "all": "Barcha davr"}.get(period, "Barcha davr")
     import io as _io
     import openpyxl
-    rows = await q.all_orders_full()
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    rows = await q.all_orders_full(since)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Murojaatlar"
-    ws.append(["ID", "Mijoz", "Telefon", "Filial", "Operator", "Holat",
-               "Tur", "Hisob", "Boshlangan", "Yakunlangan", "Baho"])
-    for r in rows:
-        ws.append([r["id"], r["full_name"], r["phone"], r["branch"], r["operator"],
-                   STATUS_LABEL.get(r["status"], r["status"]), r["content_type"],
-                   r["bill"], r["created_at"], r["closed_at"], r["rating"]])
+    # Sarlavha
+    ws.merge_cells("A1:K1")
+    t1 = ws["A1"]
+    t1.value = f"Gulnora Farm — Murojaatlar hisoboti · {plabel} · {q.now()[:16]}"
+    t1.font = Font(bold=True, size=13, color="FFFFFF")
+    t1.fill = PatternFill("solid", fgColor="2F6FB4")
+    t1.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 26
+    # Ustun sarlavhalari
+    headers = ["ID", "Mijoz", "Telefon", "Filial", "Operator", "Holat",
+               "Tur", "Hisob", "Boshlangan", "Yakunlangan", "Baho"]
+    hfill = PatternFill("solid", fgColor="3390EC")
+    thin = Side(style="thin", color="C9D4E0")
+    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=2, column=ci, value=h)
+        c.font = Font(bold=True, color="FFFFFF", size=11)
+        c.fill = hfill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = bd
+    ws.row_dimensions[2].height = 20
+    st_color = {"new": "B45309", "in_progress": "1D6FBF", "done": "1F7A35", "canceled": "C22F36"}
+    zebra = PatternFill("solid", fgColor="F3F7FB")
+    for ri, r in enumerate(rows, 3):
+        vals = [r["id"], r["full_name"], r["phone"], r["branch"], r["operator"],
+                STATUS_LABEL.get(r["status"], r["status"]), r["content_type"],
+                r["bill"], r["created_at"], r["closed_at"],
+                ("★" * r["rating"]) if r["rating"] else ""]
+        for ci, v in enumerate(vals, 1):
+            c = ws.cell(row=ri, column=ci, value=v)
+            c.border = bd
+            if ri % 2:
+                c.fill = zebra
+            if ci == 1:
+                c.alignment = Alignment(horizontal="center")
+            if ci == 6:
+                c.font = Font(bold=True, color=st_color.get(r["status"], "000000"), size=10.5)
+    for col, w in zip("ABCDEFGHIJK", (7, 22, 17, 20, 16, 15, 11, 18, 17, 17, 10)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A3"
     buf = _io.BytesIO()
     wb.save(buf)
     try:
-        await client.send_document(tg, BufferedInputFile(buf.getvalue(), "hisobot.xlsx"),
-                                   caption="📥 Murojaatlar hisoboti (Excel)")
+        await client.send_document(
+            tg, BufferedInputFile(buf.getvalue(), f"hisobot_{period}.xlsx"),
+            caption=f"📥 Murojaatlar hisoboti — {plabel} ({len(rows)} ta yozuv)")
     except Exception:
         return _json({"ok": False, "error": "Botga yuborib bo'lmadi"})
     return _json({"ok": True})
@@ -1246,6 +1518,16 @@ def build_app() -> web.Application:
     app.router.add_get("/api/admin/tpls", api_admin_tpls)
     app.router.add_post("/api/admin/tpl_add", api_admin_tpl_add)
     app.router.add_post("/api/admin/tpl_del", api_admin_tpl_del)
+    app.router.add_get("/api/admin/ops", api_admin_ops)
+    app.router.add_post("/api/admin/op_save", api_admin_op_save)
+    app.router.add_post("/api/admin/op_toggle", api_admin_op_toggle)
+    app.router.add_post("/api/admin/op_del", api_admin_op_del)
+    app.router.add_get("/api/admin/op_detail", api_admin_op_detail)
+    app.router.add_get("/api/admin/opbots", api_admin_opbots)
+    app.router.add_post("/api/admin/opbot_add", api_admin_opbot_add)
+    app.router.add_post("/api/admin/opbot_toggle", api_admin_opbot_toggle)
+    app.router.add_post("/api/admin/opbot_del", api_admin_opbot_del)
+    app.router.add_get("/api/admin/lowratings", api_admin_lowratings)
     app.router.add_get("/api/admin/settings", api_admin_settings)
     app.router.add_post("/api/admin/settings_save", api_admin_settings_save)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)

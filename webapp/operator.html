@@ -306,7 +306,16 @@
   <div id="cmdpanel" class="hide panel"></div>
   <div id="stickerpanel" class="hide"></div>
   <div id="quickpanel" class="hide panel"></div>
+  <div id="replybar" class="hide" style="display:flex;align-items:center;gap:9px;padding:7px 12px;background:var(--bg);border-top:1px solid var(--sep)">
+    <svg class="ic" viewBox="0 0 24 24" style="color:var(--accent);width:19px;height:19px;flex-shrink:0"><path d="M9 17l-5-5 5-5M4 12h12a4 4 0 0 1 4 4v4"/></svg>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;color:var(--accent);font-weight:600">Mijozga javob</div>
+      <div id="rb-text" style="font-size:13px;color:var(--hint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <button class="cbtn" style="width:32px;height:32px" onclick="clearReply()"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+  </div>
   <div id="composer" class="composer">
+    <button class="cbtn" onclick="pickDoc()"><svg class="ic" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
     <button class="cbtn" onclick="pickPhoto()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15l-5-5L5 21"/><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></button>
     <button class="cbtn" onclick="toggleQuick()" title="Tayyor javoblar"><svg class="ic" viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg></button>
     <button class="cbtn" onclick="toggleStickers()"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
@@ -323,6 +332,7 @@
   </div>
 </div>
 <input type="file" id="file-photo" accept="image/*" class="hide">
+<input type="file" id="file-doc" class="hide">
 
 <!-- Rasmni to'liq ekranda ko'rish -->
 <div id="imgview" class="hide" onclick="closeImg()"><img id="imgview-img"></div>
@@ -526,6 +536,17 @@ async function acceptChannel(oid, name){
 }
 
 // ---- Chat view ----
+let MSGS=[], replyCtx=null;
+function setReplyIdx(i){
+  const m=MSGS[i]; if(!m||!m.tgid) return;
+  replyCtx={tgid:m.tgid};
+  const prev = m.text || (_MLBL[m.type]||"Xabar");
+  document.getElementById("rb-text").textContent = prev.slice(0,80);
+  document.getElementById("replybar").classList.remove("hide");
+  ta.focus();
+}
+function clearReply(){ replyCtx=null; document.getElementById("replybar").classList.add("hide"); }
+
 async function openChat(oid, name){
   CUR = oid; sh("chat");
   const cav=document.getElementById("c-ava");
@@ -533,6 +554,7 @@ async function openChat(oid, name){
   document.getElementById("c-name").textContent = name || "";
   document.getElementById("msgs").innerHTML = ""; lastSig="";
   document.getElementById("notebanner").classList.add("hide");
+  clearReply();
   document.getElementById("cmdpanel").classList.add("hide");
   document.getElementById("quickpanel").classList.add("hide");
   document.getElementById("stickerpanel").classList.add("hide");
@@ -590,23 +612,29 @@ async function loadMsgs(scroll){
   lastSig = sig;
   if(!scroll && last && !last.own) beep();   // yangi mijoz xabari — ovoz
   const box = document.getElementById("msgs");
-  box.innerHTML = r.messages.map(m => {
+  MSGS = r.messages;
+  box.innerHTML = r.messages.map((m,i) => {
     const cls = m.own?'o':'c';
+    const tmv = m.time + (m.own?' ✓':'');
+    const rep = (!m.own && m.tgid) ? ` onclick="setReplyIdx(${i})"` : "";
     if(m.type === "photo" && m.file_id){
       const cap = m.text?`<div class="cap">${esc(m.text)}</div>`:"";
-      return `<div class="b ${cls} media"><img src="${fileUrl(m.file_id,'photo')}" onclick="openImg(this.src)">${cap}<div class="tm">${m.time}</div></div>`;
+      return `<div class="b ${cls} media"${rep}><img src="${fileUrl(m.file_id,'photo')}" onclick="event.stopPropagation();openImg(this.src)">${cap}<div class="tm">${tmv}</div></div>`;
     }
     if(m.type === "video" && m.file_id){
-      return `<div class="b ${cls} media"><video controls src="${fileUrl(m.file_id,'video')}"></video><div class="tm">${m.time}</div></div>`;
+      return `<div class="b ${cls} media"><video controls src="${fileUrl(m.file_id,'video')}"></video><div class="tm">${tmv}</div></div>`;
     }
     if(m.type === "sticker" && m.file_id){
-      return `<div class="b ${cls} stick"><img src="${fileUrl(m.file_id,'sticker')}"><div class="tm">${m.time}</div></div>`;
+      return `<div class="b ${cls} stick"${rep}><img src="${fileUrl(m.file_id,'sticker')}"><div class="tm">${tmv}</div></div>`;
+    }
+    if(m.type === "document" && m.file_id){
+      return `<div class="b ${cls}"${rep}><a href="${fileUrl(m.file_id,'document')}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.text||"Hujjat")}</span></a><div class="tm">${tmv}</div></div>`;
     }
     if((m.type === "voice" || m.type === "audio") && m.file_id){
-      return `<div class="b ${cls}"><div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${m.time}</div></div>`;
+      return `<div class="b ${cls}"><div class="vp" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${tmv}</div></div>`;
     }
     const inner = (m.type !== "text" && m.type) ? (_MLBL[m.type]||"Fayl")+(m.text?": "+esc(m.text):"") : esc(m.text);
-    return `<div class="b ${cls}">${inner}<div class="tm">${m.time}</div></div>`;
+    return `<div class="b ${cls}"${rep}>${inner}<div class="tm">${tmv}</div></div>`;
   }).join("");
   initVoicePlayers();
   if(scroll) box.scrollTop = box.scrollHeight;
@@ -633,11 +661,37 @@ async function send(){
     const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"bill",arg:text}));
     tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); await loadMsgs(true); return;
   }
-  ta.value=""; ta.dispatchEvent(new Event("input"));
-  const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text}));
-  if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+  const rep = replyCtx ? replyCtx.tgid : 0;
+  ta.value=""; ta.dispatchEvent(new Event("input")); clearReply();
+  // optimistik: darrov "yuborilmoqda" pufakchasi
+  const box=document.getElementById("msgs");
+  const tmp=document.createElement("div"); tmp.className="b o";
+  tmp.innerHTML = esc(text)+'<div class="tm">⏳</div>';
+  box.appendChild(tmp); box.scrollTop=box.scrollHeight;
+  const r = await q("/api/send","POST",Object.assign(auth(),{order_id:CUR,text,reply_tgid:rep}));
+  if(!r.ok){
+    tmp.style.background="#c23b41"; tmp.style.cursor="pointer";
+    tmp.innerHTML = esc(text)+'<div class="tm" style="opacity:.95">Yuborilmadi — bosib qayta urining</div>';
+    tmp.onclick=()=>{ tmp.remove(); ta.value=text; ta.dispatchEvent(new Event("input")); ta.focus(); };
+    return;
+  }
   await loadMsgs(true);
 }
+// ---- Hujjat yuborish ----
+function pickDoc(){ document.getElementById("file-doc").click(); }
+document.getElementById("file-doc").onchange = function(){
+  const f=this.files[0]; this.value=""; if(!f||!CUR) return;
+  if(f.size > 15*1024*1024){ tg.showAlert("Fayl juda katta (maks 15 MB)"); return; }
+  const name=f.name, rep=replyCtx?replyCtx.tgid:0; clearReply();
+  const rd=new FileReader();
+  rd.onload=async()=>{
+    const r=await q("/api/send","POST",Object.assign(auth(),
+      {order_id:CUR,media_kind:"document",media_name:name,media_data:rd.result,reply_tgid:rep}));
+    if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
+    await loadMsgs(true);
+  };
+  rd.readAsDataURL(f);
+};
 
 // ---- Chat buyruqlari (/) ----
 const CMDS=[

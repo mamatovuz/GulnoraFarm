@@ -883,7 +883,7 @@ async def live_stats():
     online = await c("SELECT COUNT(*) FROM operators WHERE telegram_id IS NOT NULL")
     # operatorlar kesimi: hozir jarayonda nechta, online/holat
     cur = await db.execute(
-        "SELECT op.name, op.availability, op.telegram_id, "
+        "SELECT op.id, op.name, op.availability, op.telegram_id, "
         "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='in_progress') AS cnt, "
         "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='done' "
         " AND o.closed_at LIKE ?) AS done_today "
@@ -982,18 +982,26 @@ async def hide_chat(operator_id, order_id):
 
 
 # ============================ HISOBOTLAR (admin) ============================
-async def orders_page(limit, offset, search=None):
-    """Murojaatlar ro'yxati (sahifalab) + umumiy soni. search: ism/telefon/#id."""
+async def orders_page(limit, offset, search=None, status=None, since=None):
+    """Murojaatlar ro'yxati (sahifalab) + umumiy soni. search: ism/telefon/#id;
+    status: new/in_progress/done/canceled; since: sana filtri."""
     db = await get_db()
-    where, params = "", []
+    conds, params = [], []
     if search:
         s = search.strip().lstrip("#")
         if s.isdigit():
-            where = "WHERE o.id = ? OR u.phone LIKE ?"
-            params = [int(s), f"%{s}%"]
+            conds.append("(o.id = ? OR u.phone LIKE ?)")
+            params += [int(s), f"%{s}%"]
         else:
-            where = "WHERE u.full_name LIKE ? OR u.phone LIKE ?"
-            params = [f"%{s}%", f"%{s}%"]
+            conds.append("(u.full_name LIKE ? OR u.phone LIKE ?)")
+            params += [f"%{s}%", f"%{s}%"]
+    if status:
+        conds.append("o.status = ?")
+        params.append(status)
+    if since:
+        conds.append("o.created_at >= ?")
+        params.append(since)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
     cur = await db.execute(
         f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, "
         f"u.full_name, u.phone, op.name AS operator "
@@ -1005,6 +1013,28 @@ async def orders_page(limit, offset, search=None):
         f"SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id {where}", params)
     total = (await cur.fetchone())[0]
     return rows, total
+
+
+async def low_rated_orders(limit=40):
+    """Sifat nazorati: past (1-3★) baholangan murojaatlar, izohlari bilan."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.rating, o.feedback, o.closed_at, u.full_name, op.name AS operator "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN operators op ON op.id=o.operator_id "
+        "WHERE o.rating IS NOT NULL AND o.rating <= 3 "
+        "ORDER BY o.id DESC LIMIT ?", (limit,))
+    return await cur.fetchall()
+
+
+async def waiting_orders():
+    """Hozir kutayotgan (yangi) murojaatlar — eng eskisi birinchi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.created_at, u.full_name FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE o.status='new' ORDER BY o.created_at ASC LIMIT 10")
+    return await cur.fetchall()
 
 
 async def users_page(limit, offset, search=None):
@@ -1151,8 +1181,10 @@ async def period_rating(since):
 
 
 # ============================ EXCEL HISOBOT UCHUN ============================
-async def all_orders_full():
+async def all_orders_full(since=None):
     db = await get_db()
+    where = "WHERE o.created_at >= ?" if since else ""
+    params = (since,) if since else ()
     cur = await db.execute(
         "SELECT o.id, u.full_name, u.phone, b.name AS branch, op.name AS operator, "
         "o.status, o.content_type, o.bill, o.created_at, o.closed_at, o.rating, o.feedback "
@@ -1160,6 +1192,5 @@ async def all_orders_full():
         "LEFT JOIN users u ON u.telegram_id = o.user_id "
         "LEFT JOIN branches b ON b.id = o.branch_id "
         "LEFT JOIN operators op ON op.id = o.operator_id "
-        "ORDER BY o.id"
-    )
+        f"{where} ORDER BY o.id", params)
     return await cur.fetchall()

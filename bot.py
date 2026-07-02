@@ -23,6 +23,39 @@ for name in ("aiogram", "aiogram.event", "aiogram.dispatcher", "aiogram.middlewa
 logger = logging.getLogger("bot")
 
 
+async def weekly_report_loop(bot):
+    """Har dushanba 09:00 da adminlarga o'tgan hafta hisobotini yuboradi."""
+    from datetime import timedelta
+    from config import now_local, ADMIN_IDS
+    while True:
+        try:
+            n = now_local()
+            if n.weekday() == 0 and n.hour >= 9:
+                wk = f"{n.isocalendar()[0]}-{n.isocalendar()[1]}"
+                if await q.get_setting("last_weekly_report", "") != wk:
+                    since = (n - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00")
+                    r = await q.period_report(since)
+                    ops = await q.operators_report(since)
+                    ops.sort(key=lambda x: x["done"], reverse=True)
+                    medals = ["🥇", "🥈", "🥉", "4.", "5."]
+                    top = "\n".join(f"{medals[i]} {o['name']} — {o['done']} yakun"
+                                    for i, o in enumerate(ops[:5]) if o["done"])
+                    text = ("📬 <b>Haftalik hisobot</b> (o'tgan 7 kun)\n\n"
+                            f"💊 Jami murojaatlar: <b>{r['total']}</b>\n"
+                            f"🟢 Yakunlangan: {r['done']}   🔴 Bekor: {r['canceled']}\n"
+                            f"⏱ O'rtacha javob: {round(r['resp'])} daqiqa\n\n"
+                            f"<b>Top operatorlar:</b>\n{top or '—'}")
+                    for aid in ADMIN_IDS:
+                        try:
+                            await bot.send_message(aid, text)
+                        except Exception:
+                            pass
+                    await q.set_setting("last_weekly_report", wk)
+        except Exception:
+            pass
+        await asyncio.sleep(1800)
+
+
 async def main():
     await init_db()
 
@@ -69,6 +102,8 @@ async def main():
 
     # Operator ish vaqti tugaganda avtomatik chiqaruvchi fon vazifasi
     asyncio.create_task(operator.op_workhours_loop(bot))
+    # Haftalik avto-hisobot (dushanba 09:00)
+    asyncio.create_task(weekly_report_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda
     try:
         import webapp
