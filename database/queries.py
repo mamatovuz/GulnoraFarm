@@ -1146,19 +1146,24 @@ async def waiting_orders():
 
 
 async def users_page(limit, offset, search=None):
-    """Mijozlar ro'yxati (sahifalab) + umumiy soni."""
+    """Mijozlar ro'yxati (sahifalab) + umumiy soni.
+    Chala yozuvlar (ism ham, telefon ham yo'q — faqat til tanlaganlar) chiqarilmaydi;
+    murojaati borlar tepada."""
     db = await get_db()
-    where, params = "", []
+    conds = ["NOT (COALESCE(u.full_name,'')='' AND COALESCE(u.phone,'')='')"]
+    params = []
     if search:
         s = search.strip()
-        where = "WHERE u.full_name LIKE ? OR u.phone LIKE ?"
-        params = [f"%{s}%", f"%{s}%"]
+        conds.append("(u.full_name LIKE ? OR u.phone LIKE ?)")
+        params += [f"%{s}%", f"%{s}%"]
+    where = "WHERE " + " AND ".join(conds)
     cur = await db.execute(
         f"SELECT u.telegram_id, u.full_name, u.phone, u.username, b.name AS branch, "
         f"(SELECT COUNT(*) FROM orders o WHERE o.user_id=u.telegram_id) AS cnt, "
         f"(SELECT MAX(created_at) FROM orders o WHERE o.user_id=u.telegram_id) AS last_at "
         f"FROM users u LEFT JOIN branches b ON b.id=u.branch_id {where} "
-        f"ORDER BY u.registered_at DESC LIMIT ? OFFSET ?", (*params, limit, offset))
+        f"ORDER BY (cnt > 0) DESC, u.registered_at DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset))
     rows = await cur.fetchall()
     cur = await db.execute(f"SELECT COUNT(*) FROM users u {where}", params)
     total = (await cur.fetchone())[0]

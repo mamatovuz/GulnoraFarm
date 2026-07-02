@@ -484,8 +484,8 @@ async def api_clients(request):
         return _json({"ok": False}, 401)
     search = request.query.get("q") or None
     rows = await q.my_clients(op["id"], search)
-    out = [{"tg": r["telegram_id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
-            "cnt": r["cnt"], "last_order": r["last_order"]} for r in rows]
+    out = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
+            "phone": r["phone"] or "", "cnt": r["cnt"], "last_order": r["last_order"]} for r in rows]
     return _json({"ok": True, "total": len(out), "clients": out})
 
 
@@ -1026,7 +1026,7 @@ async def api_admin_dash(request):
         waiting.append({"id": w["id"], "name": w["full_name"] or "—", "mins": max(age, 0)})
     # Davr ichida eng ko'p murojaat yuborgan mijozlar
     tc_rows, _tc_total = await q.top_clients(since, 6, 0)
-    topclients = [{"tg": r["telegram_id"], "name": r["full_name"] or "—",
+    topclients = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
                    "phone": r["phone"] or "", "cnt": r["cnt"]} for r in tc_rows]
     # Operatorlar taqqoslash (davr bo'yicha yakunlar) + filial kesimi
     oprep = await q.operators_report(since)
@@ -1118,8 +1118,8 @@ async def api_admin_clients(request):
         page = 0
     search = request.query.get("q") or None
     rows, total = await q.users_page(20, page * 20, search)
-    items = [{"tg": r["telegram_id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
-              "branch": r["branch"] or "", "cnt": r["cnt"],
+    items = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
+              "phone": r["phone"] or "", "branch": r["branch"] or "", "cnt": r["cnt"],
               "last": (r["last_at"] or "")[:10]} for r in rows]
     return _json({"ok": True, "total": total, "page": page, "items": items})
 
@@ -1137,7 +1137,7 @@ async def api_admin_client(request):
     orders = await q.orders_by_user(tg_)
     note = await q.get_client_note(tg_)
     return _json({"ok": True,
-                  "client": {"tg": tg_, "name": u["full_name"] or "—", "phone": u["phone"] or "",
+                  "client": {"tg": tg_, "name": u["full_name"] or u["phone"] or "Mijoz", "phone": u["phone"] or "",
                              "branch": u["branch"] or "", "reg": (u["registered_at"] or "")[:10],
                              "blocked": u["status"] == "blocked", "note": note},
                   "orders": [{"id": o["id"], "status": o["status"],

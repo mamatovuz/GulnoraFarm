@@ -74,11 +74,14 @@
 
   /* ---- Chat view ---- */
   #chat{background:var(--chat-bg)}
-  .msgs{flex:1;overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:2px;background:var(--chat-bg)}
+  .msgs{flex:1;overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:2px;background:var(--chat-bg);
+    background-image:radial-gradient(circle at 1px 1px, rgba(90,120,150,.14) 1.1px, transparent 0);
+    background-size:16px 16px}
+  html[data-theme="dark"] .msgs{background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1.1px, transparent 0)}
   .b{max-width:80%;padding:6px 10px;border-radius:15px;font-size:15px;line-height:1.36;word-wrap:break-word;
     white-space:pre-wrap;position:relative;box-shadow:0 1px 1.5px rgba(0,0,0,.13);margin-bottom:2px}
   .b.c{align-self:flex-start;background:var(--bg);border-bottom-left-radius:4px}
-  .b.o{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .b.o{align-self:flex-end;background:linear-gradient(135deg,#4da3f0 0%,#2f7fd4 100%);color:#fff;border-bottom-right-radius:4px}
   .b .tm{font-size:10.5px;opacity:.62;margin-top:2px;text-align:right}
   .b audio{width:230px;margin:2px 0}
   /* Rasm/video pufakchasi — Telegramdek: rasm to'liq, yupqa ramka, caption pastda */
@@ -156,8 +159,13 @@
   #recwave{flex:1;height:30px}
 
   /* ---- CRM kanali ---- */
-  .chanpin{border-bottom:1px solid var(--sep)!important}
-  .chanpin .ava{background:linear-gradient(135deg,#54a9eb,#3390ec)}
+  .chanpin{border-bottom:6px solid var(--sec)!important;padding:11px 14px;background:var(--bg)}
+  .chanpin .nm span{font-size:15.5px;letter-spacing:-.01em}
+  .chanava{width:54px;height:54px;border-radius:50%;flex-shrink:0;
+    background:linear-gradient(135deg,#54a9eb,#2f7fd4);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 2px var(--bg), 0 0 0 4px #3390ec55}
+  .chanbadge{min-width:23px;height:23px;padding:0 7px;border-radius:12px;background:var(--accent);
+    color:#fff;font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .ccard{background:var(--bg);border-radius:14px;padding:12px 14px;margin-bottom:10px}
   .ccard .ch{display:flex;gap:10px;align-items:center;margin-bottom:6px}
   .ccard .ch .mid{flex:1;min-width:0}
@@ -212,13 +220,13 @@
     </div>
     <div class="body" style="flex:1">
       <div class="row chanpin" onclick="openChannel()">
-        <div class="ava"><svg class="ic" viewBox="0 0 24 24" style="stroke:#fff"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg></div>
+        <div class="chanava"><svg class="ic" viewBox="0 0 24 24" style="stroke:#fff;width:23px;height:23px"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg></div>
         <div class="mid">
-          <div class="nm"><span>Gulnora Farm — Murojaatlar</span>
-            <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--hint)"><path d="M12 17v5M8 2h8M9 2l1 9M15 2l-1 9M6 11h12l-2 4H8l-2-4z"/></svg></div>
+          <div class="nm"><span style="display:flex;align-items:center;gap:6px">Gulnora Farm — Murojaatlar
+            <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--accent);flex-shrink:0"><path d="M12 17v5M8 2h8M9 2l1 9M15 2l-1 9M6 11h12l-2 4H8l-2-4z"/></svg></span></div>
           <div class="pv" id="chan-sub">Yangi murojaatlar shu yerda</div>
         </div>
-        <div id="chan-badge" class="tag hide">0</div>
+        <div id="chan-badge" class="chanbadge hide">0</div>
       </div>
       <div id="rows"></div>
     </div>
@@ -256,7 +264,11 @@
       <div class="item">
         <svg class="ic" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
         <div class="lbl">Bildirishnoma ovozi</div>
-        <div class="switch on" id="snd-switch" onclick="toggleSnd()"></div>
+        <div class="seg" id="sndseg" style="margin:0;padding:2px;flex:0 0 auto">
+          <button data-v="on" onclick="setSnd('on')" style="padding:6px 10px;font-size:12px">Baland</button>
+          <button data-v="low" onclick="setSnd('low')" style="padding:6px 10px;font-size:12px">Past</button>
+          <button data-v="off" onclick="setSnd('off')" style="padding:6px 10px;font-size:12px">O'chiq</button>
+        </div>
       </div>
     </div>
     <div class="card" style="margin:10px 12px"><h3 style="margin:0 0 10px;font-size:14px;font-weight:600">Mening haftam <span style="color:var(--hint);font-weight:400;font-size:12px">kunlik yakunlar</span></h3>
@@ -523,10 +535,14 @@ async function loadChats(){
     </div>`).join("");
 }
 // Bildirishnoma ovozi (qisqa "pop")
-function beep(){ if(localStorage.getItem("snd")==="off") return; try{ const c=new (window.AudioContext||window.webkitAudioContext)();
+function beep(){
+  const m = localStorage.getItem("snd")||"on";
+  if(m==="off") return;
+  const vol = m==="low" ? 0.045 : 0.16;
+  try{ const c=new (window.AudioContext||window.webkitAudioContext)();
   const o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination);
   o.type="sine"; o.frequency.value=880; g.gain.setValueAtTime(0.0001,c.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.16,c.currentTime+0.02);
+  g.gain.exponentialRampToValueAtTime(vol,c.currentTime+0.02);
   g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.25);
   o.start(); o.stop(c.currentTime+0.26); setTimeout(()=>{try{c.close();}catch(e){}},400);
 }catch(e){} }
@@ -690,10 +706,12 @@ async function loadMsgs(scroll){
   if(scroll) box.scrollTop = box.scrollHeight;
 }
 setInterval(()=>{
-  if(!document.hidden && OP.token && CUR===null &&
-     !document.getElementById("app").classList.contains("hide") &&
-     !document.getElementById("tab-chats").classList.contains("hide")) loadChats();
-}, 15000);
+  if(document.hidden || !OP.token || CUR!==null) return;
+  if(document.getElementById("app").classList.contains("hide")) return;
+  if(!document.getElementById("tab-chats").classList.contains("hide")) loadChats();
+  else if(!document.getElementById("tab-clients").classList.contains("hide")) loadClients();
+  else if(!document.getElementById("tab-prof").classList.contains("hide")) loadProfile();
+}, 30000);
 function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR && !document.hidden) loadMsgs(false); }, 7000); }
 function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
 let CURUNAME="";
@@ -812,11 +830,10 @@ function setRemindTomorrow(){
   setRemind(Math.max(1, Math.round((t-n)/60000)));
 }
 
-// ---- Tovush sozlamasi ----
-function toggleSnd(){
-  const off = localStorage.getItem("snd")==="off";
-  localStorage.setItem("snd", off?"on":"off");
-  document.getElementById("snd-switch").classList.toggle("on", off);
+// ---- Tovush sozlamasi (baland/past/o'chiq) ----
+function setSnd(v){
+  localStorage.setItem("snd", v);
+  document.querySelectorAll("#sndseg button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
 }
 
 // ---- Mening haftam (mini diagramma) ----
@@ -1159,7 +1176,7 @@ async function loadProfile(){
   const free = r.availability === "free";
   document.getElementById("p-switch").classList.toggle("on", free);
   document.getElementById("p-stlbl").textContent = free ? "Bo'sh" : "Band";
-  document.getElementById("snd-switch").classList.toggle("on", localStorage.getItem("snd")!=="off");
+  setSnd(localStorage.getItem("snd")||"on");
   loadMyChart();
 }
 async function toggleStatus(){
