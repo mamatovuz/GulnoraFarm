@@ -67,6 +67,21 @@
   .sbtn{width:100%;padding:12px;border:none;border-radius:11px;background:var(--accent);color:#fff;
     font-size:15px;font-weight:600;cursor:pointer}
   .delbtn{background:none;border:none;color:#e5484d;cursor:pointer;padding:6px;flex-shrink:0}
+  .tile{position:relative}
+  .ticon{position:absolute;top:11px;right:11px;width:30px;height:30px;border-radius:9px;
+    display:flex;align-items:center;justify-content:center}
+  .ticon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding:0 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chips button{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:17px;
+    border:1px solid var(--sep);background:var(--bg);color:var(--hint);font-size:13px;cursor:pointer;font-weight:500}
+  .chips button.on{background:var(--accent);color:#fff;border-color:transparent;font-weight:600}
+  .chips button.on .sdot{background:#fff!important}
+  .iconbtn.rf{background:var(--sec);border-radius:10px;padding:8px}
+  .iconbtn.rf.spin svg{animation:sp .7s linear}
+  #imgview{position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:70;
+    display:flex;align-items:center;justify-content:center;padding:10px}
+  #imgview img{max-width:100%;max-height:100%;border-radius:6px}
   .tile .l{color:var(--hint);font-size:12.5px;margin-top:3px}
   .tile .sub{font-size:12px;color:var(--hint);margin-top:2px}
   .tile.wide{grid-column:1/-1;display:flex;gap:10px}
@@ -177,7 +192,7 @@
 <div id="app" class="screen hide">
   <div class="topbar">
     <div class="t" id="pagetitle">Statistika</div>
-    <button class="iconbtn" onclick="refreshActive()"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
+    <button class="iconbtn rf" id="rfbtn" onclick="refreshActive()"><svg class="ic" viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button>
   </div>
 
   <!-- DASHBOARD -->
@@ -239,14 +254,14 @@
   <div id="tab-orders" class="body hide">
     <div class="searchbar"><input id="ord-q" placeholder="Qidiruv: ism, telefon yoki #raqam"
       oninput="ordSearchDeb()"></div>
-    <div class="seg" id="ord-status" style="margin-bottom:8px">
+    <div class="chips" id="ord-status">
       <button data-s="" class="on" onclick="setOrdStatus('')">Barchasi</button>
-      <button data-s="new" onclick="setOrdStatus('new')">Yangi</button>
-      <button data-s="in_progress" onclick="setOrdStatus('in_progress')">Jarayonda</button>
-      <button data-s="done" onclick="setOrdStatus('done')">Yakun</button>
-      <button data-s="canceled" onclick="setOrdStatus('canceled')">Bekor</button>
+      <button data-s="new" onclick="setOrdStatus('new')"><span class="sdot" style="background:#d97706;margin:0"></span>Yangi</button>
+      <button data-s="in_progress" onclick="setOrdStatus('in_progress')"><span class="sdot" style="background:#3390ec;margin:0"></span>Jarayonda</button>
+      <button data-s="done" onclick="setOrdStatus('done')"><span class="sdot" style="background:#2f9e44;margin:0"></span>Yakun</button>
+      <button data-s="canceled" onclick="setOrdStatus('canceled')"><span class="sdot" style="background:#e5484d;margin:0"></span>Bekor</button>
     </div>
-    <div class="seg" id="ord-period" style="margin-bottom:10px">
+    <div class="chips" id="ord-period">
       <button data-p="all" class="on" onclick="setOrdPeriod('all')">Hamma vaqt</button>
       <button data-p="today" onclick="setOrdPeriod('today')">Bugun</button>
       <button data-p="week" onclick="setOrdPeriod('week')">Hafta</button>
@@ -312,6 +327,9 @@
     </button>
   </div>
 </div>
+
+<!-- Rasmni to'liq ekranda ko'rish -->
+<div id="imgview" class="hide" onclick="closeImg()"><img id="imgview-img"></div>
 
 <!-- OPERATOR SAHIFASI (overlay) -->
 <div id="opview" class="screen hide" style="z-index:16">
@@ -430,7 +448,11 @@ function showTab(t){
   if(t==="orders" && !ORD.loaded) loadOrders(true);
   if(t==="clients" && !CLI.loaded) loadClients(true);
 }
+function openImg(src){ document.getElementById("imgview-img").src=src; document.getElementById("imgview").classList.remove("hide"); }
+function closeImg(){ document.getElementById("imgview").classList.add("hide"); }
 function refreshActive(){
+  const b=document.getElementById("rfbtn");
+  if(b){ b.classList.add("spin"); setTimeout(()=>b.classList.remove("spin"),700); }
   if(TAB==="dash") loadDash();
   else if(TAB==="orders") loadOrders(true);
   else if(TAB==="clients") loadClients(true);
@@ -550,17 +572,39 @@ async function openOpDetail(id){
 // ---- KPI ----
 function renderKPI(k){
   const g = document.getElementById("kpigrid");
-  g.innerHTML = `
-    <div class="tile"><div class="v">${k.total}</div><div class="l">Jami murojaatlar</div></div>
-    <div class="tile"><div class="v">${k.online}</div><div class="l">Online operatorlar</div></div>
-    <div class="tile"><div class="v dur">${fmtDur(k.resp)}</div><div class="l">O'rtacha javob vaqti</div></div>
-    <div class="tile"><div class="v dur">${fmtDur(k.resol)}</div><div class="l">O'rtacha yakunlash</div></div>
-    <div class="tile wide">
-      <div><div class="v">${k.rating||"—"}</div><div class="l">O'rtacha baho</div><div class="sub">${k.rated} ta baho</div></div>
-      <div><div class="v">${k.done}</div><div class="l">Yakunlangan</div><div class="sub">${k.total?Math.round(k.done/k.total*100):0}% ulush</div></div>
-      <div><div class="v">${k.new+k.prog}</div><div class="l">Ochiq</div><div class="sub">${k.new} yangi · ${k.prog} jarayonda</div></div>
+  const I = {
+    msg:'<svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-3.8-.9L3 20l1.9-5.2A8.5 8.5 0 0 1 12 3a8.38 8.38 0 0 1 9 8.5z"/></svg>',
+    op:'<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
+    clock:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+    check:'<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>',
+    star:'<svg viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>',
+    open:'<svg viewBox="0 0 24 24"><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/></svg>'
+  };
+  const tile=(v,l,ic,col,sub,dur)=>`
+    <div class="tile">
+      <div class="ticon" style="background:${col}1c;color:${col}">${ic}</div>
+      <div class="v${dur?" dur":""}" style="padding-right:36px">${v}</div>
+      <div class="l">${l}</div>${sub?`<div class="sub">${sub}</div>`:""}
+    </div>`;
+  const donePct = k.total?Math.round(k.done/k.total*100):0;
+  g.innerHTML =
+    tile(k.total,"Jami murojaatlar",I.msg,"#3390ec") +
+    tile(k.online,"Online operatorlar",I.op,"#2f9e44") +
+    tile(fmtDur(k.resp),"O'rtacha javob vaqti",I.clock,"#d97706","",true) +
+    tile(fmtDur(k.resol),"O'rtacha yakunlash",I.clock,"#3390ec","",true) +
+    tile(k.rating||"—","O'rtacha baho",I.star,"#d97706",k.rated+" ta baho") +
+    tile(k.done,"Yakunlangan",I.check,"#2f9e44",donePct+"% ulush") +
+    `<div class="tile wide" style="align-items:center">
+      <div style="flex:1"><div class="v" style="color:${(k.new+k.prog)?"#3390ec":"inherit"}">${k.new+k.prog}</div>
+        <div class="l">Ochiq murojaatlar</div></div>
+      <div style="display:flex;gap:16px;text-align:center">
+        <div><div style="font-size:19px;font-weight:700;color:#d97706">${k.new}</div><div class="l">yangi</div></div>
+        <div style="width:1px;background:var(--sep)"></div>
+        <div><div style="font-size:19px;font-weight:700;color:#3390ec">${k.prog}</div><div class="l">jarayonda</div></div>
+      </div>
     </div>`;
 }
+
 
 // ---- Chiziqli grafik (dinamika) ----
 function renderLine(series){
@@ -790,7 +834,7 @@ async function openTrans(oid, back){
   const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
   document.getElementById("tr-msgs").innerHTML = r.messages.map(m=>{
     let inner="";
-    if(m.type==="photo"&&m.file_id) inner=`<img src="${fu(m.file_id,'photo')}">`+(m.text?`<div>${esc(m.text)}</div>`:"");
+    if(m.type==="photo"&&m.file_id) inner=`<img src="${fu(m.file_id,'photo')}" onclick="openImg(this.src)" style="cursor:zoom-in">`+(m.text?`<div>${esc(m.text)}</div>`:"");
     else if((m.type==="voice"||m.type==="audio")&&m.file_id) inner=`<audio controls src="${fu(m.file_id,'voice')}"></audio>`;
     else if(m.type==="sticker"&&m.file_id) inner=`<img src="${fu(m.file_id,'sticker')}" style="width:100px;height:100px;object-fit:contain">`;
     else if(m.type==="video"&&m.file_id) inner=`<video controls style="max-width:215px;border-radius:10px" src="${fu(m.file_id,'video')}"></video>`;

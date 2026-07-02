@@ -305,7 +305,7 @@
   <div class="topbar">
     <button class="iconbtn" onclick="backToList()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
     <div class="ava" id="c-ava" style="width:38px;height:38px;font-size:16px"></div>
-    <div style="flex:1;min-width:0"><div class="t" id="c-name" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div>
+    <div style="flex:1;min-width:0"><div class="t" id="c-name" onclick="openProfile(CURUNAME)" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">—</div>
       <div class="val" id="c-phone" style="color:var(--hint);font-size:12px"></div></div>
     <button class="iconbtn" onclick="openRemind()" title="Eslatma"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
     <button class="iconbtn" onclick="openNote()" title="Izoh"><svg class="ic" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
@@ -551,13 +551,21 @@ async function loadChannel(){
   if(!r.items.length){ box.innerHTML='<div class="empty">Yangi murojaat yo\'q</div>'; return; }
   box.innerHTML=r.items.map(it=>{
     let media="";
-    if(it.file_id && it.ftype==="photo") media=`<img src="${fileUrl(it.file_id,'photo')}">`;
+    if(it.file_id && it.ftype==="photo")
+      media=`<img src="${fileUrl(it.file_id,'photo')}" onclick="openImg(this.src)" style="cursor:zoom-in">`;
+    else if(it.file_id && (it.ftype==="voice"||it.ftype==="audio"))
+      media=`<audio controls src="${fileUrl(it.file_id,'voice')}" style="width:100%;margin:4px 0"></audio>`;
+    else if(it.file_id && it.ftype==="video")
+      media=`<video controls src="${fileUrl(it.file_id,'video')}" style="max-width:100%;border-radius:10px;margin:4px 0"></video>`;
+    else if(it.file_id && it.ftype==="sticker")
+      media=`<img src="${fileUrl(it.file_id,'sticker')}" style="width:110px;height:110px;object-fit:contain">`;
     else if(it.file_id) media=`<div class="sub">${_MLBL[it.ftype]||"Fayl"}</div>`;
     const txt = it.text?`<div class="txt">${esc(it.text)}</div>`:"";
     return `<div class="ccard">
       <div class="ch"><div class="ava" style="width:44px;height:44px;font-size:17px;background:${avaBg(it.name)}">${ini(it.name)}</div>
-        <div class="mid"><div class="nm">${esc(it.name)}</div>
-          <div class="sub">${esc(it.phone)}${it.branch?' · '+esc(it.branch):''} · ${it.time}</div></div></div>
+        <div class="mid"><div class="nm" style="color:var(--link);cursor:pointer" onclick='openProfile(${JSON.stringify(it.uname||"")})'>${esc(it.name)}</div>
+          <div class="sub">${esc(it.phone)}${it.branch?' · '+esc(it.branch):''}</div></div>
+        <div class="sub" style="align-self:flex-start">${it.time}</div></div>
       ${txt}${media}
       <button class="accept" onclick='acceptChannel(${it.order_id}, ${JSON.stringify(it.name)})'>Qabul qilish</button>
     </div>`;
@@ -646,6 +654,7 @@ async function loadMsgs(scroll){
   const r = await q("/api/messages", "GET", Object.assign(auth(), { order_id: CUR }));
   if(!r.ok) return;
   document.getElementById("c-phone").textContent = r.client.phone || "";
+  CURUNAME = r.client.username || "";
   const last = r.messages[r.messages.length-1] || {};
   const sig = r.messages.length + "|" + (last.time||"") + "|" + (last.file_id||"") + "|" + (last.text||"");
   if(!scroll && sig===lastSig) return;
@@ -680,8 +689,18 @@ async function loadMsgs(scroll){
   initVoicePlayers();
   if(scroll) box.scrollTop = box.scrollHeight;
 }
+setInterval(()=>{
+  if(!document.hidden && OP.token && CUR===null &&
+     !document.getElementById("app").classList.contains("hide") &&
+     !document.getElementById("tab-chats").classList.contains("hide")) loadChats();
+}, 15000);
 function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR && !document.hidden) loadMsgs(false); }, 7000); }
 function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+let CURUNAME="";
+function openProfile(uname){
+  if(uname){ try{ tg.openTelegramLink("https://t.me/"+uname); }catch(e){ window.open("https://t.me/"+uname); } }
+  else tg.showAlert("Mijoz Telegram username qoymagan — profil havolasi yoq");
+}
 function backToList(){ stopPoll(); CUR=null; sh("app"); loadChats(); }
 
 // ---- Text/media send ----
@@ -697,6 +716,14 @@ ta.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventD
 function exitBill(){ pendingBill=false; ta.placeholder="Xabar..."; }
 async function send(){
   const text = ta.value.trim(); if(!text||!CUR) return;
+  // "/his" + Enter -> eng mos buyruq (/hisoblash) ishga tushadi, mijozga KETMAYDI
+  if(text.startsWith("/")){
+    const f=CMDS.filter(x=>x.c.startsWith(text.toLowerCase()));
+    ta.value=""; ta.dispatchEvent(new Event("input"));
+    document.getElementById("cmdpanel").classList.add("hide");
+    if(f.length){ runCmd(f[0].c); } else { tg.showAlert("Bunday buyruq yoq. Royxat uchun / yozing"); }
+    return;
+  }
   if(editingMid){
     const mid=editingMid; editingMid=null;
     document.getElementById("replybar").classList.add("hide");

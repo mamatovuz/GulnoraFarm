@@ -535,7 +535,8 @@ async def api_channel(request):
     for r in rows:
         items.append({
             "order_id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
-            "branch": r["branch"] or "", "time": (r["created_at"] or "")[11:16],
+            "uname": r["username"] or "", "branch": r["branch"] or "",
+            "time": (r["created_at"] or "")[11:16],
             "text": r["first_text"] or "", "file_id": r["first_file"] or "",
             "ftype": r["first_ct"] or ""})
     return _json({"ok": True, "count": len(items), "items": items})

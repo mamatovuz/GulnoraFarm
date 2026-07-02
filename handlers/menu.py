@@ -57,6 +57,8 @@ async def _select_branch_for_order(bot, user_id, order_id, branch_id):
     order = await q.get_order(order_id)
     op = await q.get_operator(order["operator_id"]) if order and order["operator_id"] else None
     b = await q.get_branch(branch_id)
+    # CRM chatida ham ko'rinsin (mijoz xabari sifatida yozishmaga tushadi)
+    await q.add_message(order_id, "client", "text", f"🏥 Filial tanlandi: {b['name']}", None, None)
     if op and op["telegram_id"]:
         ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
         ob = ob or bot
