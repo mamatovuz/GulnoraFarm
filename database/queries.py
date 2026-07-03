@@ -1410,8 +1410,8 @@ async def period_report(since, until=None):
 
 
 async def series_counts(since, by="day", until=None):
-    """Vaqt seriyasi: kun (yoki oy) kesimida jami va yakunlangan murojaatlar (ASC)."""
-    fmt = "%Y-%m" if by == "month" else "%Y-%m-%d"
+    """Vaqt seriyasi: soat/kun/oy kesimida jami va yakunlangan murojaatlar (ASC)."""
+    fmt = {"month": "%Y-%m", "hour": "%H:00"}.get(by, "%Y-%m-%d")
     db = await get_db()
     U = " AND created_at < ?" if until else ""
     up = (until,) if until else ()

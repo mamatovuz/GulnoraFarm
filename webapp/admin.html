@@ -401,6 +401,11 @@
   <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;max-height:82%;overflow-y:auto;padding-bottom:14px" onclick="event.stopPropagation()">
     <div class="topbar" style="box-shadow:none"><div class="t">Davrni tanlash</div></div>
     <div style="padding:4px 14px" class="frm">
+      <label>Hafta bo'yicha</label>
+      <div style="display:flex;gap:8px">
+        <select id="peri-week" style="flex:1"></select>
+        <button class="sbtn" style="width:110px" onclick="applyWeek()">Ko'rish</button>
+      </div>
       <label>Oy bo'yicha</label>
       <div style="display:flex;gap:8px">
         <select id="peri-month" style="flex:1"></select>
@@ -558,6 +563,19 @@ function openPeri(){
   const ms=document.getElementById("peri-month");
   if(!ms.options.length){
     const n=new Date();
+    // Haftalar: joriy haftadan boshlab orqaga 12 ta (Dushanba - Yakshanba)
+    const ws=document.getElementById("peri-week");
+    const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const dd=d=>String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0");
+    const mon0=new Date(n); mon0.setHours(0,0,0,0);
+    mon0.setDate(mon0.getDate()-((mon0.getDay()+6)%7));
+    for(let i=0;i<12;i++){
+      const m=new Date(mon0); m.setDate(m.getDate()-i*7);
+      const su=new Date(m); su.setDate(su.getDate()+6);
+      const tag=i===0?" (joriy)":(i===1?" (o'tgan)":"");
+      ws.insertAdjacentHTML("beforeend",
+        `<option value="${iso(m)}|${iso(su)}">${dd(m)} — ${dd(su)}${tag}</option>`);
+    }
     for(let i=0;i<18;i++){
       const d=new Date(n.getFullYear(), n.getMonth()-i, 1);
       const v=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
@@ -580,6 +598,10 @@ function _applyCustom(f,t,label){
   document.getElementById("customlbl-t").textContent="📅 "+label;
   document.getElementById("customlbl").classList.remove("hide");
   closePeri(); loadDash();
+}
+function applyWeek(){
+  const v=document.getElementById("peri-week").value.split("|");
+  _applyCustom(v[0], v[1], _fmtD(v[0]).slice(0,5)+" — "+_fmtD(v[1]).slice(0,5)+" hafta");
 }
 function applyMonth(){
   const v=document.getElementById("peri-month").value;      // YYYY-MM
@@ -819,8 +841,10 @@ function renderKPI(k){
 // ---- Chiziqli grafik (dinamika) ----
 function renderLine(series){
   const wrap = document.getElementById("linewrap");
+  const GR=(DASH&&DASH.gran)||"day";
   document.getElementById("line-sub").textContent =
-    PERIOD==="custom" ? CLABEL : (PERIOD==="year" ? "oylar bo'yicha" : "kunlar bo'yicha");
+    PERIOD==="custom" ? CLABEL
+    : (GR==="hour" ? "soatlar bo'yicha" : GR==="month" ? "oylar bo'yicha" : "kunlar bo'yicha");
   if(!series || series.length===0){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
   const W = Math.max(wrap.clientWidth||300, 260), H = 170;
   const padL=30, padR=14, padT=12, padB=22;
@@ -836,7 +860,8 @@ function renderLine(series){
     g += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${sep}" stroke-width="1"/>`
        + `<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="${hint}">${v}</text>`; }
   // x yorliqlar: bosh / o'rta / oxiri
-  const lab = i => (series[i].d||"").slice(PERIOD==="year"?2:5);
+  const lab = i => { const d=series[i].d||"";
+    return GR==="hour" ? d : d.slice(GR==="month"?2:5); };
   const xIdx = n<=2 ? [...series.keys()] : [0, Math.floor((n-1)/2), n-1];
   let xl=""; xIdx.forEach(i=>{ xl += `<text x="${X(i)}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="${hint}">${esc(lab(i))}</text>`; });
   // chiziq + nuqtalar

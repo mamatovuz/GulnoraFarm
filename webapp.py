@@ -1054,7 +1054,12 @@ async def api_admin_dash(request):
             since = _period_start_str(period)
     else:
         since = _period_start_str(period)
-    gran = "month" if (period == "year" or (period == "custom" and span_days > 62)) else "day"
+    if period == "year" or (period == "custom" and span_days > 62):
+        gran = "month"
+    elif period == "today" or (period == "custom" and span_days <= 1):
+        gran = "hour"          # 1 kunlik davr -> soatlar kesimida
+    else:
+        gran = "day"
     rep = await q.period_report(since, until)
     hours = await q.hourly_load(since, until)
     live = await q.live_stats()
@@ -1105,7 +1110,7 @@ async def api_admin_dash(request):
                      key=lambda x: x["done"], reverse=True)[:8]
     branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since, until)]
     heat = await q.heatmap_data(since, until or q.now())
-    return _json({"ok": True, "period": period, "waiting": waiting, "topclients": topclients,
+    return _json({"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
                   "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
