@@ -1063,7 +1063,42 @@ async def api_admin_dash(request):
     rep = await q.period_report(since, until)
     hours = await q.hourly_load(since, until)
     live = await q.live_stats()
-    series = await q.series_counts(since, gran, until)
+    series_rows = await q.series_counts(since, gran, until)
+    # Vaqt o'qi UZLUKSIZ bo'lsin: bo'sh soat/kun/oylar 0 bilan to'ldiriladi
+    from config import now_local as _nl2
+    smap = {r["d"]: (r["total"], r["done"] or 0) for r in series_rows}
+    series = []
+    if gran == "hour":
+        # bugun -> 00:00 dan hozirgi soatgacha; o'tgan kun -> 00:00-23:00
+        end_h = _nl2().hour if not until else 23
+        if until:
+            lastd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)).date()
+            if lastd >= _nl2().date():
+                end_h = _nl2().hour
+        for h in range(0, end_h + 1):
+            k = f"{h:02d}:00"
+            t, dn = smap.get(k, (0, 0))
+            series.append({"d": k, "total": t, "done": dn})
+    elif gran == "day":
+        cur = _dt0.strptime(since[:10], "%Y-%m-%d")
+        endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until             else _dt0.strptime(_nl2().strftime("%Y-%m-%d"), "%Y-%m-%d")
+        while cur <= endd and len(series) < 370:
+            k = cur.strftime("%Y-%m-%d")
+            t, dn = smap.get(k, (0, 0))
+            series.append({"d": k, "total": t, "done": dn})
+            cur += _td0(days=1)
+    else:  # month
+        sy, sm = int(since[:4]), int(since[5:7])
+        endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until else _nl2()
+        ey, em = endd.year, endd.month
+        while (sy, sm) <= (ey, em) and len(series) < 60:
+            k = f"{sy:04d}-{sm:02d}"
+            t, dn = smap.get(k, (0, 0))
+            series.append({"d": k, "total": t, "done": dn})
+            sm += 1
+            if sm > 12:
+                sm = 1
+                sy += 1
     rating, rated = await q.period_rating(since)
     ops = []
     for o in live["per_op"]:
@@ -1116,7 +1151,7 @@ async def api_admin_dash(request):
                           "done": rep["done"], "canceled": rep["canceled"],
                           "resp": rep["resp"], "resol": rep["resol"],
                           "rating": rating, "rated": rated, "online": live["online"]},
-                  "series": [{"d": s["d"], "total": s["total"], "done": s["done"] or 0} for s in series],
+                  "series": series,
                   "hours": [{"h": h, "c": hours.get(h, 0)} for h in range(24)],
                   "ops": ops})
 

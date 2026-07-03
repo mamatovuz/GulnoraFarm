@@ -374,13 +374,16 @@ async def delete_client_full(tg):
 
 
 async def branch_counts(since, until=None):
-    """Filial kesimida murojaatlar soni (davr ichida)."""
+    """Filial kesimida FAQAT yakunlangan murojaatlar soni (davr ichida).
+    Bekor qilingan va jarayondagilar hisobga olinmaydi — filialning haqiqiy
+    xizmat ko'rsatgan yuki. Yopilish sanasi (closed_at) bo'yicha."""
     db = await get_db()
-    U = " AND o.created_at < ?" if until else ""
+    U = " AND o.closed_at < ?" if until else ""
     up = (until,) if until else ()
     cur = await db.execute(
         f"SELECT b.name, COUNT(o.id) AS cnt FROM branches b "
-        f"LEFT JOIN orders o ON o.branch_id = b.id AND o.created_at >= ?{U} "
+        f"LEFT JOIN orders o ON o.branch_id = b.id AND o.status = 'done' "
+        f"AND o.closed_at >= ?{U} "
         f"GROUP BY b.id ORDER BY cnt DESC", (since, *up))
     return await cur.fetchall()
 
