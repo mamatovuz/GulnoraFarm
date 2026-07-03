@@ -241,6 +241,13 @@
       <button data-p="week" class="on" onclick="setPeriod('week')">Hafta</button>
       <button data-p="month" onclick="setPeriod('month')">Oy</button>
       <button data-p="year" onclick="setPeriod('year')">Yil</button>
+      <button onclick="openPeri()" title="Davr tanlash" style="flex:0 0 auto;padding:8px 11px">
+        <svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      </button>
+    </div>
+    <div id="customlbl" class="hide" style="display:flex;align-items:center;justify-content:center;gap:8px;margin:-6px 0 10px">
+      <span style="background:var(--accent);color:#fff;padding:5px 13px;border-radius:14px;font-size:12.5px;font-weight:600" id="customlbl-t"></span>
+      <button onclick="resetCustom()" style="border:none;background:var(--sec);color:var(--hint);width:26px;height:26px;border-radius:50%;cursor:pointer">✕</button>
     </div>
     <div id="upd" style="text-align:center;color:var(--hint);font-size:11px;margin:-6px 0 8px"></div>
 
@@ -263,6 +270,14 @@
     <div class="card">
       <h3>Soatlik yuklanma <span class="sub">qaysi soatda ko'p murojaat</span></h3>
       <div class="chartwrap" id="barwrap"></div>
+    </div>
+
+    <div class="card">
+      <h3>Kun × soat xaritasi <span class="sub">qaysi kun/soatda ko'p murojaat</span></h3>
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div id="hmwrap" style="flex:1;min-width:0;overflow-x:auto"></div>
+        <div id="hmleg" style="flex-shrink:0;padding-top:22px"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -380,6 +395,31 @@
 
 <!-- Rasmni to'liq ekranda ko'rish -->
 <div id="imgview" class="hide" onclick="closeImg()"><img id="imgview-img"></div>
+
+<!-- DAVR TANLASH -->
+<div id="perisheet" class="screen hide" style="background:rgba(0,0,0,.45);justify-content:flex-end;z-index:25" onclick="closePeri()">
+  <div class="sheet" style="background:var(--bg);border-radius:18px 18px 0 0;max-height:82%;overflow-y:auto;padding-bottom:14px" onclick="event.stopPropagation()">
+    <div class="topbar" style="box-shadow:none"><div class="t">Davrni tanlash</div></div>
+    <div style="padding:4px 14px" class="frm">
+      <label>Oy bo'yicha</label>
+      <div style="display:flex;gap:8px">
+        <select id="peri-month" style="flex:1"></select>
+        <button class="sbtn" style="width:110px" onclick="applyMonth()">Ko'rish</button>
+      </div>
+      <label>Yil bo'yicha</label>
+      <div style="display:flex;gap:8px">
+        <select id="peri-year" style="flex:1"></select>
+        <button class="sbtn" style="width:110px" onclick="applyYear()">Ko'rish</button>
+      </div>
+      <label>Aniq oraliq (dan — gacha)</label>
+      <div style="display:flex;gap:8px">
+        <input type="date" id="peri-from" style="flex:1">
+        <input type="date" id="peri-to" style="flex:1">
+      </div>
+      <button class="sbtn" onclick="applyRange()">Oraliqni ko'rish</button>
+    </div>
+  </div>
+</div>
 
 <!-- OPERATOR SAHIFASI (overlay) -->
 <div id="opview" class="screen hide" style="z-index:16">
@@ -506,15 +546,64 @@ function refreshActive(){
   else if(TAB==="orders") loadOrders(true);
   else if(TAB==="clients") loadClients(true);
 }
+let CFROM="", CTO="", CLABEL="";
 function setPeriod(p){
-  PERIOD = p;
+  PERIOD = p; CFROM=""; CTO=""; CLABEL="";
+  document.getElementById("customlbl").classList.add("hide");
   document.querySelectorAll("#periodseg button").forEach(b=>b.classList.toggle("on", b.dataset.p===p));
   loadDash();
 }
+const OYLAR=["Yanvar","Fevral","Mart","Aprel","May","Iyun","Iyul","Avgust","Sentabr","Oktabr","Noyabr","Dekabr"];
+function openPeri(){
+  const ms=document.getElementById("peri-month");
+  if(!ms.options.length){
+    const n=new Date();
+    for(let i=0;i<18;i++){
+      const d=new Date(n.getFullYear(), n.getMonth()-i, 1);
+      const v=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      ms.insertAdjacentHTML("beforeend", `<option value="${v}">${OYLAR[d.getMonth()]} ${d.getFullYear()}</option>`);
+    }
+    const ys=document.getElementById("peri-year");
+    for(let y=n.getFullYear(); y>=n.getFullYear()-4; y--)
+      ys.insertAdjacentHTML("beforeend", `<option value="${y}">${y}</option>`);
+    const t=n.toISOString().slice(0,10);
+    document.getElementById("peri-to").value=t;
+    document.getElementById("peri-from").value=new Date(n-6*86400000).toISOString().slice(0,10);
+  }
+  document.getElementById("perisheet").classList.remove("hide");
+}
+function closePeri(){ document.getElementById("perisheet").classList.add("hide"); }
+function _fmtD(d){ return d.slice(8,10)+"."+d.slice(5,7)+"."+d.slice(0,4); }
+function _applyCustom(f,t,label){
+  PERIOD="custom"; CFROM=f; CTO=t; CLABEL=label;
+  document.querySelectorAll("#periodseg button").forEach(b=>b.classList.remove("on"));
+  document.getElementById("customlbl-t").textContent="📅 "+label;
+  document.getElementById("customlbl").classList.remove("hide");
+  closePeri(); loadDash();
+}
+function applyMonth(){
+  const v=document.getElementById("peri-month").value;      // YYYY-MM
+  const y=+v.slice(0,4), m=+v.slice(5,7);
+  const last=new Date(y, m, 0).getDate();
+  _applyCustom(v+"-01", v+"-"+String(last).padStart(2,"0"),
+               OYLAR[m-1]+" "+y);
+}
+function applyYear(){
+  const y=document.getElementById("peri-year").value;
+  _applyCustom(y+"-01-01", y+"-12-31", y+"-yil");
+}
+function applyRange(){
+  const f=document.getElementById("peri-from").value, t=document.getElementById("peri-to").value;
+  if(!f||!t){ tg.showAlert("Ikkala sanani tanlang"); return; }
+  _applyCustom(f, t, _fmtD(f)+" — "+_fmtD(t));
+}
+function resetCustom(){ setPeriod("week"); }
 
 // ---- Dashboard yuklash ----
 async function loadDash(){
-  const r = await q("/api/admin/dash","GET",Object.assign(auth(),{period:PERIOD}));
+  const params = Object.assign(auth(), {period:PERIOD});
+  if(PERIOD==="custom"){ params.from=CFROM; params.to=CTO; }
+  const r = await q("/api/admin/dash","GET",params);
   if(!r.ok){ if(r.error==="auth"){ localStorage.clear(); location.reload(); } return; }
   DASH = r; renderAll();
   const u=document.getElementById("upd");
@@ -546,6 +635,59 @@ function renderAll(){
   renderOps(DASH.ops, DASH.kpi.online);
   renderTopClients(DASH.topclients||[]);
   renderBranches(DASH.branches||[]);
+  renderHeatmap(DASH.heatmap||[]);
+}
+
+// ---- Issiqlik xaritasi: kun x soat (sekvensial to'q sariq shkala) ----
+const HKUN=["Dush","Sesh","Chor","Pay","Jum","Shan","Yak"];
+const HKUNF=["Dushanba","Seshanba","Chorshanba","Payshanba","Juma","Shanba","Yakshanba"];
+function renderHeatmap(grid){
+  const wrap=document.getElementById("hmwrap"), leg=document.getElementById("hmleg");
+  if(!grid.length){ wrap.innerHTML='<div class="empty">Malumot yoq</div>'; leg.innerHTML=""; return; }
+  let mx=0; grid.forEach(row=>row.forEach(c=>{ if(c[0]>mx) mx=c[0]; }));
+  if(!mx){ wrap.innerHTML='<div class="empty">Bu davrda malumot yoq</div>'; leg.innerHTML=""; return; }
+  const cellBg=v=>{ if(!v) return "var(--sec)";
+    const a=0.14+0.86*Math.pow(v/mx,0.6); return `rgba(240,120,20,${a.toFixed(2)})`; };
+  const cellFg=v=>{ if(!v) return "var(--hint)";
+    return (0.14+0.86*Math.pow(v/mx,0.6))>0.55 ? "#fff" : "var(--text)"; };
+  let h='<div style="display:grid;grid-template-columns:44px repeat(7,minmax(34px,1fr));gap:2px;min-width:330px">';
+  h+='<div></div>';
+  HKUN.forEach((d,i)=>{ h+=`<div style="text-align:center;font-size:11px;font-weight:600;padding-bottom:3px;color:${i>=5?"#e5484d":"var(--hint)"}">${d}</div>`; });
+  for(let hr=0;hr<24;hr++){
+    h+=`<div style="font-size:10px;color:var(--hint);display:flex;align-items:center;justify-content:flex-end;padding-right:5px">${String(hr).padStart(2,"0")}:00</div>`;
+    for(let d=0;d<7;d++){
+      const c=grid[hr][d];
+      h+=`<div class="hmc" data-h="${hr}" data-d="${d}" data-c="${c[0]}" data-dn="${c[1]}"
+        style="height:17px;border-radius:3px;background:${cellBg(c[0])};color:${cellFg(c[0])};
+        font-size:9.5px;display:flex;align-items:center;justify-content:center;cursor:default;font-variant-numeric:tabular-nums">${c[0]||""}</div>`;
+    }
+  }
+  h+='</div>';
+  wrap.innerHTML=h;
+  leg.innerHTML=`
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        ${[1,0.62,0.38,0.18].map(f=>`<div style="width:13px;height:20px;border-radius:3px;background:rgba(240,120,20,${(0.14+0.86*f).toFixed(2)})"></div>`).join("")}
+        <div style="width:13px;height:20px;border-radius:3px;background:var(--sec);margin-top:5px"></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--hint);line-height:1.3">
+        <div style="height:42px"><b style="color:var(--text)">${mx} ta</b><br>Maksimal</div>
+        <div style="height:40px;display:flex;align-items:flex-end"><span><b style="color:var(--text)">1 ta</b><br>Minimal</span></div>
+        <div style="margin-top:9px">Murojaat yoq</div>
+      </div>
+    </div>`;
+  wrap.querySelectorAll(".hmc").forEach(el=>{
+    const show=ev=>{ const t=ev.touches?ev.touches[0]:ev;
+      const c=+el.dataset.c, dn=+el.dataset.dn, hr=+el.dataset.h;
+      if(!c){ hideTip(); return; }
+      const pct=c?Math.round(dn/c*100):0;
+      showTip(`${HKUNF[+el.dataset.d]}, ${String(hr).padStart(2,"0")}:00–${String(hr+1).padStart(2,"0")}:00<br>`+
+              `Jami murojaatlar: <b>${c}</b><br>Yakunlangan: <b>${dn}</b> (${pct}%)`, t.clientX, t.clientY); };
+    el.addEventListener("mousemove",show);
+    el.addEventListener("touchstart",show,{passive:true});
+    el.addEventListener("mouseleave",hideTip);
+    el.addEventListener("touchend",hideTip);
+  });
 }
 
 // ---- Filiallar kesimi ----
@@ -678,7 +820,7 @@ function renderKPI(k){
 function renderLine(series){
   const wrap = document.getElementById("linewrap");
   document.getElementById("line-sub").textContent =
-    PERIOD==="year" ? "oylar bo'yicha" : "kunlar bo'yicha";
+    PERIOD==="custom" ? CLABEL : (PERIOD==="year" ? "oylar bo'yicha" : "kunlar bo'yicha");
   if(!series || series.length===0){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
   const W = Math.max(wrap.clientWidth||300, 260), H = 170;
   const padL=30, padR=14, padT=12, padB=22;

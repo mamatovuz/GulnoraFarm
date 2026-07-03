@@ -1035,11 +1035,30 @@ async def api_admin_dash(request):
     if not tg:
         return _json({"ok": False, "error": "auth"}, 401)
     period = request.query.get("period", "week")
-    since = _period_start_str(period)
-    rep = await q.period_report(since)
-    hours = await q.hourly_load(since)
+    f_ = request.query.get("from") or ""
+    t_ = request.query.get("to") or ""
+    until = None
+    span_days = 7
+    from datetime import datetime as _dt0, timedelta as _td0
+    if period == "custom" and f_ and t_:
+        try:
+            fd = _dt0.strptime(f_[:10], "%Y-%m-%d")
+            td_ = _dt0.strptime(t_[:10], "%Y-%m-%d")
+            if td_ < fd:
+                fd, td_ = td_, fd
+            since = fd.strftime("%Y-%m-%d 00:00:00")
+            until = (td_ + _td0(days=1)).strftime("%Y-%m-%d 00:00:00")
+            span_days = (td_ - fd).days + 1
+        except ValueError:
+            period = "week"
+            since = _period_start_str(period)
+    else:
+        since = _period_start_str(period)
+    gran = "month" if (period == "year" or (period == "custom" and span_days > 62)) else "day"
+    rep = await q.period_report(since, until)
+    hours = await q.hourly_load(since, until)
     live = await q.live_stats()
-    series = await q.series_counts(since, "month" if period == "year" else "day")
+    series = await q.series_counts(since, gran, until)
     rating, rated = await q.period_rating(since)
     ops = []
     for o in live["per_op"]:
@@ -1057,12 +1076,12 @@ async def api_admin_dash(request):
             age = 0
         waiting.append({"id": w["id"], "name": w["full_name"] or "—", "mins": max(age, 0)})
     # Davr ichida eng ko'p murojaat yuborgan mijozlar
-    tc_rows, _tc_total = await q.top_clients(since, 6, 0)
+    tc_rows, _tc_total = await q.top_clients(since, 6, 0, until)
     topclients = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
                    "phone": r["phone"] or "", "cnt": r["cnt"]} for r in tc_rows]
     # Trend: o'tgan xuddi shunday davr bilan taqqoslash (kartalarda ↑/↓ %)
     trend = {"total": None, "done": None}
-    if period in ("today", "week", "month", "year"):
+    if period in ("today", "week", "month", "year", "custom"):
         from datetime import datetime as _dt2, timedelta as _td2
         st = _dt2.strptime(since, "%Y-%m-%d %H:%M:%S")
         if period == "today":
@@ -1071,6 +1090,8 @@ async def api_admin_dash(request):
             pst = st - _td2(days=7)
         elif period == "month":
             pst = (st - _td2(days=1)).replace(day=1)
+        elif period == "custom":
+            pst = st - _td2(days=span_days)
         else:
             pst = st.replace(year=st.year - 1)
         pt, pd = await q.counts_between(pst.strftime("%Y-%m-%d %H:%M:%S"), since)
@@ -1079,12 +1100,13 @@ async def api_admin_dash(request):
         if pd:
             trend["done"] = round((rep["done"] - pd) / pd * 100)
     # Operatorlar taqqoslash (davr bo'yicha yakunlar) + filial kesimi
-    oprep = await q.operators_report(since)
+    oprep = await q.operators_report(since, until)
     opstats = sorted([{"name": o["name"], "done": o["done"]} for o in oprep if o["done"]],
                      key=lambda x: x["done"], reverse=True)[:8]
-    branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since)]
+    branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since, until)]
+    heat = await q.heatmap_data(since, until or q.now())
     return _json({"ok": True, "period": period, "waiting": waiting, "topclients": topclients,
-                  "opstats": opstats, "branches": branches, "trend": trend,
+                  "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
                           "resp": rep["resp"], "resol": rep["resol"],

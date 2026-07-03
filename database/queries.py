@@ -373,13 +373,15 @@ async def delete_client_full(tg):
     return len(oids)
 
 
-async def branch_counts(since):
+async def branch_counts(since, until=None):
     """Filial kesimida murojaatlar soni (davr ichida)."""
     db = await get_db()
+    U = " AND o.created_at < ?" if until else ""
+    up = (until,) if until else ()
     cur = await db.execute(
-        "SELECT b.name, COUNT(o.id) AS cnt FROM branches b "
-        "LEFT JOIN orders o ON o.branch_id = b.id AND o.created_at >= ? "
-        "GROUP BY b.id ORDER BY cnt DESC", (since,))
+        f"SELECT b.name, COUNT(o.id) AS cnt FROM branches b "
+        f"LEFT JOIN orders o ON o.branch_id = b.id AND o.created_at >= ?{U} "
+        f"GROUP BY b.id ORDER BY cnt DESC", (since, *up))
     return await cur.fetchall()
 
 
@@ -395,6 +397,23 @@ async def clients_full():
         " AND rating IS NOT NULL) AS avg_r "
         "FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.registered_at DESC")
     return await cur.fetchall()
+
+
+async def heatmap_data(since, until):
+    """Issiqlik xaritasi: hafta kuni x soat kesimida murojaatlar (jami + yakunlangan)."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT CAST(strftime('%w', created_at) AS INTEGER) AS wd, "
+        "CAST(strftime('%H', created_at) AS INTEGER) AS hr, "
+        "COUNT(*) AS c, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS d "
+        "FROM orders WHERE created_at >= ? AND created_at < ? GROUP BY wd, hr",
+        (since, until))
+    # 24 soat x 7 kun (Dushanba birinchi): [jami, yakunlangan]
+    grid = [[[0, 0] for _ in range(7)] for _ in range(24)]
+    for r in await cur.fetchall():
+        col = (r["wd"] + 6) % 7          # sqlite: 0=Yakshanba -> ustun 0=Dushanba
+        grid[r["hr"]][col] = [r["c"], r["d"] or 0]
+    return grid
 
 
 async def stale_open_orders(cutoff):
@@ -1275,20 +1294,22 @@ async def users_page(limit, offset, search=None):
     return rows, total
 
 
-async def top_clients(since, limit, offset):
+async def top_clients(since, limit, offset, until=None):
     """Davr ichida eng ko'p murojaat yuborgan mijozlar (kamayish tartibida)."""
     db = await get_db()
+    U = " AND o.created_at < ?" if until else ""
+    up = (until,) if until else ()
     cur = await db.execute(
-        "SELECT u.telegram_id, u.full_name, u.phone, u.username, b.name AS branch, "
-        "COUNT(o.id) AS cnt "
-        "FROM users u JOIN orders o ON o.user_id=u.telegram_id AND o.created_at>=? "
-        "LEFT JOIN branches b ON b.id=u.branch_id "
-        "GROUP BY u.telegram_id ORDER BY cnt DESC, MAX(o.created_at) DESC LIMIT ? OFFSET ?",
-        (since, limit, offset))
+        f"SELECT u.telegram_id, u.full_name, u.phone, u.username, b.name AS branch, "
+        f"COUNT(o.id) AS cnt "
+        f"FROM users u JOIN orders o ON o.user_id=u.telegram_id AND o.created_at>=?{U} "
+        f"LEFT JOIN branches b ON b.id=u.branch_id "
+        f"GROUP BY u.telegram_id ORDER BY cnt DESC, MAX(o.created_at) DESC LIMIT ? OFFSET ?",
+        (since, *up, limit, offset))
     rows = await cur.fetchall()
     cur = await db.execute(
-        "SELECT COUNT(*) FROM (SELECT o.user_id FROM orders o WHERE o.created_at>=? "
-        "GROUP BY o.user_id)", (since,))
+        f"SELECT COUNT(*) FROM (SELECT o.user_id FROM orders o WHERE o.created_at>=?{U} "
+        f"GROUP BY o.user_id)", (since, *up))
     total = (await cur.fetchone())[0]
     return rows, total
 
@@ -1301,7 +1322,7 @@ async def user_full(tg):
     return await cur.fetchone()
 
 
-async def operators_report(since):
+async def operators_report(since, until=None):
     """Har operator kesimi (berilgan sanadan beri): qabul, yakun, javob/yakunlash vaqti, reyting."""
     db = await get_db()
     cur = await db.execute("SELECT id, name FROM operators WHERE status='active' ORDER BY id")
@@ -1314,19 +1335,23 @@ async def operators_report(since):
     res = []
     for op in ops:
         oid = op["id"]
-        accepted = await val("SELECT COUNT(*) FROM orders WHERE operator_id=? AND created_at>=?",
-                             (oid, since))
-        done = await val("SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' "
-                         "AND closed_at>=?", (oid, since))
+        U = " AND created_at < ?" if until else ""
+        UC = " AND closed_at < ?" if until else ""
+        up = (until,) if until else ()
+        accepted = await val(f"SELECT COUNT(*) FROM orders WHERE operator_id=? AND created_at>=?{U}",
+                             (oid, since, *up))
+        done = await val(f"SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' "
+                         f"AND closed_at>=?{UC}", (oid, since, *up))
         cur = await db.execute(
             "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
             "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
-            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=? GROUP BY o.id",
-            (f"operator:{oid}", since))
+            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=?"
+            + (" AND o.created_at < ?" if until else "") + " GROUP BY o.id",
+            (f"operator:{oid}", since, *up))
         resp = _median([r[0] for r in await cur.fetchall()])
         cur = await db.execute(
-            "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
-            "WHERE operator_id=? AND status='done' AND closed_at>=?", (oid, since))
+            f"SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+            f"WHERE operator_id=? AND status='done' AND closed_at>=?{UC}", (oid, since, *up))
         resol = _median([r[0] for r in await cur.fetchall()])
         rat = await val("SELECT AVG(rating) FROM orders WHERE operator_id=? AND rating IS NOT NULL",
                         (oid,))
@@ -1336,56 +1361,64 @@ async def operators_report(since):
     return res
 
 
-async def hourly_load(since):
+async def hourly_load(since, until=None):
     """Soat kesimida (0-23) murojaatlar soni."""
     db = await get_db()
+    U = " AND created_at < ?" if until else ""
+    up = (until,) if until else ()
     cur = await db.execute(
-        "SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hr, COUNT(*) "
-        "FROM orders WHERE created_at>=? GROUP BY hr", (since,))
+        f"SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hr, COUNT(*) "
+        f"FROM orders WHERE created_at>=?{U} GROUP BY hr", (since, *up))
     return {r[0]: r[1] for r in await cur.fetchall()}
 
 
-async def period_report(since):
-    """Davr bo'yicha umumiy + kunlar kesimi."""
+async def period_report(since, until=None):
+    """Davr bo'yicha umumiy + kunlar kesimi. until — oraliq oxiri (ixtiyoriy)."""
     db = await get_db()
+    U = " AND created_at < ?" if until else ""
+    UC = " AND closed_at < ?" if until else ""
+    up = (until,) if until else ()
 
     async def val(q_, p=()):
         cur = await db.execute(q_, p)
         return (await cur.fetchone())[0]
 
-    total = await val("SELECT COUNT(*) FROM orders WHERE created_at>=?", (since,))
-    new = await val("SELECT COUNT(*) FROM orders WHERE status='new' AND created_at>=?", (since,))
-    prog = await val("SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?", (since,))
-    done = await val("SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?", (since,))
-    canceled = await val("SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?", (since,))
+    total = await val(f"SELECT COUNT(*) FROM orders WHERE created_at>=?{U}", (since, *up))
+    new = await val(f"SELECT COUNT(*) FROM orders WHERE status='new' AND created_at>=?{U}", (since, *up))
+    prog = await val(f"SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?{U}", (since, *up))
+    done = await val(f"SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?{U}", (since, *up))
+    canceled = await val(f"SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?{U}", (since, *up))
     # MEDIAN — tunda javobsiz qolgan/kunlar o'tib yopilganlar o'rtachani buzmasin (real ko'rsatkich)
     cur = await db.execute(
         "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
         "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
-        "WHERE sl.new_status='in_progress' AND o.created_at>=? GROUP BY o.id", (since,))
+        "WHERE sl.new_status='in_progress' AND o.created_at>=?"
+        + (" AND o.created_at < ?" if until else "") + " GROUP BY o.id", (since, *up))
     resp = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
-        "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
-        "WHERE status='done' AND closed_at>=? AND closed_at IS NOT NULL", (since,))
+        f"SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+        f"WHERE status='done' AND closed_at>=?{UC} AND closed_at IS NOT NULL", (since, *up))
     resol = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
-        "SELECT date(created_at) AS d, COUNT(*), "
-        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
-        "FROM orders WHERE created_at>=? GROUP BY d ORDER BY d DESC LIMIT 14", (since,))
+        f"SELECT date(created_at) AS d, COUNT(*), "
+        f"SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) "
+        f"FROM orders WHERE created_at>=?{U} GROUP BY d ORDER BY d DESC LIMIT 31", (since, *up))
     days = await cur.fetchall()
     return {"total": total, "new": new, "prog": prog, "done": done, "canceled": canceled,
             "resp": round(resp, 1) if resp else 0, "resol": round(resol, 1) if resol else 0,
             "days": days}
 
 
-async def series_counts(since, by="day"):
+async def series_counts(since, by="day", until=None):
     """Vaqt seriyasi: kun (yoki oy) kesimida jami va yakunlangan murojaatlar (ASC)."""
     fmt = "%Y-%m" if by == "month" else "%Y-%m-%d"
     db = await get_db()
+    U = " AND created_at < ?" if until else ""
+    up = (until,) if until else ()
     cur = await db.execute(
-        "SELECT strftime(?, created_at) AS d, COUNT(*) AS total, "
-        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
-        "FROM orders WHERE created_at >= ? GROUP BY d ORDER BY d ASC", (fmt, since))
+        f"SELECT strftime(?, created_at) AS d, COUNT(*) AS total, "
+        f"SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
+        f"FROM orders WHERE created_at >= ?{U} GROUP BY d ORDER BY d ASC", (fmt, since, *up))
     return await cur.fetchall()
 
 
