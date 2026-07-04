@@ -846,6 +846,19 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
             pass
 
 
+# Fon vazifalariga KUCHLI havola — aks holda asyncio ularni axlat yig'uvchida yo'q qiladi
+# (event loop faqat zaif havola saqlaydi) va 10 daqiqalik sleep bekor bo'lib, avto-yakunlash ishlamaydi.
+_bg_tasks: set = set()
+
+
+def spawn_auto_close(bot: Bot, order_id: int, armed_at: str, operator_tg: int):
+    """Avto-yakunlash vazifasini xavfsiz ishga tushiradi (kuchli havola bilan)."""
+    task = asyncio.create_task(_auto_close_task(bot, order_id, armed_at, operator_tg))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
 async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: int):
     await asyncio.sleep(AUTO_CLOSE_MIN * 60)
     order = await q.get_order(order_id)
@@ -854,10 +867,17 @@ async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: 
     last_client = await q.last_client_msg_time(order_id)
     if last_client and last_client > armed_at:
         return  # mijoz javob berdi -> avto-yakunlash bekor
-    await _finish_with_rating(bot, order_id, "auto")
+    await _finish_with_rating(cbot() or bot, order_id, "auto")
+    # Operatorga o'z boti orqali xabar (operator asosiy botni ochmagan bo'lishi mumkin)
+    op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    notify_bot = bot
+    notify_tg = operator_tg
+    if op and op["telegram_id"]:
+        notify_bot = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+        notify_tg = op["telegram_id"]
     try:
-        await bot.send_message(
-            operator_tg,
+        await notify_bot.send_message(
+            notify_tg,
             f"⏱ Murojaat #{order_id} mijoz {AUTO_CLOSE_MIN} daqiqa javob bermagani uchun "
             f"avtomatik yakunlandi.",
         )
@@ -877,7 +897,7 @@ async def op_autoclose(call: CallbackQuery):
         await call.answer("Bu murojaat faol emas.", show_alert=True)
         return
     armed_at = q.now()
-    asyncio.create_task(_auto_close_task(call.bot, order_id, armed_at, call.from_user.id))
+    spawn_auto_close(call.bot, order_id, armed_at, call.from_user.id)
     # Mijozni darhol ogohlantiramiz (uning tilida, asosiy bot orqali)
     clang = await q.get_lang(order["user_id"])
     client = cbot() or call.bot

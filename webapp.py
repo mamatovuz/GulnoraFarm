@@ -625,9 +625,9 @@ async def api_cmd(request):
     clang = await q.get_lang(uid)
     try:
         if cmd == "autoclose":
-            import asyncio
-            from handlers.operator import _auto_close_task, AUTO_CLOSE_MIN
-            asyncio.create_task(_auto_close_task(client, order_id, q.now(), op["telegram_id"] or 0))
+            from handlers.operator import spawn_auto_close, AUTO_CLOSE_MIN
+            # Kuchli havola bilan ishga tushiramiz (aks holda vazifa GC'da yo'qoladi)
+            spawn_auto_close(client, order_id, q.now(), op["telegram_id"] or 0)
             await client.send_message(uid, loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
             return _json({"ok": True, "info": f"{AUTO_CLOSE_MIN} daqiqada avto-yakunlash yoqildi"})
 
