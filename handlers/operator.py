@@ -638,10 +638,14 @@ async def op_done(call: CallbackQuery):
 @router.callback_query(F.data.startswith("opc:cancel:"))
 async def op_cancel(call: CallbackQuery):
     op = await _op_of(call)
+    if not op:
+        await call.answer("Avval /operator orqali kiring.", show_alert=True)
+        return
     order_id = int(call.data.split(":")[2])
     order = await q.get_order(order_id)
     await q.set_order_status(order_id, "canceled", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], None)
+    await q.set_operator_availability(op["id"], "free")   # bekor qilinganda ham bo'sh bo'lsin
     await q.set_user_active_order(order["user_id"], None)
     await update_group_card(call.bot, order_id)   # kanalda 🔴 Bekor qilingan bo'ladi
     clang = await q.get_lang(order["user_id"])
@@ -764,9 +768,13 @@ async def op_ask_branch(call: CallbackQuery, bot: Bot):
         return
     clang = await q.get_lang(order["user_id"])
     client = cbot() or bot
+    regions = await q.list_regions()
+    markup = (kb.regions_choose_kb(regions, clang, op_order=order_id) if len(regions) > 1
+              else kb.op_ask_branch_kb(branches, order_id, clang))
     try:
-        await client.send_message(order["user_id"], loc.t("op_ask_branch", clang),
-                                  reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+        await client.send_message(order["user_id"], loc.t("op_ask_branch", clang), reply_markup=markup)
+        # Majburiy: mijoz filial tanlamaguncha boshqa amal bloklanadi
+        await q.set_pending_branch(order["user_id"], order_id)
         await call.answer("✅ Mijozga filial tanlash so'rovi yuborildi", show_alert=True)
     except (TelegramBadRequest, TelegramForbiddenError):
         await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)

@@ -106,7 +106,7 @@ def regions_choose_kb(regions, lang="uz", op_order=None) -> InlineKeyboardMarkup
         cd = f"opreg:{op_order}:{i}" if op_order is not None else f"regsel:{i}"
         kb.row(InlineKeyboardButton(text=label, callback_data=cd))
     near_cd = f"opbrnear:{op_order}" if op_order is not None else "regnear"
-    kb.row(InlineKeyboardButton(text="📍 " + loc.btn("nearest", lang), callback_data=near_cd))
+    kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data=near_cd))
     return kb.as_markup()
 
 
