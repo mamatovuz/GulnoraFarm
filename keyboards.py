@@ -129,6 +129,24 @@ def branches_list_kb(branches, lang="uz") -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def regions_info_kb(regions, lang="uz") -> InlineKeyboardMarkup:
+    """Filiallar menyusi: hududlar (shahar/tuman) ro'yxati."""
+    kb = InlineKeyboardBuilder()
+    for i, r in enumerate(regions):
+        kb.row(InlineKeyboardButton(text=f"{_region_emoji(r['reg'])} {r['reg']} ({r['cnt']})",
+                                    callback_data=f"binfreg:{i}"))
+    return kb.as_markup()
+
+
+def region_branches_info_kb(branches, lang="uz") -> InlineKeyboardMarkup:
+    """Tanlangan hududdagi filiallar (batafsil ko'rish) + ortga tugmasi."""
+    kb = InlineKeyboardBuilder()
+    for b in branches:
+        kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"branch_info:{b['id']}"))
+    kb.row(InlineKeyboardButton(text="⬅️ Ortga", callback_data="binfback"))
+    return kb.as_markup()
+
+
 def client_location_kb(lang="uz") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=loc.btn("send_location", lang), request_location=True)]],

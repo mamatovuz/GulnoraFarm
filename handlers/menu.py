@@ -283,7 +283,45 @@ async def branches_menu(message: Message, state: FSMContext):
     if not branches:
         await message.answer(loc.t("no_branches", lang))
         return
-    await message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        await message.answer(loc.t("ask_region", lang), reply_markup=kb.regions_info_kb(regions, lang))
+    else:
+        await message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
+
+
+@router.callback_query(F.data.startswith("binfreg:"))
+async def branch_region_open(call: CallbackQuery):
+    """Filiallar menyusida hudud tanlandi — o'sha hududdagi filiallarni ko'rsatamiz."""
+    lang = await q.get_lang(call.from_user.id)
+    idx = int(call.data.split(":")[1])
+    regions = await q.list_regions()
+    if idx >= len(regions):
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    region = regions[idx]["reg"]
+    branches = await q.branches_in_region(region)
+    try:
+        await call.message.edit_text(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.region_branches_info_kb(branches, lang))
+    except Exception:
+        await call.message.answer(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.region_branches_info_kb(branches, lang))
+    await call.answer()
+
+
+@router.callback_query(F.data == "binfback")
+async def branch_region_back(call: CallbackQuery):
+    lang = await q.get_lang(call.from_user.id)
+    regions = await q.list_regions()
+    try:
+        await call.message.edit_text(loc.t("ask_region", lang),
+                                     reply_markup=kb.regions_info_kb(regions, lang))
+    except Exception:
+        pass
+    await call.answer()
 
 
 @router.callback_query(F.data.startswith("branch_info:"))
@@ -332,8 +370,12 @@ async def branch_select(call: CallbackQuery):
 @router.callback_query(F.data == "branches_back")
 async def branches_back(call: CallbackQuery):
     lang = await q.get_lang(call.from_user.id)
-    branches = await q.list_branches()
-    await call.message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        await call.message.answer(loc.t("ask_region", lang), reply_markup=kb.regions_info_kb(regions, lang))
+    else:
+        branches = await q.list_branches()
+        await call.message.answer(_branches_header(lang), reply_markup=kb.branches_list_kb(branches, lang))
     await call.answer()
 
 
