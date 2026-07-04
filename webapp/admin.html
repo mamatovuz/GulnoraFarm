@@ -1515,24 +1515,36 @@ function closeSet(){ document.getElementById("setview").classList.add("hide"); }
 const DELSVG='<svg class="ic" viewBox="0 0 24 24" style="width:19px;height:19px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
 
 // ---- Filiallar ----
+let BRANCH_REGIONS=[];
 async function svBranches(){
   const r=await q("/api/admin/branches","GET",auth()); if(!r.ok) return;
+  BRANCH_REGIONS=[...new Set(r.items.map(b=>b.region).filter(Boolean))].sort();
   const box=document.getElementById("sv-body");
-  box.innerHTML = `
-    <div class="lrows">${r.items.map(b=>`
+  // Hududlar bo'yicha guruhlab ko'rsatamiz
+  const groups={};
+  r.items.forEach(b=>{ const k=b.region||"Boshqa"; (groups[k]=groups[k]||[]).push(b); });
+  const gkeys=Object.keys(groups).sort();
+  const rowHtml=b=>`
       <div class="lrow" onclick='brForm(${JSON.stringify(b)})'>
         <div class="mid"><div class="nm"><span>${esc(b.name)}</span></div>
           <div class="sub">${esc(b.address)||"—"} · ${b.open}–${b.close}</div></div>
         <button class="delbtn" onclick="event.stopPropagation();brDel(${b.id})">${DELSVG}</button>
-      </div>`).join("")||'<div class="empty">Filial yo\'q</div>'}</div>
-    <button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>
+      </div>`;
+  box.innerHTML = (r.items.length? gkeys.map(g=>`
+      <div style="font-size:12.5px;font-weight:600;color:var(--hint);margin:12px 4px 5px">${esc(g)} <span style="font-weight:400">(${groups[g].length})</span></div>
+      <div class="lrows">${groups[g].map(rowHtml).join("")}</div>`).join("")
+     : '<div class="empty">Filial yo\'q</div>')
+    + `<button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>
     <div id="br-form"></div>`;
 }
 function brForm(b){
+  const dl=BRANCH_REGIONS.map(r=>`<option value="${esc(r)}">`).join("");
   document.getElementById("br-form").innerHTML = `
     <div class="card" style="margin-top:12px"><h3>${b?"Tahrirlash":"Yangi filial"}</h3>
     <div class="frm">
       <input id="br-name" placeholder="Nomi" value="${b?esc(b.name):''}">
+      <input id="br-region" placeholder="Hudud (masalan: Andijon shahri)" list="br-regions" value="${b?esc(b.region||''):''}">
+      <datalist id="br-regions">${dl}</datalist>
       <input id="br-addr" placeholder="Manzil" value="${b?esc(b.address):''}">
       <input id="br-phone" placeholder="Telefon" value="${b?esc(b.phone):''}">
       <div style="display:flex;gap:8px">
@@ -1540,6 +1552,7 @@ function brForm(b){
         <input id="br-close" placeholder="23:00" value="${b?b.close:'23:00'}">
       </div>
       <button class="sbtn" onclick="brSave(${b?b.id:'null'})">Saqlash</button>
+      <div style="font-size:12px;color:var(--hint)">Hudud — mijozga filiallar shahar/tuman bo'yicha guruhlab chiqadi. Bo'sh qoldirsangiz "Boshqa"ga tushadi.</div>
       ${b&&!b.has_loc?'<div style="font-size:12px;color:var(--hint)">Lokatsiyani botdagi admin panel orqali qo\'shasiz</div>':''}
     </div></div>`;
   document.getElementById("br-name").focus();
@@ -1548,7 +1561,7 @@ async function brSave(id){
   const r=await q("/api/admin/branch_save","POST",Object.assign(auth(),{id,
     name:document.getElementById("br-name").value, address:document.getElementById("br-addr").value,
     phone:document.getElementById("br-phone").value, open:document.getElementById("br-open").value,
-    close:document.getElementById("br-close").value}));
+    close:document.getElementById("br-close").value, region:document.getElementById("br-region").value}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svBranches();
 }
 function brDel(id){ tg.showConfirm("Filialni o'chirasizmi?", async ok=>{ if(!ok)return;

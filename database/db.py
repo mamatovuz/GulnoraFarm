@@ -334,6 +334,17 @@ async def init_db():
     if "close_time" not in bcols:
         await db.execute("ALTER TABLE branches ADD COLUMN close_time TEXT DEFAULT '23:00'")
         await db.commit()
+    if "region" not in bcols:
+        # Hudud (shahar/tuman) bo'yicha guruhlash uchun
+        await db.execute("ALTER TABLE branches ADD COLUMN region TEXT DEFAULT ''")
+        await db.commit()
+
+    # Migratsiya: users — majburiy filial tanlash (kutilayotgan order)
+    cur = await db.execute("PRAGMA table_info(users)")
+    ucols = [row[1] for row in await cur.fetchall()]
+    if "pending_branch_order" not in ucols:
+        await db.execute("ALTER TABLE users ADD COLUMN pending_branch_order INTEGER")
+        await db.commit()
 
     # Boshlang'ich FAQ
     cur = await db.execute("SELECT COUNT(*) FROM faqs")

@@ -81,11 +81,43 @@ def subscribe_kb(channels, lang="uz") -> InlineKeyboardMarkup:
 
 # ---- Inline: filial tanlash (ro'yxatdan o'tishda) ----
 def branches_choose_kb(branches, prefix="pickbranch", lang="uz", show_skip=True) -> InlineKeyboardMarkup:
-    """Ro'yxatdan o'tishda filial tanlash. O'tkazib yuborish YO'Q — filial majburiy."""
+    """Ro'yxatdan o'tishda filial tanlash (tekis ro'yxat — bitta hudud bo'lsa)."""
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"{prefix}:{b['id']}"))
     kb.row(InlineKeyboardButton(text=loc.btn("nearest", lang), callback_data="regnear"))
+    return kb.as_markup()
+
+
+def _region_emoji(name):
+    n = (name or "").lower()
+    if "shahar" in n or "shahri" in n:
+        return "🏙"
+    if "tuman" in n or "tumani" in n:
+        return "🏘"
+    return "📍"
+
+
+def regions_choose_kb(regions, lang="uz", op_order=None) -> InlineKeyboardMarkup:
+    """Hudud (shahar/tuman) tanlash. op_order berilsa operator oqimi, aks holda ro'yxatdan o'tish."""
+    kb = InlineKeyboardBuilder()
+    for i, r in enumerate(regions):
+        label = f"{_region_emoji(r['reg'])} {r['reg']} ({r['cnt']})"
+        cd = f"opreg:{op_order}:{i}" if op_order is not None else f"regsel:{i}"
+        kb.row(InlineKeyboardButton(text=label, callback_data=cd))
+    near_cd = f"opbrnear:{op_order}" if op_order is not None else "regnear"
+    kb.row(InlineKeyboardButton(text="📍 " + loc.btn("nearest", lang), callback_data=near_cd))
+    return kb.as_markup()
+
+
+def region_branches_kb(branches, lang="uz", op_order=None) -> InlineKeyboardMarkup:
+    """Tanlangan hududdagi filiallar + ortga tugmasi."""
+    kb = InlineKeyboardBuilder()
+    for b in branches:
+        cd = f"opbr:{op_order}:{b['id']}" if op_order is not None else f"pickbranch:{b['id']}"
+        kb.row(InlineKeyboardButton(text=b["name"], callback_data=cd))
+    back_cd = f"opregback:{op_order}" if op_order is not None else "regback"
+    kb.row(InlineKeyboardButton(text="⬅️ Ortga", callback_data=back_cd))
     return kb.as_markup()
 
 
@@ -156,6 +188,26 @@ def rating_kb(order_id) -> InlineKeyboardMarkup:
     for n in range(1, 6):
         kb.button(text=f"{n}⭐", callback_data=f"rate:{order_id}:{n}")
     kb.adjust(5)
+    return kb.as_markup()
+
+
+def rating_resume_kb(order_id, lang="uz") -> InlineKeyboardMarkup:
+    """Avto-yakunlashda: baholash yulduzlari + «Qayta boshlash» tugmasi."""
+    kb = InlineKeyboardBuilder()
+    stars = [InlineKeyboardButton(text=f"{n}⭐", callback_data=f"rate:{order_id}:{n}")
+             for n in range(1, 6)]
+    kb.row(*stars)
+    txt = "🔄 Qayta boshlash" if lang != "ru" else "🔄 Продолжить обращение"
+    kb.row(InlineKeyboardButton(text=txt, callback_data=f"resume:{order_id}"))
+    return kb.as_markup()
+
+
+def open_crm_kb(kind="operator", lang="uz") -> InlineKeyboardMarkup:
+    """CRM (mini app) ochish tugmasi — operator/admin bildirishnomalari uchun."""
+    kb = InlineKeyboardBuilder()
+    txt = "📂 Chatni ochish (CRM)" if lang != "ru" else "📂 Открыть чат (CRM)"
+    if _WEBAPP_URL:
+        kb.row(InlineKeyboardButton(text=txt, web_app=WebAppInfo(url=_WEBAPP_URL + "/" + kind)))
     return kb.as_markup()
 
 

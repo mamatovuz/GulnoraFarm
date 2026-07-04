@@ -632,9 +632,18 @@ async def api_cmd(request):
             return _json({"ok": True, "info": f"{AUTO_CLOSE_MIN} daqiqada avto-yakunlash yoqildi"})
 
         if cmd == "askbranch":
-            branches = await q.list_branches()
-            await client.send_message(uid, loc.t("op_ask_branch", clang),
-                                      reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+            regions = await q.list_regions()
+            if len(regions) > 1:
+                await client.send_message(
+                    uid, loc.t("op_ask_branch", clang),
+                    reply_markup=kb.regions_choose_kb(regions, clang, op_order=order_id))
+            else:
+                branches = await q.list_branches()
+                await client.send_message(
+                    uid, loc.t("op_ask_branch", clang),
+                    reply_markup=kb.op_ask_branch_kb(branches, order_id, clang))
+            # Majburiy: mijoz filial tanlamaguncha boshqa amal bloklanadi
+            await q.set_pending_branch(uid, order_id)
             return _json({"ok": True, "info": "Mijozga filial tanlash so'rovi yuborildi"})
 
         if cmd == "sendbranch":
@@ -922,6 +931,34 @@ async def api_client_info(request):
                   "orders": [{"id": o["id"], "status": o["status"],
                               "date": (o["created_at"] or "")[:10],
                               "rating": o["rating"] or 0} for o in orders[:12]]})
+
+
+# ---------------- API: yakunlangan murojaatni davom ettirish ----------------
+async def api_reopen(request):
+    """Operator yakunlangan/bekor qilingan murojaatni qayta ochadi va yozishni davom ettiradi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    if order["status"] in ("new", "in_progress"):
+        return _json({"ok": True, "info": "allaqachon ochiq"})   # allaqachon ochiq
+    await q.reopen_order(order_id, op["id"])
+    await q.set_operator_availability(op["id"], "busy")
+    await q.set_operator_active_order(op["id"], order_id)
+    await q.set_user_active_order(order["user_id"], order_id)
+    # CRM yozishmasida ko'rinsin + operator kanaliga qaytsin
+    await q.add_message(order_id, "operator", "text", "🔄 Suhbat qayta ochildi (davom ettirildi)", None, None)
+    return _json({"ok": True, "info": "Suhbat davom ettirildi"})
 
 
 # ---------------- API: matnli tayyor javoblar ----------------
@@ -1650,7 +1687,7 @@ async def api_admin_branches(request):
     return _json({"ok": True, "items": [
         {"id": b["id"], "name": b["name"], "address": b["address"] or "",
          "phone": b["phone"] or "", "open": b["open_time"], "close": b["close_time"],
-         "has_loc": b["lat"] is not None} for b in bs]})
+         "region": b["region"] or "", "has_loc": b["lat"] is not None} for b in bs]})
 
 
 async def api_admin_branch_save(request):
@@ -1667,13 +1704,14 @@ async def api_admin_branch_save(request):
     phone = str(body.get("phone", "")).strip()
     open_t = str(body.get("open", "08:00")).strip() or "08:00"
     close_t = str(body.get("close", "23:00")).strip() or "23:00"
+    region = str(body.get("region", "")).strip()
     bid = body.get("id")
     if bid:
         for f, v in (("name", name), ("address", addr), ("phone", phone),
-                     ("open_time", open_t), ("close_time", close_t)):
+                     ("open_time", open_t), ("close_time", close_t), ("region", region)):
             await q.update_branch(int(bid), f, v)
     else:
-        await q.add_branch(name, addr, phone, open_time=open_t, close_time=close_t)
+        await q.add_branch(name, addr, phone, open_time=open_t, close_time=close_t, region=region)
     return _json({"ok": True})
 
 
@@ -2114,6 +2152,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/messages", api_messages)
     app.router.add_get("/api/file", api_file)
     app.router.add_post("/api/send", api_send)
+    app.router.add_post("/api/reopen", api_reopen)
     app.router.add_post("/api/accept", api_accept)
     app.router.add_post("/api/close", api_close)
     app.router.add_post("/api/hide", api_hide)

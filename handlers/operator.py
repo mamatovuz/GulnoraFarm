@@ -824,7 +824,8 @@ async def op_do_transfer(call: CallbackQuery, bot: Bot):
 
 # ---------------- 10 daqiqada avto-yakunlash ----------------
 async def _finish_with_rating(bot: Bot, order_id: int, by: str):
-    """Murojaatni yakunlaydi va mijozga baholash so'rovini yuboradi."""
+    """Murojaatni yakunlaydi va mijozga baholash so'rovini yuboradi.
+    Avto-yakunlashda (by='auto') mijozga «Qayta boshlash» tugmasi ham beriladi."""
     order = await q.get_order(order_id)
     await q.set_order_status(order_id, "done", by)
     if order["operator_id"]:
@@ -835,12 +836,12 @@ async def _finish_with_rating(bot: Bot, order_id: int, by: str):
     clang = await q.get_lang(order["user_id"])
     client = cbot() or bot
     if client:
+        auto = (by == "auto")
+        text = (loc.t("order_auto_done", clang, id=order_id) if auto
+                else loc.t("order_done", clang, id=order_id)) + loc.t("rate_ask", clang)
+        markup = kb.rating_resume_kb(order_id, clang) if auto else kb.rating_kb(order_id)
         try:
-            await client.send_message(
-                order["user_id"],
-                loc.t("order_done", clang, id=order_id) + loc.t("rate_ask", clang),
-                reply_markup=kb.rating_kb(order_id),
-            )
+            await client.send_message(order["user_id"], text, reply_markup=markup)
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
 

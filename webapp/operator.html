@@ -408,6 +408,13 @@
     <canvas id="recwave"></canvas>
     <button class="cbtn acc" onclick="stopSendRec()"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
   </div>
+  <div id="resumebar" class="composer hide" style="flex-direction:column;gap:8px;align-items:stretch;padding:12px 14px">
+    <div id="resume-lbl" style="text-align:center;font-size:13px;color:var(--hint)">Bu murojaat yakunlangan</div>
+    <button class="btn" onclick="doResume()" style="width:100%;justify-content:center;gap:8px;background:var(--accent);color:#fff;border:none;padding:12px;border-radius:11px;font-size:15px;font-weight:600;display:flex;align-items:center;cursor:pointer">
+      <svg class="ic" viewBox="0 0 24 24" style="width:19px;height:19px;stroke:#fff"><path d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5"/></svg>
+      Yozishni davom ettirish
+    </button>
+  </div>
 </div>
 <input type="file" id="file-photo" accept="image/*" multiple class="hide">
 <input type="file" id="file-doc" class="hide">
@@ -809,6 +816,7 @@ async function loadMsgs(scroll){
   if(!r.ok) return;
   document.getElementById("c-phone").textContent = r.client.phone || "";
   CURUNAME = r.client.username || "";
+  applyChatStatus(r.status);
   const last = r.messages[r.messages.length-1] || {};
   const sig = r.messages.length + "|" + (last.time||"") + "|" + (last.file_id||"") + "|" + (last.text||"");
   if(!scroll && sig===lastSig) return;
@@ -852,6 +860,35 @@ setInterval(()=>{
 }, 30000);
 function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR && !document.hidden) loadMsgs(false); }, 7000); }
 function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+// Murojaat yopilgan bo'lsa — yozish o'rniga "Davom ettirish" tugmasi
+let CURSTATUS="";
+function applyChatStatus(st){
+  CURSTATUS = st || "";
+  const closed = (st==="done" || st==="canceled");
+  const comp=document.getElementById("composer");
+  const rb=document.getElementById("resumebar");
+  const rec=document.getElementById("recbar");
+  if(closed){
+    comp.classList.add("hide");
+    if(rec) rec.classList.add("hide");
+    document.getElementById("resume-lbl").textContent =
+      st==="canceled" ? "Bu murojaat bekor qilingan" : "Bu murojaat yakunlangan";
+    rb.classList.remove("hide");
+  } else {
+    rb.classList.add("hide");
+    // Ovoz yozib turган bo'lsa (recbar ochiq) — composerни tegmaymiz
+    if(rec && rec.classList.contains("hide")) comp.classList.remove("hide");
+  }
+}
+async function doResume(){
+  if(!CUR) return;
+  const r=await q("/api/reopen","POST",Object.assign(auth(),{order_id:CUR}));
+  if(!r.ok){ tg.showAlert(r.error||"Ochilmadi"); return; }
+  applyChatStatus("in_progress");
+  lastSig=""; await loadMsgs(true);
+  try{ document.getElementById("in-msg").focus(); }catch(e){}
+}
 let CURUNAME="";
 function openProfile(uname){
   if(uname){ try{ tg.openTelegramLink("https://t.me/"+uname); }catch(e){ window.open("https://t.me/"+uname); } }

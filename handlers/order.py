@@ -205,6 +205,26 @@ async def _night_autoreply(message, lang):
         pass
 
 
+async def _pending_branch_blocked(message, lang) -> bool:
+    """Majburiy filial tanlash: operator so'ragan bo'lsa, mijoz filial tanlamaguncha
+    boshqa amal bajarilmaydi — har safar filial tanlash oynasi qayta chiqadi."""
+    uid = message.from_user.id
+    pend = await q.get_pending_branch(uid)
+    if not pend:
+        return False
+    po = await q.get_order(pend)
+    if not po or po["status"] not in ("new", "in_progress"):
+        await q.clear_pending_branch(uid)   # murojaat yopilgan — gate ochiladi
+        return False
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        markup = kb.regions_choose_kb(regions, lang, op_order=pend)
+    else:
+        markup = kb.op_ask_branch_kb(await q.list_branches(), pend, lang)
+    await message.answer(loc.t("must_select_branch", lang), reply_markup=markup)
+    return True
+
+
 FLOOD_LIMIT = 5          # soatiga eng ko'p yangi murojaat
 FLOOD_WINDOW_MIN = 60
 
@@ -226,12 +246,81 @@ async def _flood_blocked(message, lang) -> bool:
     return False
 
 
+@router.callback_query(F.data.startswith("resume:"))
+async def client_resume(call: CallbackQuery, bot: Bot):
+    """Mijoz avto-yakunlangan murojaatni «Qayta boshlash» tugmasi orqali tiklaydi.
+    Murojaat oldingi operatorga qayta biriktiriladi, operator va adminlarga xabar boradi."""
+    import botreg
+    from config import ADMIN_IDS
+    order_id = int(call.data.split(":")[1])
+    lang = await q.get_lang(call.from_user.id)
+    order = await q.get_order(order_id)
+    if not order or order["user_id"] != call.from_user.id:
+        await call.answer("Murojaat topilmadi", show_alert=True)
+        return
+    if order["status"] in ("new", "in_progress"):
+        await call.answer("Suhbat allaqachon faol — savolingizni yozing.", show_alert=True)
+        return
+    # Boshqa ochiq murojaati bo'lsa — konflikt bo'lmasin
+    user = await q.get_user(call.from_user.id)
+    if user and user["active_order_id"] and user["active_order_id"] != order_id:
+        act = await q.get_order(user["active_order_id"])
+        if act and act["status"] in ("new", "in_progress"):
+            await call.answer("Sizda boshqa ochiq murojaat bor.", show_alert=True)
+            return
+
+    prev_op = order["operator_id"]
+    if prev_op:
+        await q.reopen_order(order_id, prev_op)
+        await q.set_operator_availability(prev_op, "busy")
+        await q.set_operator_active_order(prev_op, order_id)
+    else:
+        # Operator bo'lmasa — yangi murojaat sifatida kanalga qaytadi
+        await q.set_order_status(order_id, "new", f"client:{call.from_user.id}:resume")
+    await q.set_user_active_order(call.from_user.id, order_id)
+    await q.add_message(order_id, "client", "text", "🔄 Mijoz suhbatni qayta boshladi", None, None)
+
+    try:
+        await call.message.edit_text(loc.t("resume_done", lang, id=order_id))
+    except Exception:
+        try:
+            await call.message.answer(loc.t("resume_done", lang, id=order_id))
+        except Exception:
+            pass
+
+    # Oldingi operatorga o'z boti orqali xabar + CRM ochish tugmasi
+    if prev_op:
+        op = await q.get_operator(prev_op)
+        if op and op["telegram_id"]:
+            ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+            try:
+                await ob.send_message(
+                    op["telegram_id"],
+                    f"🔄 Mijoz <b>#{order_id}</b> murojaatini qayta tikladi.\n"
+                    f"CRM'dan chatni ochib davom eting.",
+                    reply_markup=kb.open_crm_kb("operator"))
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+    # Adminlarga xabar (asosiy bot)
+    for aid in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                aid, f"🔄 Murojaat <b>#{order_id}</b> mijoz tomonidan qayta tiklandi. "
+                     f"Chatni ochib ko'ring.",
+                reply_markup=kb.open_crm_kb("admin"))
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+    await call.answer("✅")
+
+
 async def _create_order(message, state, bot, content_type):
     lang = await q.get_lang(message.from_user.id)
     await q.set_user_username(message.from_user.id, message.from_user.username)
     user = await q.get_user(message.from_user.id)
     if user and user["status"] == "blocked":
         await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
+        return
+    if await _pending_branch_blocked(message, lang):
         return
     if await _flood_blocked(message, lang):
         return
@@ -257,6 +346,9 @@ async def client_proxy(message: Message, state: FSMContext, bot: Bot):
         await message.answer("/start")
         return
     lang = user["lang"] or "uz"
+    # Majburiy filial tanlash — operator so'ragan bo'lsa, tanlamaguncha bloklanadi
+    if await _pending_branch_blocked(message, lang):
+        return
     active = user["active_order_id"]
     if active:
         order = await q.get_order(active)

@@ -85,6 +85,7 @@ async def nearest_result(message: Message, state: FSMContext, bot: Bot):
     # Operator so'rovi bo'yicha — eng yaqinni murojaatga tanlaymiz
     if branch_order:
         await _select_branch_for_order(bot, message.from_user.id, branch_order, nearest["id"])
+        await q.clear_pending_branch(message.from_user.id)   # majburiy gate ochildi
         await message.answer(loc.t("op_branch_chosen", lang, branch=nearest["name"]),
                              reply_markup=await main_kb(message.from_user.id))
         return
@@ -97,6 +98,41 @@ async def nearest_result(message: Message, state: FSMContext, bot: Bot):
 
 
 # ---------------- Operator so'rovi bo'yicha filial tanlash ----------------
+@router.callback_query(F.data.startswith("opreg:"))
+async def op_region_pick(call: CallbackQuery):
+    """Operator so'rovida hudud tanlandi — o'sha hududdagi filiallarni ko'rsatamiz."""
+    _, oid, idx = call.data.split(":")
+    oid, idx = int(oid), int(idx)
+    lang = await q.get_lang(call.from_user.id)
+    regions = await q.list_regions()
+    if idx >= len(regions):
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    region = regions[idx]["reg"]
+    branches = await q.branches_in_region(region)
+    try:
+        await call.message.edit_text(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.region_branches_kb(branches, lang=lang, op_order=oid))
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opregback:"))
+async def op_region_back(call: CallbackQuery):
+    oid = int(call.data.split(":")[1])
+    lang = await q.get_lang(call.from_user.id)
+    regions = await q.list_regions()
+    try:
+        await call.message.edit_text(
+            loc.t("op_ask_branch", lang),
+            reply_markup=kb.regions_choose_kb(regions, lang, op_order=oid))
+    except Exception:
+        pass
+    await call.answer()
+
+
 @router.callback_query(F.data.startswith("opbr:"))
 async def op_branch_pick(call: CallbackQuery, bot: Bot):
     _, oid, bid = call.data.split(":")
@@ -108,6 +144,7 @@ async def op_branch_pick(call: CallbackQuery, bot: Bot):
         await call.answer("Topilmadi", show_alert=True)
         return
     await _select_branch_for_order(bot, call.from_user.id, oid, bid)
+    await q.clear_pending_branch(call.from_user.id)   # majburiy gate ochildi
     try:
         await call.message.edit_text(loc.t("op_branch_chosen", lang, branch=b["name"]))
     except Exception:

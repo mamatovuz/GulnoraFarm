@@ -21,7 +21,12 @@ async def ask_branch(target: Message, state: FSMContext, lang: str, uid: int):
         await state.clear()
         return
     await state.set_state(Reg.branch)
-    await target.answer(loc.t("ask_branch", lang), reply_markup=kb.branches_choose_kb(branches, lang=lang))
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        # Hududlar bo'yicha guruhlab ko'rsatamiz (shahar/tuman)
+        await target.answer(loc.t("ask_region", lang), reply_markup=kb.regions_choose_kb(regions, lang=lang))
+    else:
+        await target.answer(loc.t("ask_branch", lang), reply_markup=kb.branches_choose_kb(branches, lang=lang))
 
 
 async def proceed_after_phone(message: Message, state: FSMContext, bot: Bot, lang: str):
@@ -222,6 +227,39 @@ async def pick_branch_cb(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(loc.t("branch_selected", lang, branch=branch["name"]))
     await state.clear()
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
+    await call.answer()
+
+
+@router.callback_query(Reg.branch, F.data.startswith("regsel:"))
+async def reg_region_pick(call: CallbackQuery, state: FSMContext):
+    lang = await q.get_lang(call.from_user.id)
+    idx = int(call.data.split(":")[1])
+    regions = await q.list_regions()
+    if idx >= len(regions):
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    region = regions[idx]["reg"]
+    branches = await q.branches_in_region(region)
+    try:
+        await call.message.edit_text(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.region_branches_kb(branches, lang=lang))
+    except Exception:
+        await call.message.answer(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.region_branches_kb(branches, lang=lang))
+    await call.answer()
+
+
+@router.callback_query(Reg.branch, F.data == "regback")
+async def reg_region_back(call: CallbackQuery, state: FSMContext):
+    lang = await q.get_lang(call.from_user.id)
+    regions = await q.list_regions()
+    try:
+        await call.message.edit_text(loc.t("ask_region", lang),
+                                     reply_markup=kb.regions_choose_kb(regions, lang=lang))
+    except Exception:
+        pass
     await call.answer()
 
 

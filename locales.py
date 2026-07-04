@@ -118,6 +118,18 @@ T = {
         "uz": "Sizga qaysi filial qulayroq? Iltimos, filialni tanlang:",
         "ru": "Какой филиал вам удобнее? Пожалуйста, выберите филиал:",
     },
+    "ask_region": {
+        "uz": "Avval hududni tanlang (shahar yoki tuman):",
+        "ru": "Сначала выберите регион (город или район):",
+    },
+    "ask_branch_region": {
+        "uz": "🗺 <b>{region}</b>\nQaysi filial qulayroq? Filialni tanlang:",
+        "ru": "🗺 <b>{region}</b>\nКакой филиал удобнее? Выберите филиал:",
+    },
+    "must_select_branch": {
+        "uz": "⚠️ Avval <b>filialni tanlang</b>. Tanlamaguningizcha boshqa amal bajarib bo'lmaydi.",
+        "ru": "⚠️ Сначала <b>выберите филиал</b>. До этого другие действия недоступны.",
+    },
     "branch_selected": {
         "uz": "✅ Siz <b>\"{branch}\"</b> filialini tanladingiz.\n\n"
               "Buni istalgan vaqtda \"📍 Filiallar\" bo'limidan o'zgartirishingiz mumkin.",
@@ -187,6 +199,20 @@ T = {
               "Savolingiz bo'lsa, istalgan vaqtda yozishingiz mumkin 😊",
         "ru": "✅ Ваше обращение <b>#{id}</b> завершено.\n\nСпасибо, что воспользовались нашим сервисом!\n"
               "Если есть вопросы, пишите в любое время 😊",
+    },
+    "order_auto_done": {
+        "uz": "✅ Sizning <b>#{id}</b> murojaatingiz yakunlandi.\n\n"
+              "Agar shu murojaat bo'yicha savolingiz bo'lsa, pastdagi «🔄 Qayta boshlash» "
+              "tugmasini bosing — suhbat o'sha joydan davom etadi.\n\n",
+        "ru": "✅ Ваше обращение <b>#{id}</b> завершено.\n\n"
+              "Если у вас остался вопрос по этому обращению, нажмите кнопку «🔄 Продолжить обращение» "
+              "ниже — разговор продолжится с того же места.\n\n",
+    },
+    "resume_done": {
+        "uz": "🔄 <b>#{id}</b> murojaatingiz qayta ochildi.\n\n"
+              "Savolingizni yozing — operator siz bilan bog'lanadi.",
+        "ru": "🔄 Ваше обращение <b>#{id}</b> снова открыто.\n\n"
+              "Напишите ваш вопрос — оператор свяжется с вами.",
     },
     "order_canceled": {
         "uz": "❌ Murojaatingiz <b>#{id}</b> bekor qilindi.\n\nAgar bu xato bo'lsa yoki qayta urinib "

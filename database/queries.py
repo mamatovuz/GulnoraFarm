@@ -84,6 +84,29 @@ async def set_user_active_order(telegram_id: int, order_id):
     await db.commit()
 
 
+async def set_pending_branch(telegram_id: int, order_id):
+    """Majburiy filial tanlash: mijoz shu murojaat uchun filial tanlamaguncha bloklanadi."""
+    db = await get_db()
+    await db.execute("UPDATE users SET pending_branch_order = ? WHERE telegram_id = ?",
+                     (order_id, telegram_id))
+    await db.commit()
+
+
+async def get_pending_branch(telegram_id: int):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT pending_branch_order FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = await cur.fetchone()
+    return row["pending_branch_order"] if row else None
+
+
+async def clear_pending_branch(telegram_id: int):
+    db = await get_db()
+    await db.execute("UPDATE users SET pending_branch_order = NULL WHERE telegram_id = ?",
+                     (telegram_id,))
+    await db.commit()
+
+
 async def all_users(branch_id=None, only_active=False):
     db = await get_db()
     q = "SELECT * FROM users WHERE 1=1"
@@ -117,15 +140,37 @@ async def get_branch(branch_id: int):
 
 
 async def add_branch(name, address, phone, lat=None, lon=None, photo_file_id=None,
-                     open_time="08:00", close_time="23:00"):
+                     open_time="08:00", close_time="23:00", region=""):
     db = await get_db()
     cur = await db.execute(
-        "INSERT INTO branches (name, address, phone, lat, lon, photo_file_id, open_time, close_time) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, address, phone, lat, lon, photo_file_id, open_time, close_time),
+        "INSERT INTO branches (name, address, phone, lat, lon, photo_file_id, open_time, close_time, region) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, address, phone, lat, lon, photo_file_id, open_time, close_time, region),
     )
     await db.commit()
     return cur.lastrowid
+
+
+async def list_regions():
+    """Filiallar hududlari (shahar/tuman) — filiallar soni bilan, alifbo tartibida.
+    Hududsiz filiallar 'Boshqa' guruhiga tushadi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT CASE WHEN region IS NULL OR region='' THEN 'Boshqa' ELSE region END AS reg, "
+        "COUNT(*) AS cnt FROM branches GROUP BY reg ORDER BY reg")
+    return await cur.fetchall()
+
+
+async def branches_in_region(region):
+    """Berilgan hududdagi filiallar."""
+    db = await get_db()
+    if region == "Boshqa":
+        cur = await db.execute(
+            "SELECT * FROM branches WHERE region IS NULL OR region='' ORDER BY name")
+    else:
+        cur = await db.execute(
+            "SELECT * FROM branches WHERE region=? ORDER BY name", (region,))
+    return await cur.fetchall()
 
 
 async def update_branch(branch_id, field, value):
@@ -187,6 +232,23 @@ async def assign_order(order_id, operator_id):
     db = await get_db()
     await db.execute("UPDATE orders SET operator_id = ? WHERE id = ?", (operator_id, order_id))
     await db.commit()
+
+
+async def reopen_order(order_id, operator_id):
+    """Yakunlangan/bekor qilingan murojaatni qayta ochadi (operator davom ettiradi).
+    Status -> in_progress, operatorga biriktiriladi, closed_at tozalanadi.
+    Baho saqlanadi (tarix uchun); qayta yopilganda yangilanadi."""
+    db = await get_db()
+    cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+    row = await cur.fetchone()
+    old = row["status"] if row else None
+    await db.execute(
+        "UPDATE orders SET status='in_progress', operator_id=?, closed_at=NULL WHERE id=?",
+        (operator_id, order_id))
+    # Yashirilgan bo'lsa — chat ro'yxatida qayta ko'rinsin
+    await db.execute("DELETE FROM hidden_chats WHERE order_id=?", (order_id,))
+    await db.commit()
+    await log_status(order_id, old, "in_progress", f"operator:{operator_id}:reopen")
 
 
 async def claim_order(order_id, operator_id):
