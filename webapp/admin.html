@@ -357,6 +357,9 @@
       </div>
     </div>
     <div class="list">
+      <div class="item" onclick="openSet('stats')"><svg class="ic" viewBox="0 0 24 24" style="color:#3390ec"><path d="M3 3v18h18M8 16v-5M13 16V8M18 16v-3"/></svg><div class="lbl">Statistika<div style="font-size:12px;color:var(--hint)">Umumiy + filiallar kesimi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+    </div>
+    <div class="list">
       <div class="item" onclick="openSet('ops')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><div class="lbl">Operatorlar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('opbots')"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 13h.01M16 13h.01M9 17h6"/></svg><div class="lbl">Operator botlari</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -442,6 +445,15 @@
     <div class="t" id="sv-title" style="font-size:17px">—</div>
   </div>
   <div class="body" id="sv-body"></div>
+</div>
+
+<!-- SOZLAMALAR 2-DARAJA (filial tafsiloti) -->
+<div id="setview2" class="screen hide" style="z-index:19">
+  <div class="topbar">
+    <button class="iconbtn" onclick="closeSV2()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="t" id="sv2-title" style="font-size:17px">—</div>
+  </div>
+  <div class="body" id="sv2-body"></div>
 </div>
 
 <!-- YOZISHMA (transcript) -->
@@ -1013,12 +1025,17 @@ function renderOps(ops, online){
   if(!ops || !ops.length){ box.innerHTML = '<div class="empty">Operator yo\'q</div>'; return; }
   const stCol = { free:C.done, busy:C.canceled, offline:"#9aa4ae" };
   const stLbl = { free:"bo'sh", busy:"band", offline:"oflayn" };
+  const maxLoad = Math.max(...ops.map(o=>o.cnt), 1);
+  const loadCol = v => v>=4 ? "#e5484d" : v>=2 ? "#d97706" : "#2f9e44";
   box.innerHTML = ops.map(o=>`
     <div class="oprow" style="cursor:pointer" onclick="openOpDetail(${o.id})">
       <div class="ava" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
-      <div><div class="nm">${esc(o.name)}</div>
-        <div class="st"><span class="stdot" style="background:${stCol[o.state]}"></span>${stLbl[o.state]}</div></div>
-      <div class="cnt">${o.cnt} jarayonda<br>${o.done_today} bugun yakun</div>
+      <div style="min-width:0;flex:1"><div class="nm">${esc(o.name)}</div>
+        <div class="st"><span class="stdot" style="background:${stCol[o.state]}"></span>${stLbl[o.state]}</div>
+        <div style="height:5px;border-radius:3px;background:var(--sec);margin-top:5px;overflow:hidden;max-width:150px">
+          <div style="height:100%;width:${Math.round(o.cnt/maxLoad*100)}%;background:${loadCol(o.cnt)};transition:width .3s"></div>
+        </div></div>
+      <div class="cnt"><b style="color:${loadCol(o.cnt)};font-size:15px">${o.cnt}</b> ochiq<br>${o.done_today} bugun</div>
     </div>`).join("");
 }
 
@@ -1227,14 +1244,124 @@ function compressImage(file, maxDim, quality){
 const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
             opbots:"Operator botlari",low:"Sifat nazorati",excel:"Excel hisobot",
-            stale:"Eski murojaatlar"};
+            stale:"Eski murojaatlar",stats:"Statistika"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
-    ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel,stale:svStale})[kind]();
+    ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel,stale:svStale,stats:svStats})[kind]();
 }
+
+// ---- Statistika (umumiy + filiallar kesimi) ----
+function _durTxt(m){ m=Math.round(m||0);
+  if(m<60) return m+" daq"; const h=Math.floor(m/60); return h+" soat "+(m%60)+" daq"; }
+async function svStats(){
+  const r=await q("/api/admin/stats","GET",auth());
+  if(!r.ok){ document.getElementById("sv-body").innerHTML='<div class="empty">Xatolik</div>'; return; }
+  const g=r.general;
+  const tile=(v,l,col)=>`<div class="tile" style="padding:13px"><div class="v" style="font-size:22px;color:${col||'var(--text)'}">${v}</div><div class="l">${l}</div></div>`;
+  // Holatlar donut uchun
+  const seg=[["Yakunlangan",g.orders_done,"#2f9e44"],["Jarayonda",g.orders_progress,"#3390ec"],
+             ["Yangi",g.orders_new,"#d97706"],["Bekor",g.orders_canceled,"#e5484d"]];
+  const tot=seg.reduce((s,x)=>s+x[1],0)||1;
+  let acc=0; const R=52,C2=2*Math.PI*R;
+  const donut=seg.filter(x=>x[1]).map(x=>{ const frac=x[1]/tot, dash=frac*C2;
+    const el=`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${x[2]}" stroke-width="16"
+      stroke-dasharray="${dash.toFixed(1)} ${(C2-dash).toFixed(1)}" stroke-dashoffset="${(-acc*C2).toFixed(1)}"
+      transform="rotate(-90 70 70)"/>`; acc+=frac; return el; }).join("");
+  const donutLeg=seg.map(x=>`<div style="display:flex;align-items:center;gap:7px;font-size:13px;margin:3px 0">
+    <span style="width:11px;height:11px;border-radius:3px;background:${x[2]};flex-shrink:0"></span>
+    <span style="flex:1">${x[0]}</span><b>${x[1]}</b><span style="color:var(--hint)">${Math.round(x[1]/tot*100)}%</span></div>`).join("");
+
+  document.getElementById("sv-body").innerHTML = `
+    <div class="card"><h3>Umumiy ko'rsatkichlar</h3>
+      <div class="kpi" style="grid-template-columns:1fr 1fr 1fr">
+        ${tile(g.orders_total,"Jami murojaat","#3390ec")}
+        ${tile(g.users_total,"Mijozlar","#7048e8")}
+        ${tile(g.avg_rating||"—","O'rtacha baho","#d97706")}
+        ${tile(_durTxt(g.avg_response_min),"O'rt. javob")}
+        ${tile(_durTxt(g.avg_resolve_min),"O'rt. yakunlash")}
+        ${tile(g.rated_count,"Baholar soni")}
+      </div>
+    </div>
+    <div class="card"><h3>Murojaatlar holati</h3>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <svg width="140" height="140" viewBox="0 0 140 140" style="flex-shrink:0">${donut}
+          <text x="70" y="65" text-anchor="middle" font-size="24" font-weight="700" fill="var(--text)">${tot}</text>
+          <text x="70" y="84" text-anchor="middle" font-size="11" fill="var(--hint)">jami</text></svg>
+        <div style="flex:1;min-width:150px">${donutLeg}</div>
+      </div>
+    </div>
+    <div class="card"><h3>Yangi mijozlar</h3>
+      <div class="kpi" style="grid-template-columns:1fr 1fr 1fr 1fr">
+        ${tile(g.users_today,"Bugun","#2f9e44")}${tile(g.users_week,"Hafta")}
+        ${tile(g.users_month,"Oy")}${tile(g.users_total,"Jami")}
+      </div>
+    </div>
+    <div class="card"><h3>Filiallar kesimi <span class="sub">ustiga bosing — tafsilot</span></h3>
+      <div id="stbranches"></div>
+    </div>`;
+  const mx=Math.max(...r.branches.map(b=>b.done),1);
+  document.getElementById("stbranches").innerHTML = r.branches.length ? r.branches.map(b=>`
+    <div class="lrow" style="cursor:pointer" onclick="openBranchStat(${b.id})">
+      <div style="width:38px;height:38px;border-radius:10px;background:${avaBg(b.name)};color:#fff;
+        display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#fff"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+      <div class="mid" style="min-width:0"><div class="nm"><span>${esc(b.name)}</span></div>
+        <div class="sub">${b.clients} mijoz · ${b.done} yakunlangan${b.rating?" · ⭐"+b.rating:""}</div>
+        <div style="height:5px;border-radius:3px;background:var(--sec);margin-top:5px;overflow:hidden;max-width:180px">
+          <div style="height:100%;width:${Math.round(b.done/mx*100)}%;background:#2f9e44"></div></div></div>
+      <svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg>
+    </div>`).join("") : '<div class="empty">Filial yo\'q</div>';
+}
+
+async function openBranchStat(bid){
+  const r=await q("/api/admin/branch_detail","GET",Object.assign(auth(),{branch_id:bid}));
+  if(!r.ok){ tg.showAlert("Ma'lumot topilmadi"); return; }
+  const tile=(v,l,col)=>`<div class="tile" style="padding:12px"><div class="v" style="font-size:21px;color:${col||'var(--text)'}">${v}</div><div class="l">${l}</div></div>`;
+  const opn=r.new+r.prog;
+  // dinamika mini-chart (14 kun)
+  let chart='<div class="empty" style="padding:20px">Dinamika uchun ma\'lumot yo\'q</div>';
+  if(r.series.length){
+    const mx=Math.max(...r.series.map(s=>s.total),1);
+    chart=`<div style="display:flex;align-items:flex-end;gap:4px;height:90px;padding:6px 2px">`+
+      r.series.map(s=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;height:100%;justify-content:flex-end">
+        <div style="font-size:9px;color:var(--hint)">${s.total||""}</div>
+        <div style="width:100%;max-width:20px;border-radius:3px 3px 0 0;overflow:hidden;height:${Math.max(3,s.total/mx*62)}px;background:var(--sec);display:flex;flex-direction:column-reverse">
+          <div style="background:#2f9e44;height:${s.total?Math.round(s.done/s.total*100):0}%"></div></div>
+        <div style="font-size:8.5px;color:var(--hint)">${s.d.slice(8,10)}</div></div>`).join("")+`</div>
+      <div style="text-align:center;font-size:11px;color:var(--hint)">so'nggi ${r.series.length} kun · yashil = yakunlangan</div>`;
+  }
+  const tc=r.topclients.map(c=>`
+    <div class="lrow" style="cursor:pointer" onclick="closeSV2();openClientV(${c.tg})">
+      <div class="ava2" style="width:34px;height:34px;font-size:14px;background:${avaBg(c.name)}">${ini(c.name)}</div>
+      <div class="mid" style="min-width:0"><div class="nm"><span>${esc(c.name)}</span></div>
+        <div class="sub">${esc(c.phone)}</div></div>
+      <div style="font-weight:700;color:var(--accent)">${c.cnt}</div></div>`).join("")
+    || '<div class="empty">Mijoz yo\'q</div>';
+  document.getElementById("sv2-title").textContent=r.name;
+  document.getElementById("sv2-body").innerHTML=`
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:18px;font-weight:700">${esc(r.name)}</div>
+      ${r.address?`<div style="color:var(--hint);font-size:13px;margin-top:3px">${esc(r.address)}</div>`:""}
+      ${r.phone?`<a href="tel:${esc(r.phone)}" style="color:var(--link);font-size:14px;text-decoration:none">${esc(r.phone)}</a>`:""}
+    </div>
+    <div class="card"><h3>Ko'rsatkichlar</h3>
+      <div class="kpi" style="grid-template-columns:1fr 1fr 1fr">
+        ${tile(r.clients,"Mijozlar","#7048e8")}
+        ${tile(r.done,"Yakunlangan","#2f9e44")}
+        ${tile(opn,"Ochiq","#3390ec")}
+        ${tile(r.total,"Jami murojaat")}
+        ${tile(r.rating||"—","Baho ("+r.rated+")","#d97706")}
+        ${tile(_durTxt(r.resolve),"O'rt. yakunlash")}
+      </div>
+    </div>
+    <div class="card"><h3>Dinamika</h3>${chart}</div>
+    <div class="card"><h3>Faol mijozlar</h3>${tc}</div>`;
+  document.getElementById("setview2").classList.remove("hide");
+}
+function closeSV2(){ document.getElementById("setview2").classList.add("hide"); }
 
 // ---- Operatorlar ----
 async function svOps(){

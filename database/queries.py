@@ -1098,6 +1098,66 @@ async def general_stats():
     return stats
 
 
+async def branches_overview():
+    """Har bir filial bo'yicha jamlanma: mijozlar soni, yakunlangan murojaatlar,
+    umumiy murojaatlar va o'rtacha baho. Statistika oynasi uchun."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT b.id, b.name, "
+        "(SELECT COUNT(*) FROM users u WHERE u.branch_id=b.id) AS clients, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.branch_id=b.id) AS total, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.branch_id=b.id AND o.status='done') AS done, "
+        "(SELECT ROUND(AVG(rating),1) FROM orders o WHERE o.branch_id=b.id AND o.rating IS NOT NULL) AS rating "
+        "FROM branches b ORDER BY done DESC, clients DESC")
+    return await cur.fetchall()
+
+
+async def branch_detail(branch_id):
+    """Bitta filial bo'yicha to'liq statistika: mijozlar, murojaatlar holati,
+    baho, o'rtacha yakunlash vaqti, so'nggi 14 kunlik dinamika, top mijozlar."""
+    db = await get_db()
+
+    async def val(q_, p):
+        cur = await db.execute(q_, p)
+        return (await cur.fetchone())[0]
+
+    b = await get_branch(branch_id)
+    if not b:
+        return None
+    clients = await val("SELECT COUNT(*) FROM users WHERE branch_id=?", (branch_id,))
+    total = await val("SELECT COUNT(*) FROM orders WHERE branch_id=?", (branch_id,))
+    new = await val("SELECT COUNT(*) FROM orders WHERE branch_id=? AND status='new'", (branch_id,))
+    prog = await val("SELECT COUNT(*) FROM orders WHERE branch_id=? AND status='in_progress'", (branch_id,))
+    done = await val("SELECT COUNT(*) FROM orders WHERE branch_id=? AND status='done'", (branch_id,))
+    canceled = await val("SELECT COUNT(*) FROM orders WHERE branch_id=? AND status='canceled'", (branch_id,))
+    row = await (await db.execute(
+        "SELECT ROUND(AVG(rating),1), COUNT(rating) FROM orders "
+        "WHERE branch_id=? AND rating IS NOT NULL", (branch_id,))).fetchone()
+    rating, rated = (row[0] or 0), (row[1] or 0)
+    cur = await db.execute(
+        "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+        "WHERE branch_id=? AND status='done' AND closed_at IS NOT NULL", (branch_id,))
+    resolve = _median([r[0] for r in await cur.fetchall()])
+    # so'nggi 14 kun dinamikasi (yakunlangan)
+    since = (now_local() - timedelta(days=13)).strftime("%Y-%m-%d 00:00:00")
+    cur = await db.execute(
+        "SELECT date(created_at) AS d, COUNT(*) AS total, "
+        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
+        "FROM orders WHERE branch_id=? AND created_at>=? GROUP BY d ORDER BY d ASC",
+        (branch_id, since))
+    series = await cur.fetchall()
+    # top mijozlar (shu filial)
+    cur = await db.execute(
+        "SELECT u.telegram_id, u.full_name, u.phone, COUNT(o.id) AS cnt "
+        "FROM users u JOIN orders o ON o.user_id=u.telegram_id AND o.branch_id=? "
+        "WHERE u.branch_id=? GROUP BY u.telegram_id ORDER BY cnt DESC LIMIT 5",
+        (branch_id, branch_id))
+    topc = await cur.fetchall()
+    return {"branch": b, "clients": clients, "total": total, "new": new, "prog": prog,
+            "done": done, "canceled": canceled, "rating": rating, "rated": rated,
+            "resolve": resolve, "series": series, "topclients": topc}
+
+
 async def live_stats():
     """Real vaqt holati: yangi/jarayonda/bugun yakunlangan + operatorlar kesimi."""
     db = await get_db()

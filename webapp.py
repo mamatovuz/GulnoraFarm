@@ -1845,6 +1845,52 @@ async def api_admin_broadcast(request):
     return _json({"ok": True, "sent": sent, "failed": failed, "total": len(users)})
 
 
+async def api_admin_stats(request):
+    """Sozlamalar → Statistika oynasi: umumiy ko'rsatkichlar + filiallar jamlanmasi."""
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    g = await q.general_stats()
+    brs = await q.branches_overview()
+    return _json({"ok": True,
+                  "general": {
+                      "users_total": g["users_total"], "users_today": g["users_today"],
+                      "users_week": g["users_week"], "users_month": g["users_month"],
+                      "orders_total": g["orders_total"], "orders_today": g["orders_today"],
+                      "orders_week": g["orders_week"], "orders_new": g["orders_new"],
+                      "orders_progress": g["orders_progress"], "orders_done": g["orders_done"],
+                      "orders_canceled": g["orders_canceled"],
+                      "avg_rating": g["avg_rating"], "rated_count": g["rated_count"],
+                      "avg_response_min": g["avg_response_min"], "avg_resolve_min": g["avg_resolve_min"]},
+                  "branches": [{"id": b["id"], "name": b["name"], "clients": b["clients"],
+                                "total": b["total"], "done": b["done"],
+                                "rating": b["rating"] or 0} for b in brs]})
+
+
+async def api_admin_branch_detail(request):
+    """Bitta filial tafsiloti: mijozlar, holatlar, baho, dinamika, top mijozlar."""
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    try:
+        bid = int(request.query.get("branch_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    d = await q.branch_detail(bid)
+    if not d:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    return _json({"ok": True,
+                  "name": d["branch"]["name"], "phone": d["branch"]["phone"] or "",
+                  "address": d["branch"]["address"] or "",
+                  "clients": d["clients"], "total": d["total"], "new": d["new"],
+                  "prog": d["prog"], "done": d["done"], "canceled": d["canceled"],
+                  "rating": d["rating"], "rated": d["rated"], "resolve": d["resolve"],
+                  "series": [{"d": s["d"], "total": s["total"], "done": s["done"] or 0}
+                             for s in d["series"]],
+                  "topclients": [{"tg": c["telegram_id"],
+                                  "name": c["full_name"] or c["phone"] or "Mijoz",
+                                  "phone": c["phone"] or "", "cnt": c["cnt"]}
+                                 for c in d["topclients"]]})
+
+
 async def api_admin_excel(request):
     """Excel hisobotni yaratib, adminning Telegram chatiga yuboradi."""
     try:
@@ -1909,6 +1955,60 @@ async def api_admin_excel(request):
     for col, w in zip("ABCDEFGHIJK", (7, 22, 17, 20, 16, 15, 11, 18, 17, 17, 10)):
         ws.column_dimensions[col].width = w
     ws.freeze_panes = "A3"
+
+    # ---- 2-varaq: STATISTIKA + diagrammalar ----
+    from openpyxl.chart import BarChart, PieChart, Reference
+    from openpyxl.chart.label import DataLabelList
+    ws2 = wb.create_sheet("Statistika")
+    ws2.merge_cells("A1:D1")
+    h2 = ws2["A1"]
+    h2.value = f"Umumiy ko'rsatkichlar · {plabel}"
+    h2.font = Font(bold=True, size=13, color="FFFFFF")
+    h2.fill = PatternFill("solid", fgColor="2F6FB4")
+    h2.alignment = Alignment(horizontal="center", vertical="center")
+    ws2.row_dimensions[1].height = 24
+    # Holatlar bo'yicha jadval (diagramma manbasi)
+    st_counts = {"new": 0, "in_progress": 0, "done": 0, "canceled": 0}
+    for r in rows:
+        st_counts[r["status"]] = st_counts.get(r["status"], 0) + 1
+    ws2["A3"] = "Holat"; ws2["B3"] = "Soni"
+    for c in ("A3", "B3"):
+        ws2[c].font = Font(bold=True, color="FFFFFF")
+        ws2[c].fill = PatternFill("solid", fgColor="3390EC")
+        ws2[c].alignment = Alignment(horizontal="center")
+    st_names = [("new", "Yangi"), ("in_progress", "Jarayonda"), ("done", "Yakunlangan"), ("canceled", "Bekor")]
+    for i, (k, nm) in enumerate(st_names, 4):
+        ws2.cell(row=i, column=1, value=nm)
+        ws2.cell(row=i, column=2, value=st_counts.get(k, 0))
+    pie = PieChart()
+    pie.title = "Murojaatlar holati"
+    pie.add_data(Reference(ws2, min_col=2, min_row=3, max_row=7), titles_from_data=True)
+    pie.set_categories(Reference(ws2, min_col=1, min_row=4, max_row=7))
+    pie.dataLabels = DataLabelList(); pie.dataLabels.showPercent = True
+    pie.height, pie.width = 7.5, 11
+    ws2.add_chart(pie, "D3")
+    # Filiallar bo'yicha (yakunlangan)
+    br = await q.branch_counts(since or "0000-01-01 00:00:00")
+    start_r = 10
+    ws2.cell(row=start_r, column=1, value="Filial").font = Font(bold=True, color="FFFFFF")
+    ws2.cell(row=start_r, column=2, value="Yakunlangan").font = Font(bold=True, color="FFFFFF")
+    for cc in (1, 2):
+        ws2.cell(row=start_r, column=cc).fill = PatternFill("solid", fgColor="2F9E44")
+        ws2.cell(row=start_r, column=cc).alignment = Alignment(horizontal="center")
+    for i, b in enumerate(br, start_r + 1):
+        ws2.cell(row=i, column=1, value=b["name"])
+        ws2.cell(row=i, column=2, value=b["cnt"])
+    if br:
+        bar = BarChart(); bar.type = "bar"; bar.title = "Filiallar kesimi (yakunlangan)"
+        bar.add_data(Reference(ws2, min_col=2, min_row=start_r, max_row=start_r + len(br)),
+                     titles_from_data=True)
+        bar.set_categories(Reference(ws2, min_col=1, min_row=start_r + 1, max_row=start_r + len(br)))
+        bar.height, bar.width = max(6, len(br) * 1.2), 12
+        bar.legend = None
+        ws2.add_chart(bar, "D18")
+    ws2.column_dimensions["A"].width = 22
+    ws2.column_dimensions["B"].width = 13
+
     buf = _io.BytesIO()
     wb.save(buf)
     try:
@@ -2078,6 +2178,8 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/close_stale", api_admin_close_stale)
     app.router.add_get("/api/admin/bc_pending", api_admin_bc_pending)
     app.router.add_post("/api/admin/bc_cancel", api_admin_bc_cancel)
+    app.router.add_get("/api/admin/stats", api_admin_stats)
+    app.router.add_get("/api/admin/branch_detail", api_admin_branch_detail)
     app.router.add_get("/api/admin/settings", api_admin_settings)
     app.router.add_post("/api/admin/settings_save", api_admin_settings_save)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
