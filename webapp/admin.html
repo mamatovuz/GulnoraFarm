@@ -1527,16 +1527,20 @@ const DELSVG='<svg class="ic" viewBox="0 0 24 24" style="width:19px;height:19px"
 
 // ---- Filiallar ----
 let BRANCH_REGIONS=[];
+let BRANCHES_BY_ID={};
 async function svBranches(){
   const r=await q("/api/admin/branches","GET",auth()); if(!r.ok) return;
   BRANCH_REGIONS=[...new Set(r.items.map(b=>b.region).filter(Boolean))].sort();
+  BRANCHES_BY_ID={};
+  r.items.forEach(b=>{ BRANCHES_BY_ID[b.id]=b; });
   const box=document.getElementById("sv-body");
   // Hududlar bo'yicha guruhlab ko'rsatamiz
   const groups={};
   r.items.forEach(b=>{ const k=b.region||"Boshqa"; (groups[k]=groups[k]||[]).push(b); });
   const gkeys=Object.keys(groups).sort();
+  // MUHIM: id orqali uzatamiz — nomida apostrof (Qo'rg'ontepa) bo'lsa ham buzilmaydi
   const rowHtml=b=>`
-      <div class="lrow" style="cursor:pointer" onclick='brForm(${JSON.stringify(b)})'>
+      <div class="lrow" style="cursor:pointer" onclick="brForm(${b.id})">
         <div class="mid" style="min-width:0"><div class="nm"><span>${esc(b.name)}</span></div>
           <div class="sub">${esc(b.address)||"—"} · ${b.open}–${b.close}</div></div>
         <svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg>
@@ -1545,8 +1549,7 @@ async function svBranches(){
       <div style="font-size:12.5px;font-weight:600;color:var(--hint);margin:12px 4px 5px">${esc(g)} <span style="font-weight:400">(${groups[g].length})</span></div>
       <div class="lrows">${groups[g].map(rowHtml).join("")}</div>`).join("")
      : '<div class="empty">Filial yo\'q</div>')
-    + `<button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>
-    <div id="br-form"></div>`;
+    + `<button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>`;
 }
 function parseRegion(reg){
   reg=(reg||"").trim();
@@ -1573,7 +1576,10 @@ function brRegPreview(){
   if(p) p.textContent = r ? ("Bo'lim: "+r) : "Bo'lim tanlanmagan → \"Boshqa\"";
 }
 function closeBrSheet(){ document.getElementById("brsheet").classList.add("hide"); }
-function brForm(b){
+function brForm(idOrObj){
+  // id (yangi refaktor) yoki obyekt (eski chaqiruv) — ikkalasini ham qabul qilamiz
+  const b = (idOrObj==null) ? null
+          : (typeof idOrObj==="object" ? idOrObj : (BRANCHES_BY_ID[idOrObj]||null));
   const dl=BRANCH_REGIONS.map(r=>`<option value="${esc(r)}">`).join("");
   const pr=parseRegion(b?b.region:"");
   const chip=(t,label)=>`<button data-t="${t}" class="${pr.type===t?'on':''}" onclick="brRegType(this)">${label}</button>`;
