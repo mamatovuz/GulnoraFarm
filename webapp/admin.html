@@ -1537,14 +1537,46 @@ async function svBranches(){
     + `<button class="morebtn" onclick="brForm(null)">＋ Filial qo'shish</button>
     <div id="br-form"></div>`;
 }
+function parseRegion(reg){
+  reg=(reg||"").trim();
+  if(/\sshahri$/i.test(reg)) return {type:"shahar", name:reg.replace(/\sshahri$/i,"")};
+  if(/\stumani$/i.test(reg)) return {type:"tuman", name:reg.replace(/\stumani$/i,"")};
+  return {type:"", name:reg};
+}
+function buildRegion(){
+  const t=(document.querySelector("#br-rtype button.on")||{}).dataset;
+  const ty=t?t.t:"";
+  const nm=(document.getElementById("br-rname").value||"").trim();
+  if(!nm) return "";
+  if(ty==="shahar") return nm+" shahri";
+  if(ty==="tuman") return nm+" tumani";
+  return nm;
+}
+function brRegType(el){
+  document.querySelectorAll("#br-rtype button").forEach(b=>b.classList.toggle("on", b===el));
+  brRegPreview();
+}
+function brRegPreview(){
+  const r=buildRegion();
+  const p=document.getElementById("br-rpreview");
+  if(p) p.textContent = r ? ("Bo'lim: "+r) : "Bo'lim tanlanmagan → \"Boshqa\"";
+}
 function brForm(b){
   const dl=BRANCH_REGIONS.map(r=>`<option value="${esc(r)}">`).join("");
+  const pr=parseRegion(b?b.region:"");
+  const chip=(t,label)=>`<button data-t="${t}" class="${pr.type===t?'on':''}" onclick="brRegType(this)">${label}</button>`;
   document.getElementById("br-form").innerHTML = `
     <div class="card" style="margin-top:12px"><h3>${b?"Tahrirlash":"Yangi filial"}</h3>
     <div class="frm">
-      <input id="br-name" placeholder="Nomi" value="${b?esc(b.name):''}">
-      <input id="br-region" placeholder="Hudud (masalan: Andijon shahri)" list="br-regions" value="${b?esc(b.region||''):''}">
+      <input id="br-name" placeholder="Filial nomi" value="${b?esc(b.name):''}">
+      <label style="margin-top:4px">Bo'lim (hudud)</label>
+      <div class="seg" id="br-rtype" style="margin:0">
+        ${chip("shahar","🏙 Shahar")}${chip("tuman","🏘 Tuman")}${chip("","Boshqa")}
+      </div>
+      <input id="br-rname" placeholder="Hudud nomi (masalan: Andijon)" list="br-regions"
+        value="${esc(pr.name)}" oninput="brRegPreview()">
       <datalist id="br-regions">${dl}</datalist>
+      <div id="br-rpreview" style="font-size:12.5px;color:var(--link);font-weight:600;margin:-2px 2px 4px"></div>
       <input id="br-addr" placeholder="Manzil" value="${b?esc(b.address):''}">
       <input id="br-phone" placeholder="Telefon" value="${b?esc(b.phone):''}">
       <div style="display:flex;gap:8px">
@@ -1552,16 +1584,19 @@ function brForm(b){
         <input id="br-close" placeholder="23:00" value="${b?b.close:'23:00'}">
       </div>
       <button class="sbtn" onclick="brSave(${b?b.id:'null'})">Saqlash</button>
-      <div style="font-size:12px;color:var(--hint)">Hudud — mijozga filiallar shahar/tuman bo'yicha guruhlab chiqadi. Bo'sh qoldirsangiz "Boshqa"ga tushadi.</div>
+      <div style="font-size:12px;color:var(--hint)">Bo'lim — mijozga filiallar shahar/tuman bo'yicha guruhlab chiqadi. "Boshqa" tanlasangiz alohida bo'limga tushadi.</div>
       ${b&&!b.has_loc?'<div style="font-size:12px;color:var(--hint)">Lokatsiyani botdagi admin panel orqali qo\'shasiz</div>':''}
     </div></div>`;
+  brRegPreview();
   document.getElementById("br-name").focus();
 }
 async function brSave(id){
+  const name=(document.getElementById("br-name").value||"").trim();
+  if(!name){ tg.showAlert("Filial nomini kiriting"); return; }
   const r=await q("/api/admin/branch_save","POST",Object.assign(auth(),{id,
-    name:document.getElementById("br-name").value, address:document.getElementById("br-addr").value,
+    name, address:document.getElementById("br-addr").value,
     phone:document.getElementById("br-phone").value, open:document.getElementById("br-open").value,
-    close:document.getElementById("br-close").value, region:document.getElementById("br-region").value}));
+    close:document.getElementById("br-close").value, region:buildRegion()}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svBranches();
 }
 function brDel(id){ tg.showConfirm("Filialni o'chirasizmi?", async ok=>{ if(!ok)return;
