@@ -49,10 +49,9 @@ async def nearest_ask(message: Message, state: FSMContext):
 
 
 async def _select_branch_for_order(bot, user_id, order_id, branch_id):
-    """Operator so'rovi bo'yicha tanlangan filialni murojaatga va profilga yozadi.
-    Filial oldin bo'lgan bo'lsa ham, har doim yangisiga o'zgaradi."""
+    """Operator so'rovi bo'yicha tanlangan filialni FAQAT shu murojaatga yozadi.
+    Mijozning profil filiali (asosiy) o'zgarmaydi — eski holida qoladi."""
     await q.set_order_branch(order_id, branch_id)
-    await q.set_user_branch(user_id, branch_id)   # har doim yangisiga almashadi
     await update_group_card(bot, order_id)
     order = await q.get_order(order_id)
     op = await q.get_operator(order["operator_id"]) if order and order["operator_id"] else None
@@ -274,6 +273,53 @@ async def faq_back(call: CallbackQuery):
     await call.answer()
 
 
+# ---------------- Majburiy profil filiali (Retsept/Bog'lanish uchun) ----------------
+async def ensure_branch(target, uid, lang) -> bool:
+    """Foydalanuvchida filial bo'lmasa — tanlashga majbur qiladi (True qaytaradi = bloklandi).
+    Filial bor bo'lsa False (amal davom etadi)."""
+    user = await q.get_user(uid)
+    if user and user["branch_id"]:
+        return False
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        markup = kb.pick_branch_regions_kb(regions, lang)
+    else:
+        markup = kb.pick_branch_list_kb(await q.list_branches(), lang)
+    await target.answer(loc.t("must_select_branch", lang), reply_markup=markup)
+    return True
+
+
+@router.callback_query(F.data.startswith("pbreg:"))
+async def pb_region_pick(call: CallbackQuery):
+    lang = await q.get_lang(call.from_user.id)
+    idx = int(call.data.split(":")[1])
+    regions = await q.list_regions()
+    if idx >= len(regions):
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    region = regions[idx]["reg"]
+    branches = await q.branches_in_region(region)
+    try:
+        await call.message.edit_text(
+            loc.t("ask_branch_region", lang, region=region),
+            reply_markup=kb.pick_branch_list_kb(branches, lang, with_back=True))
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data == "pbback")
+async def pb_region_back(call: CallbackQuery):
+    lang = await q.get_lang(call.from_user.id)
+    regions = await q.list_regions()
+    try:
+        await call.message.edit_text(loc.t("must_select_branch", lang),
+                                     reply_markup=kb.pick_branch_regions_kb(regions, lang))
+    except Exception:
+        pass
+    await call.answer()
+
+
 # ---------------- Filiallar ----------------
 @router.message(F.text.in_(loc.labels("branches")))
 async def branches_menu(message: Message, state: FSMContext):
@@ -391,6 +437,8 @@ async def join_team(message: Message, state: FSMContext):
 @router.message(F.text.in_(loc.labels("contact")))
 async def contact_section(message: Message, state: FSMContext):
     lang = await q.get_lang(message.from_user.id)
+    if await ensure_branch(message, message.from_user.id, lang):
+        return   # filial tanlanmagan -> avval filialni tanlaydi
     text = await q.get_setting("contact_text")
     await state.set_state(ContactFlow.waiting_message)
     await message.answer(

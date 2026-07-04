@@ -31,6 +31,9 @@ async def ask_order(message: Message, state: FSMContext):
     if not user or not user["phone"]:
         await message.answer(loc.t("need_register", lang))
         return
+    from handlers.menu import ensure_branch
+    if await ensure_branch(message, message.from_user.id, lang):
+        return   # filial tanlanmagan -> avval filialni tanlaydi
     await state.set_state(OrderFlow.waiting_content)
     await message.answer(loc.t("order_ask", lang), reply_markup=kb.cancel_inline("cancel_order", lang))
 
