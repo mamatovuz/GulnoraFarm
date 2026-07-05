@@ -1110,6 +1110,100 @@ async def set_setting(key, value):
     await db.commit()
 
 
+# ============================ ADMINLAR ============================
+async def find_user_by_username(username: str):
+    """@username orqali botdan foydalangan mijozni topadi (id aniqlash uchun)."""
+    if not username:
+        return None
+    username = username.lstrip("@").strip()
+    if not username:
+        return None
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,))
+    return await cur.fetchone()
+
+
+async def list_admins():
+    """CRM panelidan qo'shilgan adminlar ro'yxati."""
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM admins ORDER BY added_at DESC")
+    return await cur.fetchall()
+
+
+async def admin_telegram_ids() -> set:
+    """DB'dagi adminlarning telegram_id to'plami (NULL bo'lmaganlar)."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT telegram_id FROM admins WHERE telegram_id IS NOT NULL")
+    return {row["telegram_id"] for row in await cur.fetchall()}
+
+
+async def add_admin(telegram_id, username, name, added_by=None):
+    """Adminni qo'shadi. telegram_id yoki username'dan biri bo'lishi kifoya."""
+    db = await get_db()
+    username = (username or "").lstrip("@").strip() or None
+    await db.execute(
+        "INSERT INTO admins (telegram_id, username, name, added_by, added_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(telegram_id) DO UPDATE SET "
+        "username = COALESCE(excluded.username, admins.username), "
+        "name = COALESCE(excluded.name, admins.name)",
+        (telegram_id, username, name, added_by, now()),
+    )
+    await db.commit()
+
+
+async def admin_exists(telegram_id=None, username=None) -> bool:
+    db = await get_db()
+    if telegram_id is not None:
+        cur = await db.execute(
+            "SELECT 1 FROM admins WHERE telegram_id = ?", (telegram_id,))
+        if await cur.fetchone():
+            return True
+    if username:
+        username = username.lstrip("@").strip()
+        cur = await db.execute(
+            "SELECT 1 FROM admins WHERE username = ? COLLATE NOCASE", (username,))
+        if await cur.fetchone():
+            return True
+    return False
+
+
+async def remove_admin(telegram_id=None, username=None):
+    db = await get_db()
+    if telegram_id is not None:
+        await db.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
+    elif username:
+        await db.execute(
+            "DELETE FROM admins WHERE username = ? COLLATE NOCASE",
+            (username.lstrip("@").strip(),))
+    await db.commit()
+
+
+async def claim_pending_admin(telegram_id: int, username: str) -> bool:
+    """username orqali qo'shilgan (telegram_id yo'q) adminni,
+    o'sha shaxs botni ochganda, telegram_id bilan bog'laydi.
+    Bog'lansa True qaytaradi."""
+    if not username:
+        return False
+    username = username.lstrip("@").strip()
+    if not username:
+        return False
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT rowid FROM admins WHERE telegram_id IS NULL "
+        "AND username = ? COLLATE NOCASE LIMIT 1", (username,))
+    row = await cur.fetchone()
+    if not row:
+        return False
+    await db.execute(
+        "UPDATE admins SET telegram_id = ? WHERE rowid = ?",
+        (telegram_id, row["rowid"]))
+    await db.commit()
+    return True
+
+
 # ============================ STATISTIKA ============================
 async def general_stats():
     db = await get_db()

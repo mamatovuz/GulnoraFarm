@@ -129,8 +129,22 @@ STATUS_LABEL = {
 }
 
 
+# CRM'dan qo'shilgan adminlar (DB) — bot xotirasida keshlanadi.
+# Sinxron is_admin() tez ishlashi uchun; add/remove'da refresh_admins() chaqiriladi.
+_DB_ADMIN_IDS: set = set()
+
+
+async def refresh_admins() -> None:
+    """DB'dagi admin id'larini qayta yuklaydi (keshni yangilaydi)."""
+    global _DB_ADMIN_IDS
+    try:
+        _DB_ADMIN_IDS = await q.admin_telegram_ids()
+    except Exception:
+        pass
+
+
 def is_admin(telegram_id: int) -> bool:
-    return telegram_id in ADMIN_IDS
+    return telegram_id in ADMIN_IDS or telegram_id in _DB_ADMIN_IDS
 
 
 def _within(start: str, end: str, now_hm: str) -> bool:

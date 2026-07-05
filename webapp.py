@@ -1013,6 +1013,13 @@ def _admin_sign(tg_id) -> str:
                     hashlib.sha256).hexdigest()
 
 
+async def _is_admin(tg_id) -> bool:
+    """Admin — .env ADMIN_IDS'da yoki CRM'dan qo'shilgan (DB) adminlar."""
+    if tg_id in ADMIN_IDS:
+        return True
+    return tg_id in await q.admin_telegram_ids()
+
+
 async def _auth_admin(request, data):
     """Admin sessiya tokenini tekshiradi (avto-login orqali olingan)."""
     try:
@@ -1020,7 +1027,7 @@ async def _auth_admin(request, data):
     except (TypeError, ValueError):
         return None
     token = str(data.get("token", ""))
-    if tg not in ADMIN_IDS:
+    if not await _is_admin(tg):
         return None
     if not token or not hmac.compare_digest(_admin_sign(tg), token):
         return None
@@ -1045,7 +1052,12 @@ async def api_admin_login(request):
     if not user:
         return _json({"ok": False, "error": "Telegram tekshiruvi o'tmadi. "
                                             "Asosiy botdagi Mini app tugmasidan oching."})
-    if user["id"] not in ADMIN_IDS:
+    # username orqali qo'shilgan admin birinchi marta ochsa — id'sini bog'lab qo'yamiz
+    if user["id"] not in ADMIN_IDS and user.get("username"):
+        if await q.claim_pending_admin(user["id"], user["username"]):
+            from utils import refresh_admins
+            await refresh_admins()
+    if not await _is_admin(user["id"]):
         return _json({"ok": False, "error": "Siz admin emassiz."})
     return _json({"ok": True, "admin_id": user["id"],
                   "name": user.get("first_name") or "Admin",
@@ -1823,6 +1835,104 @@ async def api_admin_settings_save(request):
     return _json({"ok": True})
 
 
+# ---------------- Admin: adminlarni boshqarish ----------------
+async def api_admin_admins(request):
+    tg = await _auth_admin(request, request.query)
+    if not tg:
+        return _json({"ok": False}, 401)
+    items = []
+    # .env ADMIN_IDS — asosiy (o'chirib bo'lmaydigan) adminlar
+    for aid in ADMIN_IDS:
+        u = await q.get_user(aid)
+        items.append({
+            "telegram_id": aid,
+            "username": (u["username"] if u and u["username"] else None),
+            "name": (u["full_name"] if u and u["full_name"] else "Admin"),
+            "super": True, "you": aid == tg})
+    # DB'dan qo'shilganlar
+    for a in await q.list_admins():
+        items.append({
+            "telegram_id": a["telegram_id"],
+            "username": a["username"],
+            "name": a["name"] or (("@" + a["username"]) if a["username"]
+                                  else str(a["telegram_id"])),
+            "pending": a["telegram_id"] is None,
+            "super": False, "you": a["telegram_id"] == tg})
+    return _json({"ok": True, "items": items})
+
+
+async def api_admin_admin_add(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    ident = str(body.get("ident", "")).strip()
+    if not ident:
+        return _json({"ok": False, "error": "ID yoki username kiriting"})
+
+    telegram_id = None
+    username = None
+    name = None
+    if ident.lstrip("@").isdigit() and not ident.startswith("@"):
+        # Raqam — telegram_id
+        telegram_id = int(ident)
+        u = await q.get_user(telegram_id)
+        if u:
+            username = u["username"]
+            name = u["full_name"]
+    else:
+        # Username
+        username = ident.lstrip("@").strip()
+        if not username:
+            return _json({"ok": False, "error": "Username noto'g'ri"})
+        u = await q.find_user_by_username(username)
+        if u:
+            telegram_id = u["telegram_id"]
+            name = u["full_name"]
+
+    # Allaqachon adminmi?
+    if telegram_id is not None and (telegram_id in ADMIN_IDS
+                                    or await q.admin_exists(telegram_id=telegram_id)):
+        return _json({"ok": False, "error": "Bu foydalanuvchi allaqachon admin"})
+    if username and await q.admin_exists(username=username):
+        return _json({"ok": False, "error": "Bu username allaqachon admin"})
+
+    await q.add_admin(telegram_id, username, name, added_by=tg)
+    from utils import refresh_admins
+    await refresh_admins()
+    pending = telegram_id is None
+    return _json({"ok": True, "pending": pending})
+
+
+async def api_admin_admin_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    tid = body.get("telegram_id")
+    username = body.get("username")
+    try:
+        tid = int(tid) if tid is not None and str(tid) != "" else None
+    except (TypeError, ValueError):
+        tid = None
+    # .env adminlarini o'chirib bo'lmaydi
+    if tid is not None and tid in ADMIN_IDS:
+        return _json({"ok": False, "error": "Asosiy adminni o'chirib bo'lmaydi"})
+    # O'zini o'chirib qo'yishdan saqlaymiz
+    if tid is not None and tid == tg:
+        return _json({"ok": False, "error": "O'zingizni o'chira olmaysiz"})
+    await q.remove_admin(telegram_id=tid, username=username)
+    from utils import refresh_admins
+    await refresh_admins()
+    return _json({"ok": True})
+
+
 async def api_admin_broadcast(request):
     try:
         body = await request.json()
@@ -2221,6 +2331,9 @@ def build_app() -> web.Application:
     app.router.add_get("/api/admin/branch_detail", api_admin_branch_detail)
     app.router.add_get("/api/admin/settings", api_admin_settings)
     app.router.add_post("/api/admin/settings_save", api_admin_settings_save)
+    app.router.add_get("/api/admin/admins", api_admin_admins)
+    app.router.add_post("/api/admin/admin_add", api_admin_admin_add)
+    app.router.add_post("/api/admin/admin_del", api_admin_admin_del)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
     app.router.add_post("/api/admin/excel", api_admin_excel)
     return app

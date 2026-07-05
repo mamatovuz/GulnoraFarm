@@ -191,6 +191,16 @@ CREATE TABLE IF NOT EXISTS status_log (
     changed_by TEXT,
     changed_at TEXT
 );
+
+-- CRM panelidan qo'shilgan adminlar (.env ADMIN_IDS'ga qo'shimcha).
+-- telegram_id NULL bo'lishi mumkin — username orqali qo'shilgan, hali botni ochmagan admin.
+CREATE TABLE IF NOT EXISTS admins (
+    telegram_id INTEGER UNIQUE,
+    username    TEXT,
+    name        TEXT,
+    added_by    INTEGER,
+    added_at    TEXT
+);
 """
 
 DEFAULT_FAQS = [

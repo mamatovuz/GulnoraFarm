@@ -224,6 +224,10 @@ async def weekly_report_loop(bot):
 async def main():
     await init_db()
 
+    # CRM'dan qo'shilgan adminlarni keshga yuklaymiz
+    from utils import refresh_admins
+    await refresh_admins()
+
     # Operator tugmalari matnini bazadan yuklaymiz (admin o'zgartirgan bo'lsa)
     overrides = {}
     for key in list(kb.OP_BTN.keys()):
