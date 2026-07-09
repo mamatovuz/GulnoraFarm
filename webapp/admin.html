@@ -241,10 +241,15 @@
     .kpi{grid-template-columns:repeat(4,1fr)}
     .tile.wide{grid-column:span 2}
     /* Statistika kartalari 2 ustunli panel bo'lib joylashadi */
-    .cardgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
-    .cardgrid .card{margin-bottom:0}
-    /* Diagramma karta va xarita kartasi butun kenglikni egallaydi */
-    #linewrap{min-height:220px}
+    .cardgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+    .cardgrid .card{margin-bottom:0;padding:20px}
+    /* Asosiy dinamika grafigi va xarita — butun kenglik, katta */
+    .cardgrid .card.wide2{grid-column:1 / -1}
+    .card h3{font-size:16px;margin-bottom:14px}
+    .card h3 .sub{font-size:13.5px}
+    /* Donut kattaroqda markazda, ko'proq nafas oladi */
+    .donutrow{gap:28px;justify-content:center}
+    #linewrap{min-height:340px}
     /* Ro'yxat/yozishma ekranlarida ham markazlash */
     #trans .msgs2{padding-left:max(8px,calc((100% - 900px)/2));
                   padding-right:max(8px,calc((100% - 900px)/2))}
@@ -304,7 +309,7 @@
     <div class="kpi" id="kpigrid"></div>
 
     <div class="cardgrid">
-    <div class="card">
+    <div class="card wide2">
       <h3>Murojaatlar dinamikasi <span class="sub" id="line-sub"></span></h3>
       <div class="chartwrap" id="linewrap"></div>
     </div>
@@ -322,7 +327,7 @@
       <div class="chartwrap" id="barwrap"></div>
     </div>
 
-    <div class="card">
+    <div class="card wide2">
       <h3>Kun × soat xaritasi <span class="sub">qaysi kun/soatda ko'p murojaat</span></h3>
       <div style="display:flex;gap:14px;align-items:flex-start">
         <div id="hmwrap" style="flex:1;min-width:0;overflow-x:auto"></div>
@@ -573,6 +578,11 @@ function _isDesktop(){
   return ["tdesktop","macos","web","weba","webk","windows","linux"].includes(p) || window.innerWidth>=900;
 }
 function _wantsFS(){ return _QP.get("fs")==="1" || _isDesktop(); }
+// Keng ekran / to'liq ekran — diagrammalarni kattaroq chizamiz
+function bigChart(){
+  let fs=false; try{ fs=!!tg.isFullscreen; }catch(e){}
+  return fs || window.innerWidth>=900;
+}
 function _applyInsets(){
   let t=0;
   try{ if(tg.isFullscreen){
@@ -592,7 +602,7 @@ function toggleFS(){
   }catch(e){ tg.showAlert && tg.showAlert("Bu qurilmada to'liq ekran qo'llab-quvvatlanmaydi"); }
 }
 try{
-  tg.onEvent && tg.onEvent("fullscreenChanged", ()=>{ _applyInsets(); if(DASH) renderLine(DASH.series); });
+  tg.onEvent && tg.onEvent("fullscreenChanged", ()=>{ _applyInsets(); if(DASH) renderAll(); });
   tg.onEvent && tg.onEvent("safeAreaChanged", _applyInsets);
   tg.onEvent && tg.onEvent("contentSafeAreaChanged", _applyInsets);
 }catch(e){}
@@ -863,11 +873,13 @@ function renderHeatmap(grid){
   if(!grid.length){ wrap.innerHTML='<div class="empty">Malumot yoq</div>'; leg.innerHTML=""; return; }
   let mx=0; grid.forEach(row=>row.forEach(c=>{ if(c[0]>mx) mx=c[0]; }));
   if(!mx){ wrap.innerHTML='<div class="empty">Bu davrda malumot yoq</div>'; leg.innerHTML=""; return; }
+  const big = bigChart();
+  const chh = big?26:17, cff = big?12:9.5;
   const cellBg=v=>{ if(!v) return "var(--sec)";
     const a=0.14+0.86*Math.pow(v/mx,0.6); return `rgba(240,120,20,${a.toFixed(2)})`; };
   const cellFg=v=>{ if(!v) return "var(--hint)";
     return (0.14+0.86*Math.pow(v/mx,0.6))>0.55 ? "#fff" : "var(--text)"; };
-  let h='<div style="display:grid;grid-template-columns:44px repeat(7,minmax(34px,1fr));gap:2px;min-width:330px">';
+  let h=`<div style="display:grid;grid-template-columns:${big?54:44}px repeat(7,minmax(${big?46:34}px,1fr));gap:2px;min-width:${big?420:330}px">`;
   h+='<div></div>';
   HKUN.forEach((d,i)=>{ h+=`<div style="text-align:center;font-size:11px;font-weight:600;padding-bottom:3px;color:${i>=5?"#e5484d":"var(--hint)"}">${d}</div>`; });
   for(let hr=0;hr<24;hr++){
@@ -875,8 +887,8 @@ function renderHeatmap(grid){
     for(let d=0;d<7;d++){
       const c=grid[hr][d];
       h+=`<div class="hmc" data-h="${hr}" data-d="${d}" data-c="${c[0]}" data-dn="${c[1]}"
-        style="height:17px;border-radius:3px;background:${cellBg(c[0])};color:${cellFg(c[0])};
-        font-size:9.5px;display:flex;align-items:center;justify-content:center;cursor:default;font-variant-numeric:tabular-nums">${c[0]||""}</div>`;
+        style="height:${chh}px;border-radius:3px;background:${cellBg(c[0])};color:${cellFg(c[0])};
+        font-size:${cff}px;display:flex;align-items:center;justify-content:center;cursor:default;font-variant-numeric:tabular-nums">${c[0]||""}</div>`;
     }
   }
   h+='</div>';
@@ -1056,40 +1068,54 @@ function renderLine(series){
     : (GR==="hour" ? "soatlar bo'yicha" : GR==="week" ? "haftalar bo'yicha"
        : GR==="month" ? "oylar bo'yicha" : "kunlar bo'yicha");
   if(!series || series.length===0){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
-  const W = Math.max(wrap.clientWidth||300, 260), H = 170;
-  const padL=30, padR=14, padT=12, padB=22;
+  const big = bigChart();
+  const W = Math.max(wrap.clientWidth||300, 260), H = big?360:170;
+  const padL=big?42:30, padR=big?22:14, padT=big?20:12, padB=big?32:22;
+  const fY=big?13:10.5, fX=big?12.5:10.5, sw=big?2.8:2;
   const pw = W-padL-padR, ph = H-padT-padB;
   const mx = Math.max(...series.map(s=>s.total), 1);
   const n = series.length;
   const X = i => padL + (n===1 ? pw/2 : (i/(n-1))*pw);
   const Y = v => padT + ph - (v/mx)*ph;
   const hint = cssv("--hint")||"#8a929c", sep = cssv("--sep")||"rgba(128,128,128,.2)", bg = cssv("--bg")||"#fff";
-  // grid (3 chiziq) + y yorliqlar
+  // to'ldirilgan gradient (chiziq ostida) — kattaroq ko'rinishda chiroyliroq
+  const gid = "lg"+Math.random().toString(36).slice(2,7);
+  // grid chiziqlari + y yorliqlar (kattaroqda 4 chiziq)
+  const steps = big?4:2;
   let g="";
-  for(let i=0;i<=2;i++){ const v=Math.round(mx*i/2), y=Y(v);
+  for(let i=0;i<=steps;i++){ const v=Math.round(mx*i/steps), y=Y(v);
     g += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${sep}" stroke-width="1"/>`
-       + `<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="${hint}">${v}</text>`; }
-  // x yorliqlar: bosh / o'rta / oxiri
+       + `<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="${fY}" fill="${hint}">${v}</text>`; }
+  // x yorliqlar
   const lab = i => { const d=series[i].d||"";
     if(GR==="hour") return d;
     if(GR==="week"){ const w=d.split("W")[1]||""; return w+"-h"; }
     return d.slice(GR==="month"?2:5); };
-  const xIdx = n<=2 ? [...series.keys()] : [0, Math.floor((n-1)/2), n-1];
-  let xl=""; xIdx.forEach(i=>{ xl += `<text x="${X(i)}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="${hint}">${esc(lab(i))}</text>`; });
-  // chiziq + nuqtalar
-  let path="", dots="";
+  // kattaroqda ko'proq yorliq (bo'lakni to'ldiradi)
+  let xIdx;
+  if(n<=2){ xIdx=[...series.keys()]; }
+  else if(big){ const cnt=Math.min(n, Math.max(3, Math.floor(pw/70))); xIdx=[]; for(let k=0;k<cnt;k++) xIdx.push(Math.round(k*(n-1)/(cnt-1))); xIdx=[...new Set(xIdx)]; }
+  else { xIdx=[0, Math.floor((n-1)/2), n-1]; }
+  let xl=""; xIdx.forEach(i=>{ xl += `<text x="${X(i)}" y="${H-(big?10:6)}" text-anchor="middle" font-size="${fX}" fill="${hint}">${esc(lab(i))}</text>`; });
+  // chiziq + to'ldirish
+  let path="", area="", dots="";
   series.forEach((s,i)=>{ path += (i?" L":"M")+X(i).toFixed(1)+" "+Y(s.total).toFixed(1); });
-  if(n===1){ dots = `<circle cx="${X(0)}" cy="${Y(series[0].total)}" r="4.5" fill="${C.accent}"/>`; }
+  area = path + ` L ${X(n-1).toFixed(1)} ${(padT+ph).toFixed(1)} L ${X(0).toFixed(1)} ${(padT+ph).toFixed(1)} Z`;
+  if(n===1){ dots = `<circle cx="${X(0)}" cy="${Y(series[0].total)}" r="${big?6:4.5}" fill="${C.accent}"/>`; }
   // oxirgi nuqta + qiymat yorlig'i
   const li=n-1, lx=X(li), ly=Y(series[li].total);
-  const lastLbl = `<circle cx="${lx}" cy="${ly}" r="4" fill="${C.accent}" stroke="${bg}" stroke-width="2"/>
-    <text x="${lx}" y="${ly-9}" text-anchor="${li===n-1?'end':'middle'}" font-size="11.5" font-weight="600" fill="${cssv('--text')}">${series[li].total}</text>`;
-  wrap.innerHTML = `<svg width="${W}" height="${H}">
+  const lastLbl = `<circle cx="${lx}" cy="${ly}" r="${big?5.5:4}" fill="${C.accent}" stroke="${bg}" stroke-width="2"/>
+    <text x="${lx}" y="${ly-(big?12:9)}" text-anchor="${li===n-1?'end':'middle'}" font-size="${big?15:11.5}" font-weight="700" fill="${cssv('--text')}">${series[li].total}</text>`;
+  wrap.innerHTML = `<svg width="${W}" height="${H}" style="display:block">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${C.accent}" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="${C.accent}" stop-opacity="0"/></linearGradient></defs>
     ${g}${xl}
-    <path d="${path}" fill="none" stroke="${C.accent}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${area}" fill="url(#${gid})" stroke="none"/>
+    <path d="${path}" fill="none" stroke="${C.accent}" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}${lastLbl}
     <line id="ln-cross" x1="0" y1="${padT}" x2="0" y2="${padT+ph}" stroke="${hint}" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>
-    <circle id="ln-mark" r="4.5" fill="${C.accent}" stroke="${bg}" stroke-width="2" style="display:none"/>
+    <circle id="ln-mark" r="${big?6:4.5}" fill="${C.accent}" stroke="${bg}" stroke-width="2" style="display:none"/>
     <rect x="${padL}" y="${padT}" width="${pw}" height="${ph}" fill="transparent" id="ln-hit"/>
   </svg>`;
   const svg = wrap.querySelector("svg"), hit = svg.querySelector("#ln-hit"),
@@ -1124,7 +1150,8 @@ function renderDonut(k){
   leg.innerHTML = parts.map(p=>`<div class="li"><span class="dot" style="background:${p.col}"></span>
     <span class="nm">${p.label}</span><span class="vl">${p.v} · ${total?Math.round(p.v/total*100):0}%</span></div>`).join("");
   if(total===0){ wrap.innerHTML = '<div class="empty" style="width:130px">Ma\'lumot yo\'q</div>'; return; }
-  const S=132, cx=S/2, cy=S/2, r=S/2-8, sw=16, bg=cssv("--bg")||"#fff";
+  const big = bigChart();
+  const S=big?200:132, cx=S/2, cy=S/2, sw=big?26:16, r=S/2-(big?12:8), bg=cssv("--bg")||"#fff";
   let a0=-Math.PI/2, segs="";
   const bounds=[];   // segment chegara burchaklari (oraliq chiziqlar uchun)
   const visible=parts.filter(p=>p.v).length;
@@ -1152,8 +1179,8 @@ function renderDonut(k){
   }
   wrap.innerHTML = `<svg width="${S}" height="${S}" style="display:block">
     <g stroke-linecap="butt">${segs}</g>${gaps}
-    <text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="21" font-weight="700" fill="${cssv('--text')}">${total}</text>
-    <text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="10.5" fill="${cssv('--hint')}">murojaat</text>
+    <text x="${cx}" y="${cy-(big?3:2)}" text-anchor="middle" font-size="${big?32:21}" font-weight="700" fill="${cssv('--text')}">${total}</text>
+    <text x="${cx}" y="${cy+(big?22:15)}" text-anchor="middle" font-size="${big?13:10.5}" fill="${cssv('--hint')}">murojaat</text>
   </svg>`;
   wrap.querySelectorAll("[data-l]").forEach(el=>{
     const show = ev=>{ const t=ev.touches?ev.touches[0]:ev;
@@ -1169,8 +1196,9 @@ function renderBars(hours){
   const data = hours.filter(h=>h.h>=6 || h.c>0);   // tungi bo'sh soatlarni qisqartiramiz
   const mx = Math.max(...data.map(d=>d.c), 1);
   if(mx===0 || data.every(d=>d.c===0)){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
-  const W = Math.max(wrap.clientWidth||300, 260), H = 150;
-  const padL=26, padR=8, padT=14, padB=20;
+  const big = bigChart();
+  const W = Math.max(wrap.clientWidth||300, 260), H = big?260:150;
+  const padL=big?34:26, padR=8, padT=big?20:14, padB=big?26:20;
   const pw=W-padL-padR, ph=H-padT-padB, n=data.length;
   const bw = Math.max(3, pw/n - 2);
   const hint=cssv("--hint"), sep=cssv("--sep");
