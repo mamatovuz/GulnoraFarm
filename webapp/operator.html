@@ -384,6 +384,19 @@
     <button class="iconbtn" onclick="closeChat()" title="Yakunlash"><svg class="ic" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
     <button class="iconbtn" onclick="hideChat()" title="O'chirish"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
   </div>
+  <style>
+    #fulfillbar{display:flex;gap:8px;padding:7px 12px;background:var(--bg);border-bottom:1px solid var(--sep)}
+    .ffbtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 6px;
+      border:1px solid var(--sep);border-radius:11px;background:var(--sec,#f1f1f4);color:var(--hint);
+      font-size:13px;font-weight:600;cursor:pointer;transition:transform .1s}
+    .ffbtn:active{transform:scale(.95)}
+    .ffbtn.ffon.d{background:#2f9e44;border-color:#2f9e44;color:#fff}
+    .ffbtn.ffon.p{background:#3390ec;border-color:#3390ec;color:#fff}
+  </style>
+  <div id="fulfillbar">
+    <button id="ff-delivery" class="ffbtn d" onclick="setFulfill('delivery')">🚚 Yetkazib berish</button>
+    <button id="ff-pickup" class="ffbtn p" onclick="setFulfill('pickup')">🏃 Olib ketish</button>
+  </div>
   <div id="notebanner" class="hide" onclick="openNote()"></div>
   <div id="msgs" class="msgs"></div>
   <div id="cmdpanel" class="hide panel"></div>
@@ -823,6 +836,7 @@ async function loadMsgs(scroll){
   document.getElementById("c-phone").textContent = r.client.phone || "";
   CURUNAME = r.client.username || "";
   applyChatStatus(r.status);
+  applyFulfill(r.fulfillment||"");
   const last = r.messages[r.messages.length-1] || {};
   const sig = r.messages.length + "|" + (last.time||"") + "|" + (last.file_id||"") + "|" + (last.text||"");
   if(!scroll && sig===lastSig) return;
@@ -866,6 +880,26 @@ setInterval(()=>{
 }, 30000);
 function startPoll(){ stopPoll(); pollTimer = setInterval(()=>{ if(CUR && !document.hidden) loadMsgs(false); }, 7000); }
 function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+// ---- Yetkazib berish / Olib ketish (faqat statistikaga) ----
+let CURFF="";
+function applyFulfill(kind){
+  CURFF = kind || "";
+  const d=document.getElementById("ff-delivery"), p=document.getElementById("ff-pickup");
+  if(!d||!p) return;
+  d.classList.toggle("ffon", CURFF==="delivery");
+  p.classList.toggle("ffon", CURFF==="pickup");
+}
+async function setFulfill(kind){
+  if(!CUR) return;
+  const prev = CURFF;
+  const next = (CURFF===kind) ? "" : kind;   // qayta bossa — belgini olib tashlaydi
+  applyFulfill(next);                          // darhol ko'rsatamiz (optimistik)
+  const r=await q("/api/cmd","POST",Object.assign(auth(),{order_id:CUR,cmd:"fulfillment",arg:next}));
+  if(!r.ok){ applyFulfill(prev); tg.showAlert("Saqlanmadi, qaytadan urinib ko'ring"); return; }
+  applyFulfill(r.fulfillment||"");
+  if(navigator.vibrate) navigator.vibrate(15);
+}
 
 // Murojaat yopilgan bo'lsa — yozish o'rniga "Davom ettirish" tugmasi
 let CURSTATUS="";

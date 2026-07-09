@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS orders (
     group_msg_id INTEGER,                         -- operatorlar guruhidagi xabar message_id
     bill_photo   TEXT,                            -- hisob-kitob rasmi (file_id)
     accepted_at  TEXT,                            -- operator qabul qilgan vaqt
-    last_operator_reminder_at TEXT                 -- yakunlash eslatmasi oxirgi yuborilgan vaqt
+    last_operator_reminder_at TEXT,                -- yakunlash eslatmasi oxirgi yuborilgan vaqt
+    fulfillment  TEXT                              -- yetkazish turi: delivery | pickup | NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -293,6 +294,10 @@ async def init_db():
         await db.commit()
     if "last_operator_reminder_at" not in ocols:
         await db.execute("ALTER TABLE orders ADD COLUMN last_operator_reminder_at TEXT")
+        await db.commit()
+    if "fulfillment" not in ocols:
+        # yetkazish turi: delivery (yetkazib berish) | pickup (olib ketish) | NULL
+        await db.execute("ALTER TABLE orders ADD COLUMN fulfillment TEXT")
         await db.commit()
 
     # Migratsiya: operators.last_active va availability ustunlari

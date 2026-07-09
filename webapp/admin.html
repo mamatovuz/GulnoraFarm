@@ -223,6 +223,35 @@
 
   /* Grafik kartalari sarlavhalari bir tekis */
   .card h3{letter-spacing:-.01em}
+
+  /* To'liq ekran (fullscreen) — Telegram yuqori boshqaruvi ostiga tushib qolmasin */
+  .screen{padding-top:var(--fs-top,0px)}
+
+  /* Davr tanlash tugmasi (kalendar) */
+  .calbtn{gap:5px}
+  /* Kesim: mos kelmaydigan variant o'chirilgan ko'rinadi */
+  #granseg button:disabled{opacity:.32;cursor:not-allowed}
+
+  /* ====== KOMPYUTER / NOUTBUK (keng ekran) ====== */
+  @media (min-width:900px){
+    /* Kontent juda cho'zilmasin — markazda, cheklangan kenglik */
+    .body{padding-left:max(20px,calc((100% - 1180px)/2));
+          padding-right:max(20px,calc((100% - 1180px)/2))}
+    /* KPI kartalar 4 ustun */
+    .kpi{grid-template-columns:repeat(4,1fr)}
+    .tile.wide{grid-column:span 2}
+    /* Statistika kartalari 2 ustunli panel bo'lib joylashadi */
+    .cardgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+    .cardgrid .card{margin-bottom:0}
+    /* Diagramma karta va xarita kartasi butun kenglikni egallaydi */
+    #linewrap{min-height:220px}
+    /* Ro'yxat/yozishma ekranlarida ham markazlash */
+    #trans .msgs2{padding-left:max(8px,calc((100% - 900px)/2));
+                  padding-right:max(8px,calc((100% - 900px)/2))}
+  }
+  @media (min-width:1400px){
+    .cardgrid{grid-template-columns:1fr 1fr 1fr}
+  }
 </style>
 </head>
 <body>
@@ -241,13 +270,28 @@
 <div id="app" class="screen hide">
   <!-- DASHBOARD -->
   <div id="tab-dash" class="body">
-    <div class="seg" id="periodseg">
+    <div class="chips" id="periodseg" style="padding-bottom:8px">
       <button data-p="today" onclick="setPeriod('today')">Bugun</button>
-      <button data-p="week" class="on" onclick="setPeriod('week')">Hafta</button>
+      <button data-p="week" class="on" onclick="setPeriod('week')">Joriy hafta</button>
+      <button data-p="lastweek" onclick="setPeriod('lastweek')">O'tgan hafta</button>
       <button data-p="month" onclick="setPeriod('month')">Oy</button>
+      <button data-p="3months" onclick="setPeriod('3months')">3 oy</button>
       <button data-p="year" onclick="setPeriod('year')">Yil</button>
-      <button onclick="openPeri()" title="Davr tanlash" style="flex:0 0 auto;padding:8px 11px">
-        <svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      <button class="calbtn" onclick="openPeri()" title="Boshqa davr tanlash">
+        <svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Davr
+      </button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:12px;color:var(--hint);flex:0 0 auto;font-weight:600">Kesim</span>
+      <div class="chips" id="granseg" style="padding-bottom:0;flex:1;min-width:0">
+        <button data-g="auto" class="on" onclick="setGran('auto')">Avto</button>
+        <button data-g="hour" onclick="setGran('hour')">Soatlik</button>
+        <button data-g="day" onclick="setGran('day')">Kunlik</button>
+        <button data-g="week" onclick="setGran('week')">Haftalik</button>
+        <button data-g="month" onclick="setGran('month')">Oylik</button>
+      </div>
+      <button id="fsbtn" onclick="toggleFS()" title="To'liq ekran" style="flex:0 0 auto;background:var(--sec);border:none;border-radius:9px;padding:7px;color:var(--link);cursor:pointer;display:flex">
+        <svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </button>
     </div>
     <div id="customlbl" class="hide" style="display:flex;align-items:center;justify-content:center;gap:8px;margin:-6px 0 10px">
@@ -259,6 +303,7 @@
     <div id="waitcard"></div>
     <div class="kpi" id="kpigrid"></div>
 
+    <div class="cardgrid">
     <div class="card">
       <h3>Murojaatlar dinamikasi <span class="sub" id="line-sub"></span></h3>
       <div class="chartwrap" id="linewrap"></div>
@@ -307,6 +352,7 @@
         </span></h3>
       <div id="topcl"></div>
     </div>
+    </div><!-- /cardgrid -->
   </div>
 
   <!-- MUROJAATLAR -->
@@ -517,7 +563,43 @@ const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
 const INIT = tg.initData || "";
 let ADM = { id: localStorage.getItem("adm_id"), token: localStorage.getItem("adm_token") };
 let PERIOD = "week";
+let GRAN = "auto";
 let DASH = null;
+
+// ---- To'liq ekran (fullscreen) + kompyuter versiyasi ----
+const _QP = new URLSearchParams(location.search);
+function _isDesktop(){
+  const p=(tg.platform||"").toLowerCase();
+  return ["tdesktop","macos","web","weba","webk","windows","linux"].includes(p) || window.innerWidth>=900;
+}
+function _wantsFS(){ return _QP.get("fs")==="1" || _isDesktop(); }
+function _applyInsets(){
+  let t=0;
+  try{ if(tg.isFullscreen){
+    t=((tg.contentSafeAreaInset&&tg.contentSafeAreaInset.top)||0)
+     +((tg.safeAreaInset&&tg.safeAreaInset.top)||0);
+  }}catch(e){}
+  document.documentElement.style.setProperty("--fs-top", t+"px");
+}
+function tryFullscreen(){
+  try{ if(tg.requestFullscreen && !tg.isFullscreen) tg.requestFullscreen(); }catch(e){}
+}
+function toggleFS(){
+  try{
+    if(tg.isFullscreen){ tg.exitFullscreen ? tg.exitFullscreen() : 0; }
+    else if(tg.requestFullscreen){ tg.requestFullscreen(); }
+    else { tg.expand && tg.expand(); }
+  }catch(e){ tg.showAlert && tg.showAlert("Bu qurilmada to'liq ekran qo'llab-quvvatlanmaydi"); }
+}
+try{
+  tg.onEvent && tg.onEvent("fullscreenChanged", ()=>{ _applyInsets(); if(DASH) renderLine(DASH.series); });
+  tg.onEvent && tg.onEvent("safeAreaChanged", _applyInsets);
+  tg.onEvent && tg.onEvent("contentSafeAreaChanged", _applyInsets);
+}catch(e){}
+if(_wantsFS()) setTimeout(tryFullscreen, 250);
+_applyInsets();
+// Keng ekranda chizmalar konteynerga moslashishi uchun qayta chizamiz
+window.addEventListener("resize", ()=>{ clearTimeout(window._rz); window._rz=setTimeout(()=>{ if(DASH) renderAll(); }, 200); });
 
 // Holat ranglari — validator (light+dark) dan o'tgan
 const C = { done:"#2f9e44", nw:"#d97706", canceled:"#e5484d", prog:"#3390ec", accent:"#3390ec" };
@@ -645,6 +727,28 @@ function setPeriod(p){
   PERIOD = p; CFROM=""; CTO=""; CLABEL="";
   document.getElementById("customlbl").classList.add("hide");
   document.querySelectorAll("#periodseg button").forEach(b=>b.classList.toggle("on", b.dataset.p===p));
+  updateGranAvail();
+  loadDash();
+}
+// ---- Kesim (2-filtr): Davrdan mustaqil ----
+function _spanDays(){
+  if(PERIOD==="custom" && CFROM && CTO){
+    return Math.abs(Math.round((new Date(CTO)-new Date(CFROM))/86400000))+1;
+  }
+  return {today:1,week:7,lastweek:7,month:31,"3months":90,year:366}[PERIOD]||7;
+}
+function updateGranAvail(){
+  const sp=_spanDays();
+  const allow = g => g==="hour" ? sp<=2 : (g==="day" ? sp<=370 : true);
+  document.querySelectorAll("#granseg button").forEach(b=>{ b.disabled = !allow(b.dataset.g); });
+  if(!allow(GRAN)) GRAN="auto";
+  document.querySelectorAll("#granseg button").forEach(b=>b.classList.toggle("on", b.dataset.g===GRAN));
+}
+function setGran(g){
+  const btn=document.querySelector(`#granseg button[data-g="${g}"]`);
+  if(btn && btn.disabled) return;
+  GRAN=g;
+  document.querySelectorAll("#granseg button").forEach(b=>b.classList.toggle("on", b.dataset.g===g));
   loadDash();
 }
 const OYLAR=["Yanvar","Fevral","Mart","Aprel","May","Iyun","Iyul","Avgust","Sentabr","Oktabr","Noyabr","Dekabr"];
@@ -686,6 +790,7 @@ function _applyCustom(f,t,label){
   document.querySelectorAll("#periodseg button").forEach(b=>b.classList.remove("on"));
   document.getElementById("customlbl-t").textContent="📅 "+label;
   document.getElementById("customlbl").classList.remove("hide");
+  updateGranAvail();
   closePeri(); loadDash();
 }
 function applyWeek(){
@@ -712,7 +817,8 @@ function resetCustom(){ setPeriod("week"); }
 
 // ---- Dashboard yuklash ----
 async function loadDash(){
-  const params = Object.assign(auth(), {period:PERIOD});
+  updateGranAvail();
+  const params = Object.assign(auth(), {period:PERIOD, gran:GRAN});
   if(PERIOD==="custom"){ params.from=CFROM; params.to=CTO; }
   const r = await q("/api/admin/dash","GET",params);
   if(!r.ok){ if(r.error==="auth"){ localStorage.clear(); location.reload(); } return; }
@@ -894,7 +1000,9 @@ function renderKPI(k){
     clock:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
     check:'<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>',
     star:'<svg viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>',
-    open:'<svg viewBox="0 0 24 24"><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/></svg>'
+    open:'<svg viewBox="0 0 24 24"><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/></svg>',
+    truck:'<svg viewBox="0 0 24 24"><path d="M1 4h14v11H1zM15 8h4l4 4v3h-8M6 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM19 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>',
+    bag:'<svg viewBox="0 0 24 24"><path d="M6 2l1.5 4h9L18 2M3.5 6h17l-1.4 13a2 2 0 0 1-2 1.8H6.9a2 2 0 0 1-2-1.8z"/></svg>'
   };
   const tile=(v,l,ic,col,sub,dur)=>`
     <div class="tile">
@@ -915,6 +1023,9 @@ function renderKPI(k){
     tile(fmtDur(k.resol),"O'rtacha yakunlash",I.clock,"#3390ec","",true) +
     tile(k.rating||"—","O'rtacha baho",I.star,"#d97706",k.rated+" ta baho") +
     tile(k.done,"Yakunlangan",I.check,"#2f9e44",donePct+"% ulush"+(tr.done==null?"":" · "+trh(tr.done))) +
+    tile(k.canceled,"Bekor qilingan",I.msg,"#e5484d") +
+    tile(k.delivery||0,"🚚 Yetkazib berish",I.truck,"#2f9e44") +
+    tile(k.pickup||0,"🏃 Olib ketish",I.bag,"#d97706") +
     `<div class="tile wide" style="align-items:center">
       <div style="flex:1"><div class="v" style="color:${(k.new+k.prog)?"#3390ec":"inherit"}">${k.new+k.prog}</div>
         <div class="l">Ochiq murojaatlar</div></div>
@@ -927,13 +1038,23 @@ function renderKPI(k){
 }
 
 
+// Bucket yorlig'ini o'qishli qiladi (tooltip uchun)
+function fmtBucket(d){
+  d=d||"";
+  const GR=(DASH&&DASH.gran)||"day";
+  if(GR==="hour") return d;
+  if(GR==="month"){ const y=d.slice(0,4), m=+d.slice(5,7); return (OYLAR[m-1]||"")+" "+y; }
+  if(GR==="week"){ const w=d.split("W")[1]||""; return w+"-hafta ("+d.slice(0,4)+")"; }
+  return d.slice(8,10)+"."+d.slice(5,7)+"."+d.slice(0,4);
+}
 // ---- Chiziqli grafik (dinamika) ----
 function renderLine(series){
   const wrap = document.getElementById("linewrap");
   const GR=(DASH&&DASH.gran)||"day";
   document.getElementById("line-sub").textContent =
     PERIOD==="custom" ? CLABEL
-    : (GR==="hour" ? "soatlar bo'yicha" : GR==="month" ? "oylar bo'yicha" : "kunlar bo'yicha");
+    : (GR==="hour" ? "soatlar bo'yicha" : GR==="week" ? "haftalar bo'yicha"
+       : GR==="month" ? "oylar bo'yicha" : "kunlar bo'yicha");
   if(!series || series.length===0){ wrap.innerHTML = '<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
   const W = Math.max(wrap.clientWidth||300, 260), H = 170;
   const padL=30, padR=14, padT=12, padB=22;
@@ -950,7 +1071,9 @@ function renderLine(series){
        + `<text x="${padL-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="${hint}">${v}</text>`; }
   // x yorliqlar: bosh / o'rta / oxiri
   const lab = i => { const d=series[i].d||"";
-    return GR==="hour" ? d : d.slice(GR==="month"?2:5); };
+    if(GR==="hour") return d;
+    if(GR==="week"){ const w=d.split("W")[1]||""; return w+"-h"; }
+    return d.slice(GR==="month"?2:5); };
   const xIdx = n<=2 ? [...series.keys()] : [0, Math.floor((n-1)/2), n-1];
   let xl=""; xIdx.forEach(i=>{ xl += `<text x="${X(i)}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="${hint}">${esc(lab(i))}</text>`; });
   // chiziq + nuqtalar
@@ -978,8 +1101,9 @@ function renderLine(series){
     for(let i=0;i<n;i++){ const d=Math.abs(X(i)-cx); if(d<bd){bd=d;bi=i;} }
     cross.setAttribute("x1",X(bi)); cross.setAttribute("x2",X(bi)); cross.style.display="";
     mark.setAttribute("cx",X(bi)); mark.setAttribute("cy",Y(series[bi].total)); mark.style.display="";
-    showTip(`${esc(series[bi].d)} · <b>${series[bi].total}</b> ta (🟢 ${series[bi].done})`,
-            rct.left+X(bi), rct.top+Y(series[bi].total));
+    const s=series[bi];
+    showTip(`${esc(fmtBucket(s.d))} · jami <b>${s.total}</b> ta<br>🟢 ${s.done} yakun · 🔴 ${s.canceled||0} bekor`,
+            rct.left+X(bi), rct.top+Y(s.total));
   };
   const out = ()=>{ cross.style.display="none"; mark.style.display="none"; hideTip(); };
   hit.addEventListener("mousemove",move); hit.addEventListener("touchstart",move,{passive:true});

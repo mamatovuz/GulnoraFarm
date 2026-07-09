@@ -195,12 +195,18 @@ async def unfinished_operator_reminder_loop(bot):
     while True:
         await asyncio.sleep(60)
         try:
+            from utils import operator_in_hours
             cutoff = (now_local() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
             for r in await q.due_operator_unfinished_reminders(cutoff):
-                await q.mark_operator_unfinished_reminded(r["id"])
                 op = await q.get_operator(r["operator_id"])
                 if not op or not op["telegram_id"]:
+                    await q.mark_operator_unfinished_reminded(r["id"])
                     continue
+                # Ish vaqtidan tashqarida eslatma yubormaymiz. Belgilamaymiz ham —
+                # shunda ish vaqti boshlanishi bilan birinchi eslatma yuboriladi.
+                if not operator_in_hours(op)[0]:
+                    continue
+                await q.mark_operator_unfinished_reminded(r["id"])
                 ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
                 text = (
                     f"⏰ <b>Murojaat #{r['id']} hali ham yakunlanmadi.</b>\n"

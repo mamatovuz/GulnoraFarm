@@ -213,6 +213,13 @@ async def get_order(order_id):
     return await cur.fetchone()
 
 
+async def set_fulfillment(order_id, kind):
+    """Murojaat yetkazish turini belgilaydi: 'delivery' | 'pickup' | None (bekor)."""
+    db = await get_db()
+    await db.execute("UPDATE orders SET fulfillment = ? WHERE id = ?", (kind, order_id))
+    await db.commit()
+
+
 async def set_order_status(order_id, status, changed_by):
     db = await get_db()
     cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
@@ -1659,6 +1666,8 @@ async def period_report(since, until=None):
     prog = await val(f"SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?{U}", (since, *up))
     done = await val(f"SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?{U}", (since, *up))
     canceled = await val(f"SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?{U}", (since, *up))
+    delivery = await val(f"SELECT COUNT(*) FROM orders WHERE fulfillment='delivery' AND created_at>=?{U}", (since, *up))
+    pickup = await val(f"SELECT COUNT(*) FROM orders WHERE fulfillment='pickup' AND created_at>=?{U}", (since, *up))
     # MEDIAN — tunda javobsiz qolgan/kunlar o'tib yopilganlar o'rtachani buzmasin (real ko'rsatkich)
     cur = await db.execute(
         "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
@@ -1676,19 +1685,21 @@ async def period_report(since, until=None):
         f"FROM orders WHERE created_at>=?{U} GROUP BY d ORDER BY d DESC LIMIT 31", (since, *up))
     days = await cur.fetchall()
     return {"total": total, "new": new, "prog": prog, "done": done, "canceled": canceled,
+            "delivery": delivery, "pickup": pickup,
             "resp": round(resp, 1) if resp else 0, "resol": round(resol, 1) if resol else 0,
             "days": days}
 
 
 async def series_counts(since, by="day", until=None):
-    """Vaqt seriyasi: soat/kun/oy kesimida jami va yakunlangan murojaatlar (ASC)."""
-    fmt = {"month": "%Y-%m", "hour": "%H:00"}.get(by, "%Y-%m-%d")
+    """Vaqt seriyasi: soat/kun/hafta/oy kesimida jami, yakunlangan va bekor murojaatlar (ASC)."""
+    fmt = {"month": "%Y-%m", "week": "%Y-W%W", "hour": "%H:00"}.get(by, "%Y-%m-%d")
     db = await get_db()
     U = " AND created_at < ?" if until else ""
     up = (until,) if until else ()
     cur = await db.execute(
         f"SELECT strftime(?, created_at) AS d, COUNT(*) AS total, "
-        f"SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
+        f"SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done, "
+        f"SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END) AS canceled "
         f"FROM orders WHERE created_at >= ?{U} GROUP BY d ORDER BY d ASC", (fmt, since, *up))
     return await cur.fetchall()
 

@@ -214,6 +214,7 @@ async def api_messages(request):
         })
     uname = user["username"] if user and "username" in user.keys() else ""
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
+                  "fulfillment": order["fulfillment"] or "",
                   "client": {"name": user["full_name"] if user else "—",
                              "phone": user["phone"] if user else "",
                              "username": uname or ""},
@@ -624,6 +625,18 @@ async def api_cmd(request):
     uid = order["user_id"]
     clang = await q.get_lang(uid)
     try:
+        if cmd == "fulfillment":
+            # Yetkazish turi: delivery (yetkazib berish) | pickup (olib ketish) | "" (bekor).
+            # Faqat statistikaga yoziladi — mijozga hech narsa yuborilmaydi.
+            kind = (arg or "").strip()
+            if kind not in ("delivery", "pickup", ""):
+                return _json({"ok": False, "error": "noto'g'ri qiymat"}, 400)
+            await q.set_fulfillment(order_id, kind or None)
+            info = {"delivery": "🚚 Yetkazib berish belgilandi",
+                    "pickup": "🏃 Olib ketish belgilandi",
+                    "": "Belgi olib tashlandi"}[kind]
+            return _json({"ok": True, "info": info, "fulfillment": kind})
+
         if cmd == "autoclose":
             from handlers.operator import spawn_auto_close, AUTO_CLOSE_MIN
             # Kuchli havola bilan ishga tushiramiz (aks holda vazifa GC'da yo'qoladi)
@@ -924,6 +937,7 @@ async def api_client_info(request):
     note = await q.get_client_note(order["user_id"])
     orders = await q.orders_by_user(order["user_id"])
     return _json({"ok": True,
+                  "fulfillment": order["fulfillment"] or "",
                   "client": {"name": u["full_name"] or u["phone"] or "Mijoz",
                              "phone": u["phone"] or "", "username": u["username"] or "",
                              "branch": u["branch"] or "", "reg": (u["registered_at"] or "")[:10],
@@ -1072,8 +1086,13 @@ def _period_start_str(period: str) -> str:
         return n.strftime("%Y-%m-%d 00:00:00")
     if period == "week":
         return (n - timedelta(days=n.weekday())).strftime("%Y-%m-%d 00:00:00")
+    if period == "lastweek":
+        # o'tgan hafta boshi (o'tgan dushanba)
+        return (n - timedelta(days=n.weekday() + 7)).strftime("%Y-%m-%d 00:00:00")
     if period == "month":
         return n.strftime("%Y-%m-01 00:00:00")
+    if period == "3months":
+        return (n - timedelta(days=90)).strftime("%Y-%m-%d 00:00:00")
     if period == "year":
         return n.strftime("%Y-01-01 00:00:00")
     return "0000-01-01 00:00:00"
@@ -1084,11 +1103,12 @@ async def api_admin_dash(request):
     if not tg:
         return _json({"ok": False, "error": "auth"}, 401)
     period = request.query.get("period", "week")
+    gran_req = (request.query.get("gran") or "auto").strip()
     f_ = request.query.get("from") or ""
     t_ = request.query.get("to") or ""
     until = None
-    span_days = 7
     from datetime import datetime as _dt0, timedelta as _td0
+    from config import now_local as _nl2
     if period == "custom" and f_ and t_:
         try:
             fd = _dt0.strptime(f_[:10], "%Y-%m-%d")
@@ -1097,25 +1117,46 @@ async def api_admin_dash(request):
                 fd, td_ = td_, fd
             since = fd.strftime("%Y-%m-%d 00:00:00")
             until = (td_ + _td0(days=1)).strftime("%Y-%m-%d 00:00:00")
-            span_days = (td_ - fd).days + 1
         except ValueError:
             period = "week"
             since = _period_start_str(period)
     else:
         since = _period_start_str(period)
-    if period == "year" or (period == "custom" and span_days > 62):
-        gran = "month"
-    elif period == "today" or (period == "custom" and span_days <= 1):
-        gran = "hour"          # 1 kunlik davr -> soatlar kesimida
+        if period == "lastweek":
+            # o'tgan hafta: dushanba–yakshanba (until = joriy hafta boshi)
+            _n = _nl2()
+            until = (_n - _td0(days=_n.weekday())).strftime("%Y-%m-%d 00:00:00")
+    # Davr uzunligi (kunlarda) — kesim (gran) avto-tanlash va himoya uchun
+    _end_date = (_dt0.strptime(until[:10], "%Y-%m-%d").date() if until
+                 else (_nl2() + _td0(days=1)).date())
+    span_days = max((_end_date - _dt0.strptime(since[:10], "%Y-%m-%d").date()).days, 1)
+
+    def _auto_gran():
+        if span_days > 180:
+            return "month"
+        if span_days > 31:
+            return "week"
+        if span_days <= 1:
+            return "hour"
+        return "day"
+
+    # "Kesim/Taqqoslash" — Davrdan MUSTAQIL ikkinchi filtr. 'auto' bo'lsa davrga moslanadi.
+    if gran_req in ("hour", "day", "week", "month"):
+        gran = gran_req
+        # juda ko'p ustun chiqib ketmasligi uchun himoya
+        if gran == "hour" and span_days > 2:
+            gran = _auto_gran()
+        elif gran == "day" and span_days > 370:
+            gran = _auto_gran()
     else:
-        gran = "day"
+        gran = _auto_gran()
+
     rep = await q.period_report(since, until)
     hours = await q.hourly_load(since, until)
     live = await q.live_stats()
     series_rows = await q.series_counts(since, gran, until)
-    # Vaqt o'qi UZLUKSIZ bo'lsin: bo'sh soat/kun/oylar 0 bilan to'ldiriladi
-    from config import now_local as _nl2
-    smap = {r["d"]: (r["total"], r["done"] or 0) for r in series_rows}
+    # Vaqt o'qi UZLUKSIZ bo'lsin: bo'sh soat/kun/hafta/oylar 0 bilan to'ldiriladi
+    smap = {r["d"]: (r["total"], r["done"] or 0, r["canceled"] or 0) for r in series_rows}
     series = []
     if gran == "hour":
         # bugun -> 00:00 dan hozirgi soatgacha; o'tgan kun -> 00:00-23:00
@@ -1126,24 +1167,38 @@ async def api_admin_dash(request):
                 end_h = _nl2().hour
         for h in range(0, end_h + 1):
             k = f"{h:02d}:00"
-            t, dn = smap.get(k, (0, 0))
-            series.append({"d": k, "total": t, "done": dn})
+            t, dn, cn = smap.get(k, (0, 0, 0))
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
     elif gran == "day":
         cur = _dt0.strptime(since[:10], "%Y-%m-%d")
         endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until             else _dt0.strptime(_nl2().strftime("%Y-%m-%d"), "%Y-%m-%d")
         while cur <= endd and len(series) < 370:
             k = cur.strftime("%Y-%m-%d")
-            t, dn = smap.get(k, (0, 0))
-            series.append({"d": k, "total": t, "done": dn})
+            t, dn, cn = smap.get(k, (0, 0, 0))
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
             cur += _td0(days=1)
+    elif gran == "week":
+        # Kunma-kun yurib, har hafta kalitini (SQLite '%Y-W%W' bilan bir xil) bir marta qo'shamiz
+        cur = _dt0.strptime(since[:10], "%Y-%m-%d")
+        endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until             else _dt0.strptime(_nl2().strftime("%Y-%m-%d"), "%Y-%m-%d")
+        seen = set()
+        _guard = 0
+        while cur <= endd and len(series) < 200 and _guard < 800:
+            k = cur.strftime("%Y-W%W")
+            if k not in seen:
+                seen.add(k)
+                t, dn, cn = smap.get(k, (0, 0, 0))
+                series.append({"d": k, "total": t, "done": dn, "canceled": cn})
+            cur += _td0(days=1)
+            _guard += 1
     else:  # month
         sy, sm = int(since[:4]), int(since[5:7])
         endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until else _nl2()
         ey, em = endd.year, endd.month
         while (sy, sm) <= (ey, em) and len(series) < 60:
             k = f"{sy:04d}-{sm:02d}"
-            t, dn = smap.get(k, (0, 0))
-            series.append({"d": k, "total": t, "done": dn})
+            t, dn, cn = smap.get(k, (0, 0, 0))
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
             sm += 1
             if sm > 12:
                 sm = 1
@@ -1170,16 +1225,16 @@ async def api_admin_dash(request):
                    "phone": r["phone"] or "", "cnt": r["cnt"]} for r in tc_rows]
     # Trend: o'tgan xuddi shunday davr bilan taqqoslash (kartalarda ↑/↓ %)
     trend = {"total": None, "done": None}
-    if period in ("today", "week", "month", "year", "custom"):
+    if period in ("today", "week", "lastweek", "month", "3months", "year", "custom"):
         from datetime import datetime as _dt2, timedelta as _td2
         st = _dt2.strptime(since, "%Y-%m-%d %H:%M:%S")
         if period == "today":
             pst = st - _td2(days=1)
-        elif period == "week":
+        elif period in ("week", "lastweek"):
             pst = st - _td2(days=7)
         elif period == "month":
             pst = (st - _td2(days=1)).replace(day=1)
-        elif period == "custom":
+        elif period in ("3months", "custom"):
             pst = st - _td2(days=span_days)
         else:
             pst = st.replace(year=st.year - 1)
@@ -1198,6 +1253,7 @@ async def api_admin_dash(request):
                   "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
+                          "delivery": rep["delivery"], "pickup": rep["pickup"],
                           "resp": rep["resp"], "resol": rep["resol"],
                           "rating": rating, "rated": rated, "online": live["online"]},
                   "series": series,

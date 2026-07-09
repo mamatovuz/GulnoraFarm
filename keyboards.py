@@ -282,6 +282,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     if _WEBAPP_URL:
         kb.row(InlineKeyboardButton(text="🖥 Mini app (boshqaruv)",
                                     web_app=WebAppInfo(url=_WEBAPP_URL + "/admin")))
+        kb.row(InlineKeyboardButton(text="🖥 To'liq ekranli (kompyuter)",
+                                    web_app=WebAppInfo(url=_WEBAPP_URL + "/admin?fs=1")))
     kb.row(InlineKeyboardButton(text="📊 Statistika", callback_data="adm:stats"))
     kb.row(InlineKeyboardButton(text="🔴 Real vaqt", callback_data="adm:live"))
     kb.row(InlineKeyboardButton(text="📚 Hisobotlar", callback_data="adm:reports"))
