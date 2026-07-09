@@ -700,6 +700,38 @@ async def op_cancel(call: CallbackQuery):
     await call.answer("Bekor qilindi")
 
 
+# ---------------- Yetkazib berish / Olib ketish (faqat statistikaga) ----------------
+async def _op_set_fulfillment(call: CallbackQuery, kind: str):
+    op = await _op_of(call)
+    if not op:
+        await call.answer("Avval /operator orqali kiring.", show_alert=True)
+        return
+    order_id = int(call.data.split(":")[2])
+    order = await q.get_order(order_id)
+    if not order:
+        await call.answer("Murojaat topilmadi", show_alert=True)
+        return
+    # qayta bossa — belgini olib tashlaydi (toggle)
+    new = None if order["fulfillment"] == kind else kind
+    await q.set_fulfillment(order_id, new)
+    if new == "delivery":
+        await call.answer("🚚 Yetkazib berish belgilandi ✅")
+    elif new == "pickup":
+        await call.answer("🏃 Olib ketish belgilandi ✅")
+    else:
+        await call.answer("Belgi olib tashlandi")
+
+
+@router.callback_query(F.data.startswith("opc:deliver:"))
+async def op_deliver(call: CallbackQuery):
+    await _op_set_fulfillment(call, "delivery")
+
+
+@router.callback_query(F.data.startswith("opc:pickup:"))
+async def op_pickup(call: CallbackQuery):
+    await _op_set_fulfillment(call, "pickup")
+
+
 # ---------------- Tayyor javob shablonlari ----------------
 @router.callback_query(F.data.startswith("opc:tpl:"))
 async def op_templates(call: CallbackQuery):

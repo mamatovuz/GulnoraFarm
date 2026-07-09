@@ -1128,7 +1128,7 @@ function renderLine(series){
     cross.setAttribute("x1",X(bi)); cross.setAttribute("x2",X(bi)); cross.style.display="";
     mark.setAttribute("cx",X(bi)); mark.setAttribute("cy",Y(series[bi].total)); mark.style.display="";
     const s=series[bi];
-    showTip(`${esc(fmtBucket(s.d))} · jami <b>${s.total}</b> ta<br>🟢 ${s.done} yakun · 🔴 ${s.canceled||0} bekor`,
+    showTip(`${esc(s.lab||fmtBucket(s.d))} · jami <b>${s.total}</b> ta<br>🟢 ${s.done} yakun · 🔴 ${s.canceled||0} bekor`,
             rct.left+X(bi), rct.top+Y(s.total));
   };
   const out = ()=>{ cross.style.display="none"; mark.style.display="none"; hideTip(); };

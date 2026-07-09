@@ -523,6 +523,8 @@ OP_BTN = {
     "changebranch": "🏥 Filialni almashtirish",
     "askbranch": "🏥 Filialni tanlatish",
     "autoclose": "⏱ 10 daqiqada avto-yakunlash",
+    "deliver": "🚚 Yetkazib berish",
+    "pickup": "🏃 Olib ketish",
     "done": "✅ Yakunlash",
     "cancel": "❌ Bekor",
 }
@@ -533,7 +535,9 @@ OP_BTN_TITLES = {
     "transfer": "Uzatish", "sendbranch": "Filial ma'lumoti yuborish",
     "changebranch": "Filialni almashtirish",
     "askbranch": "Filialni tanlatish",
-    "autoclose": "10 daqiqada avto-yakunlash", "done": "Yakunlash", "cancel": "Bekor qilish",
+    "autoclose": "10 daqiqada avto-yakunlash",
+    "deliver": "Yetkazib berish (statistika)", "pickup": "Olib ketish (statistika)",
+    "done": "Yakunlash", "cancel": "Bekor qilish",
 }
 
 
@@ -554,6 +558,8 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text=OP_BTN["changebranch"], callback_data=f"opc:changebranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["askbranch"], callback_data=f"opc:askbranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["autoclose"], callback_data=f"opc:autoclose:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["deliver"], callback_data=f"opc:deliver:{order_id}"),
+           InlineKeyboardButton(text=OP_BTN["pickup"], callback_data=f"opc:pickup:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
            InlineKeyboardButton(text=OP_BTN["cancel"], callback_data=f"opc:cancel:{order_id}"))
     return kb.as_markup()

@@ -1157,6 +1157,9 @@ async def api_admin_dash(request):
     series_rows = await q.series_counts(since, gran, until)
     # Vaqt o'qi UZLUKSIZ bo'lsin: bo'sh soat/kun/hafta/oylar 0 bilan to'ldiriladi
     smap = {r["d"]: (r["total"], r["done"] or 0, r["canceled"] or 0) for r in series_rows}
+    _UZ_MON = ["", "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+               "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"]
+    import calendar as _cal
     series = []
     if gran == "hour":
         # bugun -> 00:00 dan hozirgi soatgacha; o'tgan kun -> 00:00-23:00
@@ -1168,14 +1171,16 @@ async def api_admin_dash(request):
         for h in range(0, end_h + 1):
             k = f"{h:02d}:00"
             t, dn, cn = smap.get(k, (0, 0, 0))
-            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn,
+                           "lab": f"Soat {h:02d}:00–{h:02d}:59"})
     elif gran == "day":
         cur = _dt0.strptime(since[:10], "%Y-%m-%d")
         endd = (_dt0.strptime(until[:10], "%Y-%m-%d") - _td0(days=1)) if until             else _dt0.strptime(_nl2().strftime("%Y-%m-%d"), "%Y-%m-%d")
         while cur <= endd and len(series) < 370:
             k = cur.strftime("%Y-%m-%d")
             t, dn, cn = smap.get(k, (0, 0, 0))
-            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn,
+                           "lab": f"{cur.day}-{_UZ_MON[cur.month]} {cur.year}"})
             cur += _td0(days=1)
     elif gran == "week":
         # Kunma-kun yurib, har hafta kalitini (SQLite '%Y-W%W' bilan bir xil) bir marta qo'shamiz
@@ -1188,7 +1193,14 @@ async def api_admin_dash(request):
             if k not in seen:
                 seen.add(k)
                 t, dn, cn = smap.get(k, (0, 0, 0))
-                series.append({"d": k, "total": t, "done": dn, "canceled": cn})
+                # Haftaning haqiqiy oralig'i: dushanba–yakshanba
+                mon = cur - _td0(days=cur.weekday())
+                sun = mon + _td0(days=6)
+                if mon.month == sun.month:
+                    lab = f"{mon.day}–{sun.day}-{_UZ_MON[mon.month]}"
+                else:
+                    lab = f"{mon.day}-{_UZ_MON[mon.month]} – {sun.day}-{_UZ_MON[sun.month]}"
+                series.append({"d": k, "total": t, "done": dn, "canceled": cn, "lab": lab})
             cur += _td0(days=1)
             _guard += 1
     else:  # month
@@ -1198,7 +1210,9 @@ async def api_admin_dash(request):
         while (sy, sm) <= (ey, em) and len(series) < 60:
             k = f"{sy:04d}-{sm:02d}"
             t, dn, cn = smap.get(k, (0, 0, 0))
-            series.append({"d": k, "total": t, "done": dn, "canceled": cn})
+            last = _cal.monthrange(sy, sm)[1]
+            series.append({"d": k, "total": t, "done": dn, "canceled": cn,
+                           "lab": f"{_UZ_MON[sm]} {sy} (1–{last})"})
             sm += 1
             if sm > 12:
                 sm = 1
