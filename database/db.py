@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS orders (
     rating       INTEGER,                        -- mijoz bahosi (1-5)
     feedback     TEXT,                           -- mijoz izohi (nega shunday baho)
     group_msg_id INTEGER,                         -- operatorlar guruhidagi xabar message_id
-    bill_photo   TEXT                             -- hisob-kitob rasmi (file_id)
+    bill_photo   TEXT,                            -- hisob-kitob rasmi (file_id)
+    accepted_at  TEXT,                            -- operator qabul qilgan vaqt
+    last_operator_reminder_at TEXT                 -- yakunlash eslatmasi oxirgi yuborilgan vaqt
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -285,6 +287,12 @@ async def init_db():
     if "rate_reminded" not in ocols:
         # baholash eslatmasi yuborilganmi (bir marta)
         await db.execute("ALTER TABLE orders ADD COLUMN rate_reminded INTEGER DEFAULT 0")
+        await db.commit()
+    if "accepted_at" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN accepted_at TEXT")
+        await db.commit()
+    if "last_operator_reminder_at" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN last_operator_reminder_at TEXT")
         await db.commit()
 
     # Migratsiya: operators.last_active va availability ustunlari

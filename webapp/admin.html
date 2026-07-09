@@ -162,6 +162,11 @@
   .b2 .tm{font-size:10px;opacity:.6;margin-top:2px;text-align:right}
   .b2 img{max-width:220px;width:auto;height:auto;border-radius:10px;display:block}
   .b2 audio{width:215px}
+  .vplay{display:inline-flex;align-items:center;gap:8px;padding:2px 0}
+  .vplay .vpb{width:34px;height:34px;flex-shrink:0;border:none;border-radius:50%;
+    background:rgba(0,0,0,.15);color:inherit;font-size:14px;cursor:pointer;line-height:1}
+  .b2.o .vplay .vpb{background:rgba(255,255,255,.25);color:#fff}
+  .vplay .vpt{font-size:13px;opacity:.9}
   .transfoot{padding:10px 12px;background:var(--bg);border-top:1px solid var(--sep)}
   .dbtn{width:100%;padding:12px;border:none;border-radius:11px;background:var(--accent);color:#fff;
     font-size:15px;font-weight:600;cursor:pointer}
@@ -534,6 +539,66 @@ function q(path, method, body){
   o.body = JSON.stringify(b); return fetch(path, o).then(r=>r.json());
 }
 function auth(){ return { admin_id: ADM.id, token: ADM.token }; }
+
+// ---- Ovozli xabar (Ogg/Opus) — iOS WebView Ogg'ni o'qiy olmaydi, shuning uchun
+// native <audio> xato bersa, Web Audio + WASM dekoder orqali o'zimiz ijro etamiz. ----
+let _actx=null;
+function actx(){ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); return _actx; }
+let _oggDecP=null;
+function loadOggDecoder(){
+  const has=()=> window.OggOpusDecoder || (window["ogg-opus-decoder"]||{}).OggOpusDecoder;
+  if(has()) return Promise.resolve(has());
+  if(_oggDecP) return _oggDecP;
+  _oggDecP=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/ogg-opus-decoder@1.6.9/dist/ogg-opus-decoder.min.js";
+    s.onload=()=>{ const D=has(); D?res(D):rej(new Error("dekoder")); };
+    s.onerror=()=>rej(new Error("dekoder yuklanmadi"));
+    document.head.appendChild(s);
+  });
+  return _oggDecP;
+}
+const _vbuf={};
+async function decodeVoice(url){
+  if(_vbuf[url]) return _vbuf[url];
+  const ab=await (await fetch(url)).arrayBuffer();
+  const ctx=actx();
+  try{ const b=await ctx.decodeAudioData(ab.slice(0)); _vbuf[url]=b; return b; }catch(e){}
+  const Dec=await loadOggDecoder();
+  const dec=new Dec(); await dec.ready;
+  const {channelData,samplesDecoded,sampleRate}=await dec.decodeFile(new Uint8Array(ab));
+  try{ dec.free(); }catch(e){}
+  const chs=(channelData&&channelData.length)?channelData.length:1;
+  const buf=ctx.createBuffer(chs, samplesDecoded||1, sampleRate||48000);
+  for(let ch=0; ch<chs; ch++) buf.copyToChannel(channelData[ch], ch);
+  _vbuf[url]=buf; return buf;
+}
+// Native <audio> xato berganda uni Web Audio pleyeri bilan almashtiramiz.
+function swapVoicePlayer(a){
+  if(a._swapped) return; a._swapped=true;
+  const url=a.getAttribute("src");
+  const wrap=document.createElement("span"); wrap.className="vplay";
+  wrap.innerHTML='<button class="vpb" type="button">▶</button><span class="vpt">🎤 ovoz</span>';
+  a.replaceWith(wrap);
+  const btn=wrap.querySelector(".vpb"), lab=wrap.querySelector(".vpt");
+  let node=null, buf=null, playing=false;
+  btn.onclick=async()=>{
+    const ctx=actx(); try{ ctx.resume(); }catch(e){}
+    if(playing && node){ try{ node.stop(); }catch(e){} return; }
+    if(!buf){ lab.textContent="⏳ yuklanmoqda";
+      try{ buf=await decodeVoice(url); }catch(e){ lab.textContent="✖ ijro etilmadi"; btn.textContent="▶"; return; } }
+    node=ctx.createBufferSource(); node.buffer=buf; node.connect(ctx.destination);
+    node.onended=()=>{ playing=false; btn.textContent="▶"; lab.textContent="🎤 ovoz"; };
+    node.start(); playing=true; btn.textContent="⏸"; lab.textContent="🔊 ijro";
+  };
+}
+// Konteyner ichidagi ovozli <audio> larga xato-fallback ulaymiz.
+function bindVoice(container){
+  (container||document).querySelectorAll("audio.vaud").forEach(a=>{
+    if(a._vbound) return; a._vbound=true;
+    a.addEventListener("error",()=>swapVoicePlayer(a));
+  });
+}
 
 // ---- Tooltip ----
 const tip = document.getElementById("tip");
@@ -1099,14 +1164,14 @@ async function openTrans(oid, back){
   document.getElementById("tr-msgs").innerHTML = r.messages.map(m=>{
     let inner="";
     if(m.type==="photo"&&m.file_id) inner=`<img src="${fu(m.file_id,'photo')}" onclick="openImg(this.src)" style="cursor:zoom-in">`+(m.text?`<div>${esc(m.text)}</div>`:"");
-    else if((m.type==="voice"||m.type==="audio")&&m.file_id) inner=`<audio controls src="${fu(m.file_id,'voice')}"></audio>`;
+    else if((m.type==="voice"||m.type==="audio")&&m.file_id) inner=`<audio class="vaud" controls preload="metadata" src="${fu(m.file_id,'voice')}"></audio>`;
     else if(m.type==="sticker"&&m.file_id) inner=`<img src="${fu(m.file_id,'sticker')}" style="width:100px;height:100px;object-fit:contain">`;
     else if(m.type==="video"&&m.file_id) inner=`<video controls style="max-width:215px;border-radius:10px" src="${fu(m.file_id,'video')}"></video>`;
     else if(m.type!=="text") inner=(({document:"Hujjat",animation:"GIF",location:"Lokatsiya"})[m.type]||"Fayl")+(m.text?": "+esc(m.text):"");
     else inner=esc(m.text);
     return `<div class="b2 ${m.own?'o':'c'}">${inner}<div class="tm">${m.time}</div></div>`;
   }).join("") || '<div class="empty">Yozishma yo\'q</div>';
-  const bx=document.getElementById("tr-msgs"); bx.scrollTop=bx.scrollHeight;
+  const bx=document.getElementById("tr-msgs"); bindVoice(bx); bx.scrollTop=bx.scrollHeight;
 }
 function closeTrans(){ document.getElementById("trans").classList.add("hide"); TRO=null; }
 async function adminSend(){
@@ -1307,9 +1372,9 @@ async function svStats(){
       </div>
     </div>
     <div class="card"><h3>Yangi mijozlar</h3>
-      <div class="kpi" style="grid-template-columns:1fr 1fr 1fr 1fr">
-        ${tile(g.users_today,"Bugun","#2f9e44")}${tile(g.users_week,"Hafta")}
-        ${tile(g.users_month,"Oy")}${tile(g.users_total,"Jami")}
+      <div class="kpi" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr">
+        ${tile(g.users_today,"Bugun","#2f9e44")}${tile(g.users_yesterday,"Kecha","#f59f00")}
+        ${tile(g.users_week,"Hafta")}${tile(g.users_month,"Oy")}${tile(g.users_total,"Jami")}
       </div>
     </div>
     <div class="card"><h3>Filiallar kesimi <span class="sub">ustiga bosing — tafsilot</span></h3>

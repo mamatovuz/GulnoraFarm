@@ -2002,6 +2002,7 @@ async def api_admin_stats(request):
     return _json({"ok": True,
                   "general": {
                       "users_total": g["users_total"], "users_today": g["users_today"],
+                      "users_yesterday": g["users_yesterday"],
                       "users_week": g["users_week"], "users_month": g["users_month"],
                       "orders_total": g["orders_total"], "orders_today": g["orders_today"],
                       "orders_week": g["orders_week"], "orders_new": g["orders_new"],

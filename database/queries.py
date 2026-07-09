@@ -218,10 +218,19 @@ async def set_order_status(order_id, status, changed_by):
     cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
     row = await cur.fetchone()
     old = row["status"] if row else None
+    stamp = now()
     closed = now() if status in ("done", "canceled") else None
     if closed:
         await db.execute("UPDATE orders SET status = ?, closed_at = ? WHERE id = ?",
                          (status, closed, order_id))
+    elif status == "in_progress":
+        await db.execute(
+            "UPDATE orders SET status = ?, "
+            "accepted_at = COALESCE(accepted_at, ?), "
+            "last_operator_reminder_at = COALESCE(last_operator_reminder_at, ?) "
+            "WHERE id = ?",
+            (status, stamp, stamp, order_id),
+        )
     else:
         await db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
     await db.commit()
@@ -242,9 +251,11 @@ async def reopen_order(order_id, operator_id):
     cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
     row = await cur.fetchone()
     old = row["status"] if row else None
+    stamp = now()
     await db.execute(
-        "UPDATE orders SET status='in_progress', operator_id=?, closed_at=NULL WHERE id=?",
-        (operator_id, order_id))
+        "UPDATE orders SET status='in_progress', operator_id=?, closed_at=NULL, "
+        "accepted_at=?, last_operator_reminder_at=? WHERE id=?",
+        (operator_id, stamp, stamp, order_id))
     # Yashirilgan bo'lsa — chat ro'yxatida qayta ko'rinsin
     await db.execute("DELETE FROM hidden_chats WHERE order_id=?", (order_id,))
     await db.commit()
@@ -255,9 +266,11 @@ async def claim_order(order_id, operator_id):
     """ATOMAR qabul: faqat status='new' bo'lsa operatorga biriktiradi va 'in_progress' qiladi.
     True = shu operator yutdi; False = kimdir oldin olib bo'lgan."""
     db = await get_db()
+    stamp = now()
     cur = await db.execute(
-        "UPDATE orders SET status='in_progress', operator_id=? WHERE id=? AND status='new'",
-        (operator_id, order_id))
+        "UPDATE orders SET status='in_progress', operator_id=?, accepted_at=?, "
+        "last_operator_reminder_at=? WHERE id=? AND status='new'",
+        (operator_id, stamp, stamp, order_id))
     await db.commit()
     if cur.rowcount and cur.rowcount > 0:
         await log_status(order_id, "new", "in_progress", f"operator:{operator_id}")
@@ -337,6 +350,21 @@ async def orders_by_status(status, operator_id=None):
         )
     else:
         cur = await db.execute("SELECT * FROM orders WHERE status = ? ORDER BY id DESC", (status,))
+    return await cur.fetchall()
+
+
+async def done_orders_today_by_operator(operator_id):
+    db = await get_db()
+    today = now_local().strftime("%Y-%m-%d")
+    tomorrow = (now_local() + timedelta(days=1)).strftime("%Y-%m-%d")
+    cur = await db.execute(
+        "SELECT o.*, u.full_name FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "WHERE o.operator_id = ? AND o.status = 'done' "
+        "AND o.closed_at >= ? AND o.closed_at < ? "
+        "ORDER BY o.closed_at DESC, o.id DESC",
+        (operator_id, today + " 00:00:00", tomorrow + " 00:00:00"),
+    )
     return await cur.fetchall()
 
 
@@ -488,6 +516,28 @@ async def stale_open_orders(cutoff):
         "SELECT id, operator_id, user_id FROM orders "
         "WHERE status IN ('new','in_progress') AND created_at < ?", (cutoff,))
     return await cur.fetchall()
+
+
+async def due_operator_unfinished_reminders(cutoff):
+    """Operator qabul qilgan, lekin hali yopilmagan va eslatma vaqti kelgan murojaatlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.user_id, o.operator_id, o.accepted_at, u.full_name "
+        "FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id = o.user_id "
+        "WHERE o.status='in_progress' AND o.operator_id IS NOT NULL "
+        "AND o.accepted_at IS NOT NULL "
+        "AND COALESCE(o.last_operator_reminder_at, o.accepted_at) <= ? "
+        "ORDER BY COALESCE(o.last_operator_reminder_at, o.accepted_at) ASC",
+        (cutoff,),
+    )
+    return await cur.fetchall()
+
+
+async def mark_operator_unfinished_reminded(order_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET last_operator_reminder_at = ? WHERE id = ?", (now(), order_id))
+    await db.commit()
 
 
 # ---- Rejalashtirilgan broadcast ----
@@ -1208,6 +1258,7 @@ async def claim_pending_admin(telegram_id: int, username: str) -> bool:
 async def general_stats():
     db = await get_db()
     today = now_local().strftime("%Y-%m-%d")
+    yesterday = (now_local() - timedelta(days=1)).strftime("%Y-%m-%d")
     week_ago = (now_local() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
     month = now_local().strftime("%Y-%m")
 
@@ -1218,6 +1269,7 @@ async def general_stats():
     stats = {
         "users_total": await count("SELECT COUNT(*) FROM users"),
         "users_today": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (today + "%",)),
+        "users_yesterday": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (yesterday + "%",)),
         "users_week": await count("SELECT COUNT(*) FROM users WHERE registered_at >= ?", (week_ago,)),
         "users_month": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (month + "%",)),
         "orders_total": await count("SELECT COUNT(*) FROM orders"),

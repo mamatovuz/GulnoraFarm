@@ -188,6 +188,37 @@ async def reminders_loop(bot):
             pass
 
 
+async def unfinished_operator_reminder_loop(bot):
+    """Qabul qilingan murojaat yopilmasa, har 5 daqiqada operatorga yakunlashni eslatadi."""
+    from datetime import timedelta
+    from config import now_local
+    while True:
+        await asyncio.sleep(60)
+        try:
+            cutoff = (now_local() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+            for r in await q.due_operator_unfinished_reminders(cutoff):
+                await q.mark_operator_unfinished_reminded(r["id"])
+                op = await q.get_operator(r["operator_id"])
+                if not op or not op["telegram_id"]:
+                    continue
+                ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+                text = (
+                    f"⏰ <b>Murojaat #{r['id']} hali ham yakunlanmadi.</b>\n"
+                    f"{r['full_name'] or 'Mijoz'} bilan suhbat tugagan bo'lsa, "
+                    f"iltimos murojaatni yakunlang."
+                )
+                try:
+                    await ob.send_message(
+                        op["telegram_id"],
+                        text,
+                        reply_markup=kb.op_unfinished_reminder_kb(r["id"]),
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
 async def weekly_report_loop(bot):
     """Har dushanba 09:00 da adminlarga o'tgan hafta hisobotini yuboradi."""
     from datetime import timedelta
@@ -278,6 +309,8 @@ async def main():
     asyncio.create_task(weekly_report_loop(bot))
     # Operator eslatmalari
     asyncio.create_task(reminders_loop(bot))
+    # Qabul qilingan, lekin yakunlanmagan murojaatlar bo'yicha 5 daqiqalik eslatma
+    asyncio.create_task(unfinished_operator_reminder_loop(bot))
     # Kunlik baza zaxirasi (admin botiga)
     asyncio.create_task(backup_loop(bot))
     # Baholash eslatmasi (24 soatdan keyin, bir marta)

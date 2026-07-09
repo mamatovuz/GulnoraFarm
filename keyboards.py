@@ -490,7 +490,7 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
     rows += [
         [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
         [KeyboardButton(text="📌 Yakunlanmagan murojaatlar")],
-        [KeyboardButton(text="✅ Yakunlanganlar"), KeyboardButton(text="📊 Mening statistikam")],
+        [KeyboardButton(text="✅ Yakunlangan murojaatlarim"), KeyboardButton(text="📊 Mening statistikam")],
         [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
         [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
     ]
@@ -500,7 +500,7 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
 # Bot taniydigan barcha menyu tugmalari (proxy-chat ularni yutib yubormasligi uchun)
 OPERATOR_MENU_BUTTONS = {
     "📥 Yangi murojaatlar", "📂 Mening murojaatlarim", "📌 Yakunlanmagan murojaatlar",
-    "✅ Yakunlanganlar", "📊 Mening statistikam", "🏆 Reyting",
+    "✅ Yakunlanganlar", "✅ Yakunlangan murojaatlarim", "📊 Mening statistikam", "🏆 Reyting",
     "🚪 Chiqish (logout)", BTN_OP_BACK,
 }
 ALL_MENU_BUTTONS = (
@@ -518,6 +518,7 @@ OP_BTN = {
     "bill": "💊 Hisoblash",
     "transfer": "🔄 Uzatish",
     "sendbranch": "📍 Filial ma'lumoti",
+    "changebranch": "🏥 Filialni almashtirish",
     "askbranch": "🏥 Filialni tanlatish",
     "autoclose": "⏱ 10 daqiqada avto-yakunlash",
     "done": "✅ Yakunlash",
@@ -528,6 +529,7 @@ OP_BTN = {
 OP_BTN_TITLES = {
     "reply": "Javob yozish", "tpl": "Tayyor javob", "bill": "Hisoblash",
     "transfer": "Uzatish", "sendbranch": "Filial ma'lumoti yuborish",
+    "changebranch": "Filialni almashtirish",
     "askbranch": "Filialni tanlatish",
     "autoclose": "10 daqiqada avto-yakunlash", "done": "Yakunlash", "cancel": "Bekor qilish",
 }
@@ -547,6 +549,7 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text=OP_BTN["bill"], callback_data=f"opc:bill:{order_id}"),
            InlineKeyboardButton(text=OP_BTN["transfer"], callback_data=f"opc:transfer:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["sendbranch"], callback_data=f"opc:sendbranch:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["changebranch"], callback_data=f"opc:changebranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["askbranch"], callback_data=f"opc:askbranch:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["autoclose"], callback_data=f"opc:autoclose:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
@@ -599,6 +602,48 @@ def op_send_branch_kb(branches, order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for b in branches:
         kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"opsendbr:{order_id}:{b['id']}"))
+    return kb.as_markup()
+
+
+def op_change_branch_regions_kb(regions, order_id) -> InlineKeyboardMarkup:
+    """Operatorning o'zi murojaat filialini almashtirishi uchun hududlar."""
+    kb = InlineKeyboardBuilder()
+    for i, r in enumerate(regions):
+        kb.row(InlineKeyboardButton(
+            text=f"{_region_emoji(r['reg'])} {r['reg']} ({r['cnt']})",
+            callback_data=f"opchgbrreg:{order_id}:{i}",
+        ))
+    return kb.as_markup()
+
+
+def op_change_branch_kb(branches, order_id, with_back=False) -> InlineKeyboardMarkup:
+    """Operator tanlaydigan filiallar ro'yxati."""
+    kb = InlineKeyboardBuilder()
+    for b in branches:
+        kb.row(InlineKeyboardButton(text=b["name"], callback_data=f"opchgbr:{order_id}:{b['id']}"))
+    if with_back:
+        kb.row(InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"opchgbrback:{order_id}"))
+    return kb.as_markup()
+
+
+def op_done_orders_kb(orders) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for o in orders:
+        name = o["full_name"] or "Mijoz"
+        kb.row(InlineKeyboardButton(text=f"#{o['id']} — {name}", callback_data=f"opdoneview:{o['id']}"))
+    return kb.as_markup()
+
+
+def op_done_detail_kb(order_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔄 Chatni tiklash", callback_data=f"oprestore:{order_id}"))
+    return kb.as_markup()
+
+
+def op_unfinished_reminder_kb(order_id) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="📂 Chatni ochish", callback_data=f"opmine:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"))
     return kb.as_markup()
 
 

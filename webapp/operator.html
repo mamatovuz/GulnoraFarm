@@ -84,6 +84,11 @@
   .b.o{align-self:flex-end;background:linear-gradient(135deg,#4da3f0 0%,#2f7fd4 100%);color:#fff;border-bottom-right-radius:4px}
   .b .tm{font-size:10.5px;opacity:.62;margin-top:2px;text-align:right}
   .b audio{width:230px;margin:2px 0}
+  .vplay{display:inline-flex;align-items:center;gap:8px;padding:2px 0}
+  .vplay .vpb{width:34px;height:34px;flex-shrink:0;border:none;border-radius:50%;
+    background:rgba(0,0,0,.15);color:inherit;font-size:14px;cursor:pointer;line-height:1}
+  .b.o .vplay .vpb{background:rgba(255,255,255,.25);color:#fff}
+  .vplay .vpt{font-size:13px;opacity:.9}
   /* Rasm/video pufakchasi — Telegramdek: rasm to'liq, yupqa ramka, caption pastda */
   .b.media{padding:3px}
   .b.media img,.b.media video{display:block;max-width:250px;width:auto;height:auto;
@@ -691,7 +696,7 @@ async function loadChannel(){
     if(it.file_id && it.ftype==="photo")
       media=`<img src="${fileUrl(it.file_id,'photo')}" onclick="openImg(this.src)" style="cursor:zoom-in">`;
     else if(it.file_id && (it.ftype==="voice"||it.ftype==="audio"))
-      media=`<audio controls src="${fileUrl(it.file_id,'voice')}" style="width:100%;margin:4px 0"></audio>`;
+      media=`<audio class="vaud" controls preload="metadata" src="${fileUrl(it.file_id,'voice')}" style="width:100%;margin:4px 0"></audio>`;
     else if(it.file_id && it.ftype==="video")
       media=`<video controls src="${fileUrl(it.file_id,'video')}" style="max-width:100%;border-radius:10px;margin:4px 0"></video>`;
     else if(it.file_id && it.ftype==="sticker")
@@ -707,6 +712,7 @@ async function loadChannel(){
       <button class="accept" onclick='acceptChannel(${it.order_id}, ${JSON.stringify(it.name)})'>Qabul qilish</button>
     </div>`;
   }).join("");
+  bindVoice(box);
 }
 async function acceptChannel(oid, name){
   const r=await q("/api/channel_accept","POST",Object.assign(auth(),{order_id:oid}));
@@ -1292,6 +1298,62 @@ function finishRec(sendIt){
 
 // ---- Voice pleyer (to'lqin + play/pause, Telegram uslubi) ----
 const waveCache={};
+// iOS WebView Ogg/Opus'ni <audio> orqali o'qiy olmaydi — WASM dekoder bilan Web Audio'da ijro etamiz.
+let _actx=null;
+function actx(){ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); return _actx; }
+let _oggDecP=null;
+function loadOggDecoder(){
+  const has=()=> window.OggOpusDecoder || (window["ogg-opus-decoder"]||{}).OggOpusDecoder;
+  if(has()) return Promise.resolve(has());
+  if(_oggDecP) return _oggDecP;
+  _oggDecP=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/ogg-opus-decoder@1.6.9/dist/ogg-opus-decoder.min.js";
+    s.onload=()=>{ const D=has(); D?res(D):rej(new Error("dekoder")); };
+    s.onerror=()=>rej(new Error("dekoder yuklanmadi"));
+    document.head.appendChild(s);
+  });
+  return _oggDecP;
+}
+const _vbuf={};
+async function decodeVoice(url){
+  if(_vbuf[url]) return _vbuf[url];
+  const ab=await (await fetch(url)).arrayBuffer();
+  const ctx=actx();
+  try{ const b=await ctx.decodeAudioData(ab.slice(0)); _vbuf[url]=b; return b; }catch(e){}
+  const Dec=await loadOggDecoder();
+  const dec=new Dec(); await dec.ready;
+  const {channelData,samplesDecoded,sampleRate}=await dec.decodeFile(new Uint8Array(ab));
+  try{ dec.free(); }catch(e){}
+  const chs=(channelData&&channelData.length)?channelData.length:1;
+  const buf=ctx.createBuffer(chs, samplesDecoded||1, sampleRate||48000);
+  for(let ch=0; ch<chs; ch++) buf.copyToChannel(channelData[ch], ch);
+  _vbuf[url]=buf; return buf;
+}
+function swapVoicePlayer(a){
+  if(a._swapped) return; a._swapped=true;
+  const url=a.getAttribute("src");
+  const wrap=document.createElement("span"); wrap.className="vplay";
+  wrap.innerHTML='<button class="vpb" type="button">▶</button><span class="vpt">🎤 ovoz</span>';
+  a.replaceWith(wrap);
+  const btn=wrap.querySelector(".vpb"), lab=wrap.querySelector(".vpt");
+  let node=null, buf=null, playing=false;
+  btn.onclick=async()=>{
+    const ctx=actx(); try{ ctx.resume(); }catch(e){}
+    if(playing && node){ try{ node.stop(); }catch(e){} return; }
+    if(!buf){ lab.textContent="⏳";
+      try{ buf=await decodeVoice(url); }catch(e){ lab.textContent="✖ ijro etilmadi"; return; } }
+    node=ctx.createBufferSource(); node.buffer=buf; node.connect(ctx.destination);
+    node.onended=()=>{ playing=false; btn.textContent="▶"; lab.textContent="🎤 ovoz"; };
+    node.start(); playing=true; btn.textContent="⏸"; lab.textContent="🔊 ijro";
+  };
+}
+function bindVoice(container){
+  (container||document).querySelectorAll("audio.vaud").forEach(a=>{
+    if(a._vbound) return; a._vbound=true;
+    a.addEventListener("error",()=>swapVoicePlayer(a));
+  });
+}
 const ICON_PLAY='<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const ICON_PAUSE='<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
 function fmtDur(s){ s=Math.max(0,Math.floor(s||0)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
@@ -1314,12 +1376,35 @@ function initVoicePlayers(){
         bars=out.map(v=>mx?Math.min(1,v/mx):0.3); waveCache[fid]=bars; draw(0); tlab.textContent=fmtDur(dur); ac.close();
       }).catch(()=>{}); }).catch(()=>{}); }
     const setIcon=p=>btn.innerHTML=p?ICON_PAUSE:ICON_PLAY; setIcon(false);
-    btn.onclick=()=>{ if(!audio){ audio=new Audio(url);
+    // Web Audio (iOS Ogg) fallback holati
+    let wa=null, switched=false;
+    function waStop(){ if(wa&&wa.node){ try{ wa.node.onended=null; wa.node.stop(); }catch(e){} cancelAnimationFrame(wa.raf); wa.playing=false; } }
+    async function waToggle(){
+      const ctx=actx(); try{ ctx.resume(); }catch(e){}
+      if(wa&&wa.playing){ wa.offset+=ctx.currentTime-wa.startAt; waStop(); setIcon(false); return; }
+      if(!wa){ tlab.textContent="…";
+        let buf; try{ buf=await decodeVoice(url); }catch(e){ tlab.textContent="✖"; return; }
+        wa={buf,offset:0,playing:false,node:null,startAt:0,raf:0}; dur=buf.duration; draw(0); tlab.textContent=fmtDur(dur); }
+      wa.node=ctx.createBufferSource(); wa.node.buffer=wa.buf; wa.node.connect(ctx.destination);
+      wa.startAt=ctx.currentTime; wa.playing=true; setIcon(true);
+      wa.node.onended=()=>{ if(wa.playing){ wa.offset=0; wa.playing=false; setIcon(false); draw(0); tlab.textContent=fmtDur(dur); } };
+      const tick=()=>{ if(!wa.playing) return; const cur=wa.offset+(actx().currentTime-wa.startAt), d=dur||1;
+        draw(Math.min(1,cur/d)); tlab.textContent=fmtDur(Math.max(0,d-cur)); wa.raf=requestAnimationFrame(tick); };
+      wa.node.start(0, Math.min(wa.offset, Math.max(0,(dur||0)-0.05))); wa.raf=requestAnimationFrame(tick);
+    }
+    function goWA(){ if(switched) return; switched=true; audio=null; setIcon(false); waToggle(); }
+    btn.onclick=()=>{
+      if(switched){ waToggle(); return; }
+      if(!audio){ audio=new Audio(url);
         audio.onloadedmetadata=()=>{ if(!dur&&isFinite(audio.duration)){ dur=audio.duration; tlab.textContent=fmtDur(dur);} };
         audio.ontimeupdate=()=>{ const d=audio.duration||dur||1; draw(audio.currentTime/d); tlab.textContent=fmtDur(d-audio.currentTime); };
-        audio.onended=()=>{ setIcon(false); draw(0); tlab.textContent=fmtDur(dur); }; }
-      if(audio.paused){ audio.play(); setIcon(true); } else { audio.pause(); setIcon(false); } };
-    canvas.onclick=e=>{ if(audio&&audio.duration){ audio.currentTime=(e.offsetX/(canvas.offsetWidth||1))*audio.duration; } };
+        audio.onended=()=>{ setIcon(false); draw(0); tlab.textContent=fmtDur(dur); };
+        audio.onerror=goWA; }
+      if(audio.paused){ const p=audio.play(); setIcon(true); if(p&&p.catch) p.catch(goWA); }
+      else { audio.pause(); setIcon(false); } };
+    canvas.onclick=e=>{ const frac=(e.offsetX/(canvas.offsetWidth||1));
+      if(audio&&audio.duration){ audio.currentTime=frac*audio.duration; }
+      else if(switched&&wa){ const wasP=wa.playing; waStop(); setIcon(false); wa.offset=Math.max(0,Math.min(dur||0,frac*(dur||0))); draw(frac); if(wasP) waToggle(); } };
   });
 }
 

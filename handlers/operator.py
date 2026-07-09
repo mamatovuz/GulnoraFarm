@@ -27,6 +27,9 @@ IDLE_LOGOUT_MIN = 30       # operator harakatsizligi (daqiqa) -> avto-logout
 # Kanaldan "Qabul qilish" bosib, lekin hali login qilmagan operatorlar uchun kutilayotgan murojaat
 _pending_accept: dict[int, int] = {}
 
+# Operator chatidagi oxirgi murojaat kartalari: filial o'zgarganda matnni edit qilish uchun.
+_op_order_cards: dict[tuple[int, int], dict] = {}
+
 
 def remember_pending_accept(telegram_id: int, order_id: int):
     _pending_accept[telegram_id] = order_id
@@ -338,10 +341,12 @@ async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
     return await send_raw(bot, chat_id, content_type, file_id, caption, markup=markup)
 
 
-async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
-    """Murojaatni BITTA xabar qilib yuboradi:
-    [mijoz yozgan matn/izoh] + murojaat kartasi + [extra_text] + inline tugmalar.
-    Mijozning asl xabarini 'Reply' uchun bog'laydi."""
+def _assign_text(order_id: int) -> str:
+    return (f"🔵 Murojaat #{order_id} sizga biriktirildi.\n"
+            f"Endi shu yerga yozgan har bir xabaringiz to'g'ridan-to'g'ri mijozga yetib boradi.")
+
+
+async def _order_single_payload(order_id, extra_text):
     order = await q.get_order(order_id)
     info = await order_card_text(order)
     msgs = await q.order_messages(order_id)
@@ -360,7 +365,50 @@ async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
 
     ct = main["content_type"] if main else "text"
     fid = main["file_id"] if main else None
+    return caption, ct, fid, main, client_msgs
+
+
+async def _refresh_operator_order_card(bot, chat_id, order_id, extra_text=None) -> bool:
+    """Operator chatidagi mavjud kartani filial/holat yangilanganidan keyin edit qiladi."""
+    ref = _op_order_cards.get((chat_id, order_id))
+    if not ref:
+        return False
+    extra_text = extra_text if extra_text is not None else ref.get("extra_text") or _assign_text(order_id)
+    caption, ct, _, _, _ = await _order_single_payload(order_id, extra_text)
+    try:
+        if ct in ("photo", "video", "document", "animation"):
+            await bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=ref["message_id"],
+                caption=caption,
+                reply_markup=kb.op_order_actions_kb(order_id),
+            )
+        elif ct == "text":
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=ref["message_id"],
+                text=caption,
+                reply_markup=kb.op_order_actions_kb(order_id),
+                disable_web_page_preview=True,
+            )
+        else:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
+    """Murojaatni BITTA xabar qilib yuboradi:
+    [mijoz yozgan matn/izoh] + murojaat kartasi + [extra_text] + inline tugmalar.
+    Mijozning asl xabarini 'Reply' uchun bog'laydi."""
+    caption, ct, fid, main, client_msgs = await _order_single_payload(order_id, extra_text)
     sent = await _send_one(bot, chat_id, ct, fid, caption, markup)
+    if sent:
+        _op_order_cards[(chat_id, order_id)] = {
+            "message_id": sent.message_id,
+            "extra_text": extra_text,
+        }
 
     if main and main["tg_msg_id"] and sent:
         await q.add_link(order_id, main["tg_msg_id"], sent.message_id, chat_id)
@@ -418,9 +466,7 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
         await update_group_card(bot, order_id)
 
     # 2) Butun ish operatorning SHAXSIY chatiga — BITTA xabar bilan
-    assign_text = (f"🔵 Murojaat #{order_id} sizga biriktirildi.\n"
-                   f"Endi shu yerga yozgan har bir xabaringiz to'g'ridan-to'g'ri mijozga yetib boradi.")
-    await _send_order_single(bot, op_chat, order_id, assign_text, kb.op_order_actions_kb(order_id))
+    await _send_order_single(bot, op_chat, order_id, _assign_text(order_id), kb.op_order_actions_kb(order_id))
 
     # 3) Mijozga xabar
     clang = await q.get_lang(order["user_id"])
@@ -754,6 +800,127 @@ async def op_sendbranch_pick(call: CallbackQuery, bot: Bot):
         await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
 
 
+# ---------------- Operatorning o'zi filialni almashtirishi ----------------
+async def _owned_active_order(call: CallbackQuery, order_id: int):
+    op = await _op_of(call)
+    order = await q.get_order(order_id)
+    if not op or not order or order["operator_id"] != op["id"]:
+        return None, None, "Bu murojaat sizga biriktirilmagan."
+    if order["status"] != "in_progress":
+        return None, None, "Bu murojaat faol emas."
+    return op, order, None
+
+
+@router.callback_query(F.data.startswith("opc:changebranch:"))
+async def op_change_branch_btn(call: CallbackQuery):
+    order_id = int(call.data.split(":")[2])
+    op, order, err = await _owned_active_order(call, order_id)
+    if err:
+        await call.answer(err, show_alert=True)
+        return
+    _op_order_cards.setdefault(
+        (call.message.chat.id, order_id),
+        {"message_id": call.message.message_id, "extra_text": _assign_text(order_id)},
+    )
+    branches = await q.list_branches()
+    if not branches:
+        await call.answer("Filiallar qo'shilmagan", show_alert=True)
+        return
+    regions = await q.list_regions()
+    if len(regions) > 1:
+        await call.message.answer(
+            f"🏥 Murojaat #{order_id} uchun yangi filial hududini tanlang:",
+            reply_markup=kb.op_change_branch_regions_kb(regions, order_id),
+        )
+    else:
+        await call.message.answer(
+            f"🏥 Murojaat #{order_id} uchun yangi filialni tanlang:",
+            reply_markup=kb.op_change_branch_kb(branches, order_id),
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opchgbrreg:"))
+async def op_change_branch_region(call: CallbackQuery):
+    _, oid, idx = call.data.split(":")
+    oid, idx = int(oid), int(idx)
+    _, _, err = await _owned_active_order(call, oid)
+    if err:
+        await call.answer(err, show_alert=True)
+        return
+    regions = await q.list_regions()
+    if idx >= len(regions):
+        await call.answer("Topilmadi", show_alert=True)
+        return
+    region = regions[idx]["reg"]
+    branches = await q.branches_in_region(region)
+    try:
+        await call.message.edit_text(
+            f"🏥 <b>{region}</b> hududidan filial tanlang:",
+            reply_markup=kb.op_change_branch_kb(branches, oid, with_back=True),
+        )
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opchgbrback:"))
+async def op_change_branch_back(call: CallbackQuery):
+    oid = int(call.data.split(":")[1])
+    _, _, err = await _owned_active_order(call, oid)
+    if err:
+        await call.answer(err, show_alert=True)
+        return
+    regions = await q.list_regions()
+    try:
+        await call.message.edit_text(
+            f"🏥 Murojaat #{oid} uchun yangi filial hududini tanlang:",
+            reply_markup=kb.op_change_branch_regions_kb(regions, oid),
+        )
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opchgbr:"))
+async def op_change_branch_pick(call: CallbackQuery, bot: Bot):
+    _, oid, bid = call.data.split(":")
+    oid, bid = int(oid), int(bid)
+    op, order, err = await _owned_active_order(call, oid)
+    if err:
+        await call.answer(err, show_alert=True)
+        return
+    branch = await q.get_branch(bid)
+    if not branch:
+        await call.answer("Filial topilmadi", show_alert=True)
+        return
+
+    await q.set_order_branch(oid, bid)
+    await q.set_user_branch(order["user_id"], bid)
+    await q.add_message(oid, "operator", "text",
+                        f"🏥 Filial operator tomonidan o'zgartirildi: {branch['name']}",
+                        None, None)
+    await update_group_card(bot, oid)
+
+    edited = await _refresh_operator_order_card(call.bot, call.message.chat.id, oid)
+    if not edited:
+        await _send_order_single(
+            call.bot,
+            call.message.chat.id,
+            oid,
+            f"🏥 Filial yangilandi: <b>{branch['name']}</b>",
+            kb.op_order_actions_kb(oid),
+        )
+    try:
+        await call.message.edit_text(
+            f"✅ Murojaat #{oid} filiali <b>{branch['name']}</b> qilib saqlandi.\n"
+            f"Keyingi murojaatlarda ham shu mijoz uchun shu filial ishlatiladi."
+        )
+    except Exception:
+        await call.message.answer(f"✅ Filial saqlandi: <b>{branch['name']}</b>")
+    await call.answer("Filial o'zgartirildi ✅", show_alert=True)
+
+
 # ---------------- Mijozdan filial tanlashni so'rash ----------------
 @router.callback_query(F.data.startswith("opc:askbranch:"))
 async def op_ask_branch(call: CallbackQuery, bot: Bot):
@@ -967,19 +1134,90 @@ async def op_workhours_loop(bot: Bot):
             pass
 
 
-# ---------------- Yakunlanganlar ----------------
-@router.message(IsOperator(), F.text == "✅ Yakunlanganlar")
+# ---------------- Yakunlangan murojaatlarim ----------------
+@router.message(IsOperator(), F.text.in_({"✅ Yakunlanganlar", "✅ Yakunlangan murojaatlarim"}))
 async def op_done_list(message: Message):
     op = await _op_of(message)
-    orders = await q.orders_by_status("done", op["id"])
+    orders = await q.done_orders_today_by_operator(op["id"])
     if not orders:
-        await message.answer("Yakunlangan murojaatlaringiz yo'q.")
+        await message.answer("Bugun yakunlangan murojaatlaringiz yo'q.")
         return
-    lines = [f"✅ Yakunlangan murojaatlar: {len(orders)}\n"]
-    for o in orders[:30]:
-        u = await q.get_user(o["user_id"])
-        lines.append(f"#{o['id']} — {u['full_name'] if u else '—'} — {o['closed_at'] or ''}")
-    await message.answer("\n".join(lines))
+    await message.answer(
+        f"✅ Bugun yakunlangan murojaatlaringiz: <b>{len(orders)}</b>\n"
+        f"Keraklisini tanlang:",
+        reply_markup=kb.op_done_orders_kb(orders),
+    )
+
+
+@router.callback_query(F.data.startswith("opdoneview:"))
+async def op_done_view(call: CallbackQuery):
+    op = await _op_of(call)
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not op or not order or order["operator_id"] != op["id"] or order["status"] != "done":
+        await call.answer("Topilmadi yoki bu murojaat sizniki emas.", show_alert=True)
+        return
+    info = await order_card_text(order)
+    msgs = await q.order_messages(order_id)
+    tail = []
+    for m in msgs[-8:]:
+        who = "Mijoz" if m["sender"] == "client" else "Operator"
+        body = (m["text"] or f"({m['content_type']})").strip()
+        if len(body) > 140:
+            body = body[:137] + "..."
+        tail.append(f"• {who}: {body}")
+    text = info
+    if tail:
+        text += "\n\n<b>So'nggi xabarlar:</b>\n" + "\n".join(tail)
+    await call.message.answer(text, reply_markup=kb.op_done_detail_kb(order_id),
+                              disable_web_page_preview=True)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("oprestore:"))
+async def op_restore_done_chat(call: CallbackQuery, bot: Bot):
+    op = await _op_of(call)
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not op or not order or order["operator_id"] != op["id"]:
+        await call.answer("Bu murojaat sizga tegishli emas.", show_alert=True)
+        return
+    if order["status"] == "in_progress":
+        await q.set_operator_active_order(op["id"], order_id)
+        await call.answer("Chat allaqachon faol.", show_alert=True)
+        return
+    if order["status"] != "done":
+        await call.answer("Faqat yakunlangan murojaatni tiklash mumkin.", show_alert=True)
+        return
+
+    user = await q.get_user(order["user_id"])
+    if user and user["active_order_id"] and user["active_order_id"] != order_id:
+        active = await q.get_order(user["active_order_id"])
+        if active and active["status"] in ("new", "in_progress"):
+            await call.answer("Mijozda hozir boshqa ochiq murojaat bor.", show_alert=True)
+            return
+
+    await q.reopen_order(order_id, op["id"])
+    await q.set_operator_active_order(op["id"], order_id)
+    await q.set_operator_availability(op["id"], "busy")
+    await q.set_user_active_order(order["user_id"], order_id)
+    await q.add_message(order_id, "operator", "text", "🔄 Operator chatni tikladi", None, None)
+    await update_group_card(bot, order_id)
+
+    await notify_client(call.bot, order["user_id"],
+                        f"🔄 Murojaat #{order_id} qayta tiklandi. Shu yerga yozishingiz mumkin.")
+    await _send_order_single(
+        call.bot,
+        call.message.chat.id,
+        order_id,
+        f"🔄 Murojaat #{order_id} qayta tiklandi. Endi yozgan xabarlaringiz mijozga boradi.",
+        kb.op_order_actions_kb(order_id),
+    )
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await call.answer("Chat tiklandi ✅", show_alert=True)
 
 
 # ---------------- Statistika ----------------
