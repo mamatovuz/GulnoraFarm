@@ -1028,7 +1028,10 @@ def _admin_sign(tg_id) -> str:
 
 
 async def _is_admin(tg_id) -> bool:
-    """Admin — .env ADMIN_IDS'da yoki CRM'dan qo'shilgan (DB) adminlar."""
+    """Admin — .env ADMIN_IDS'da yoki CRM'dan qo'shilgan (DB) adminlar.
+    CRM'dan «o'chirilgan» .env adminlari admin hisoblanmaydi."""
+    if tg_id in await q.disabled_admin_ids():
+        return False
     if tg_id in ADMIN_IDS:
         return True
     return tg_id in await q.admin_telegram_ids()
@@ -1911,8 +1914,11 @@ async def api_admin_admins(request):
     if not tg:
         return _json({"ok": False}, 401)
     items = []
-    # .env ADMIN_IDS — asosiy (o'chirib bo'lmaydigan) adminlar
+    disabled = await q.disabled_admin_ids()
+    # .env ADMIN_IDS — asosiy adminlar (CRM'dan o'chirilganlari ro'yxatda ko'rinmaydi)
     for aid in ADMIN_IDS:
+        if aid in disabled:
+            continue
         u = await q.get_user(aid)
         items.append({
             "telegram_id": aid,
@@ -1963,9 +1969,17 @@ async def api_admin_admin_add(request):
             telegram_id = u["telegram_id"]
             name = u["full_name"]
 
+    # Avval o'chirilgan .env admini bo'lsa — qayta faollashtiramiz
+    if telegram_id is not None and telegram_id in ADMIN_IDS:
+        if telegram_id in await q.disabled_admin_ids():
+            await q.set_admin_disabled(telegram_id, False)
+            from utils import refresh_admins
+            await refresh_admins()
+            return _json({"ok": True, "pending": False})
+        return _json({"ok": False, "error": "Bu foydalanuvchi allaqachon admin"})
+
     # Allaqachon adminmi?
-    if telegram_id is not None and (telegram_id in ADMIN_IDS
-                                    or await q.admin_exists(telegram_id=telegram_id)):
+    if telegram_id is not None and await q.admin_exists(telegram_id=telegram_id):
         return _json({"ok": False, "error": "Bu foydalanuvchi allaqachon admin"})
     if username and await q.admin_exists(username=username):
         return _json({"ok": False, "error": "Bu username allaqachon admin"})
@@ -1991,15 +2005,78 @@ async def api_admin_admin_del(request):
         tid = int(tid) if tid is not None and str(tid) != "" else None
     except (TypeError, ValueError):
         tid = None
-    # .env adminlarini o'chirib bo'lmaydi
-    if tid is not None and tid in ADMIN_IDS:
-        return _json({"ok": False, "error": "Asosiy adminni o'chirib bo'lmaydi"})
     # O'zini o'chirib qo'yishdan saqlaymiz
     if tid is not None and tid == tg:
         return _json({"ok": False, "error": "O'zingizni o'chira olmaysiz"})
-    await q.remove_admin(telegram_id=tid, username=username)
+    # .env adminini bazadan o'chirib bo'lmaydi (u .env'da yozilgan), shuning uchun
+    # uni «o'chirilgan» deb belgilaymiz — admin huquqi va bildirishnomalari olib tashlanadi.
+    if tid is not None and tid in ADMIN_IDS:
+        await q.set_admin_disabled(tid, True)
+    else:
+        await q.remove_admin(telegram_id=tid, username=username)
     from utils import refresh_admins
     await refresh_admins()
+    return _json({"ok": True})
+
+
+# ---------------- Admin: bildirishnomalar (kim «Javobsiz murojaat» oladi) ----------------
+async def api_admin_notify_list(request):
+    tg = await _auth_admin(request, request.query)
+    if not tg:
+        return _json({"ok": False}, 401)
+    disabled = await q.disabled_admin_ids()
+    sel = await q.notify_admin_ids()   # None bo'lsa — hammaga yoqilgan
+
+    def _on(aid):
+        return True if sel is None else (aid in sel)
+
+    items = []
+    seen = set()
+    for aid in ADMIN_IDS:
+        if aid in disabled or aid in seen:
+            continue
+        seen.add(aid)
+        u = await q.get_user(aid)
+        items.append({
+            "telegram_id": aid,
+            "name": (u["full_name"] if u and u["full_name"] else "Admin"),
+            "username": (u["username"] if u and u["username"] else None),
+            "on": _on(aid)})
+    for a in await q.list_admins():
+        aid = a["telegram_id"]
+        if aid is None or aid in seen:
+            continue   # hali botni ochmagan (pending) admin bildirishnoma ololmaydi
+        seen.add(aid)
+        items.append({
+            "telegram_id": aid,
+            "name": a["name"] or (("@" + a["username"]) if a["username"] else str(aid)),
+            "username": a["username"],
+            "on": _on(aid)})
+    return _json({"ok": True, "items": items})
+
+
+async def api_admin_notify_toggle(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    try:
+        tid = int(body.get("telegram_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "telegram_id noto'g'ri"})
+    on = bool(body.get("on"))
+    # Joriy holatni aniqlaymiz: sozlanmagan bo'lsa — barcha amaldagi adminlar yoqilgan.
+    eff = await q.effective_admin_ids()
+    sel = await q.notify_admin_ids()
+    cur = set(eff) if sel is None else {i for i in sel if i in eff}
+    if on:
+        cur.add(tid)
+    else:
+        cur.discard(tid)
+    await q.set_notify_admin_ids(cur)
     return _json({"ok": True})
 
 
@@ -2405,6 +2482,8 @@ def build_app() -> web.Application:
     app.router.add_get("/api/admin/admins", api_admin_admins)
     app.router.add_post("/api/admin/admin_add", api_admin_admin_add)
     app.router.add_post("/api/admin/admin_del", api_admin_admin_del)
+    app.router.add_get("/api/admin/notify_list", api_admin_notify_list)
+    app.router.add_post("/api/admin/notify_toggle", api_admin_notify_toggle)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
     app.router.add_post("/api/admin/excel", api_admin_excel)
     return app

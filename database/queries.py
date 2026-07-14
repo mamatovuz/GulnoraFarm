@@ -1,5 +1,6 @@
 """Barcha ma'lumotlar bazasi amallari."""
 import hashlib
+import json
 from datetime import timedelta
 from config import now_local
 from database.db import get_db
@@ -1259,6 +1260,64 @@ async def claim_pending_admin(telegram_id: int, username: str) -> bool:
         (telegram_id, row["rowid"]))
     await db.commit()
     return True
+
+
+# ---- O'chirilgan .env adminlari (ADMIN_IDS'dan olib tashlanganlar) ----
+async def disabled_admin_ids() -> set:
+    """CRM'dan «o'chirilgan» .env ADMIN_IDS adminlarining to'plami."""
+    raw = await get_setting("disabled_admin_ids", "")
+    if not raw:
+        return set()
+    try:
+        return {int(x) for x in json.loads(raw)}
+    except Exception:
+        return set()
+
+
+async def set_admin_disabled(telegram_id, disabled: bool):
+    """.env adminini o'chirilgan (yoki qayta faollashtirilgan) deb belgilaydi."""
+    ids = await disabled_admin_ids()
+    if disabled:
+        ids.add(int(telegram_id))
+    else:
+        ids.discard(int(telegram_id))
+    await set_setting("disabled_admin_ids", json.dumps(sorted(ids)))
+
+
+async def effective_admin_ids() -> set:
+    """Haqiqiy amaldagi adminlar: .env (o'chirilmaganlari) + CRM (DB) adminlari."""
+    from config import ADMIN_IDS
+    disabled = await disabled_admin_ids()
+    ids = {a for a in ADMIN_IDS if a not in disabled}
+    ids |= await admin_telegram_ids()
+    return ids
+
+
+# ---- Bildirishnoma («Javobsiz murojaat!») oladigan adminlar ----
+async def notify_admin_ids():
+    """Sozlangan bo'lsa — telegram_id'lar to'plami; hech qachon sozlanmagan bo'lsa — None."""
+    raw = await get_setting("notify_admin_ids", "")
+    if not raw:
+        return None
+    try:
+        return {int(x) for x in json.loads(raw)}
+    except Exception:
+        return None
+
+
+async def set_notify_admin_ids(ids):
+    await set_setting("notify_admin_ids",
+                      json.dumps(sorted({int(x) for x in ids})))
+
+
+async def notify_recipient_ids() -> set:
+    """Eskalatsiya bildirishnomasi yuboriladigan adminlar to'plami.
+    Sozlanmagan bo'lsa — barcha amaldagi adminlar (avvalgi xatti-harakat)."""
+    eff = await effective_admin_ids()
+    sel = await notify_admin_ids()
+    if sel is None:
+        return eff
+    return {i for i in sel if i in eff}
 
 
 # ============================ STATISTIKA ============================

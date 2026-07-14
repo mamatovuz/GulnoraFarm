@@ -417,6 +417,7 @@
     </div>
     <div class="list">
       <div class="item" onclick="openSet('admins')"><svg class="ic" viewBox="0 0 24 24" style="color:#e5484d"><path d="M12 2l7 4v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg><div class="lbl">Adminlar<div style="font-size:12px;color:var(--hint)">Qo'shish / o'chirish</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('notify')"><svg class="ic" viewBox="0 0 24 24" style="color:#d97706"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><div class="lbl">Bildirishnomalar<div style="font-size:12px;color:var(--hint)">Javobsiz murojaat kimga borsin</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('ops')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><div class="lbl">Operatorlar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('opbots')"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 13h.01M16 13h.01M9 17h6"/></svg><div class="lbl">Operator botlari</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -1473,14 +1474,15 @@ function compressImage(file, maxDim, quality){
 const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
             opbots:"Operator botlari",low:"Sifat nazorati",excel:"Excel hisobot",
-            stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar"};
+            stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar",
+            notify:"Bildirishnomalar"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
     ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel,stale:svStale,stats:svStats,
-    admins:svAdmins})[kind]();
+    admins:svAdmins,notify:svNotify})[kind]();
 }
 
 // ---- Statistika (umumiy + filiallar kesimi) ----
@@ -1682,8 +1684,8 @@ async function svAdmins(){
       ? '<span style="font-size:11px;background:#e5484d22;color:#e5484d;padding:2px 7px;border-radius:8px;margin-left:6px">Asosiy</span>'
       : (a.pending?'<span style="font-size:11px;background:#d9770622;color:#d97706;padding:2px 7px;border-radius:8px;margin-left:6px">Kutilmoqda</span>':'');
     const you = a.you?'<span style="font-size:11px;color:var(--hint);margin-left:6px">(siz)</span>':'';
-    // Asosiy adminni yoki o'zini o'chirib bo'lmaydi
-    const canDel = !a.super && !a.you;
+    // Faqat o'zini o'chirib bo'lmaydi (asosiy .env adminlarini ham o'chirsa bo'ladi)
+    const canDel = !a.you;
     const label = a.username ? ("@"+a.username) : String(a.telegram_id);
     const del = canDel
       ? `<button class="delbtn" onclick='admDel(${a.telegram_id!=null?a.telegram_id:"null"},"${esc(a.username||"")}","${esc(label)}")'>${DELSVG}</button>`
@@ -1724,6 +1726,35 @@ function admDel(tid,username,label){
     const r=await q("/api/admin/admin_del","POST",Object.assign(auth(),arg));
     if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
     svAdmins(); });
+}
+
+// ---- Bildirishnomalar (kim «Javobsiz murojaat» xabarini oladi) ----
+async function svNotify(){
+  const r=await q("/api/admin/notify_list","GET",auth()); if(!r.ok) return;
+  const rows=r.items.map(a=>{
+    const nm=esc(a.name||"Admin");
+    const sub=(a.username?("@"+esc(a.username)):"")+((a.username&&a.telegram_id)?" · ":"")+(a.telegram_id?("ID: "+a.telegram_id):"");
+    const check = a.on
+      ? `<div style="width:28px;height:28px;border-radius:50%;background:#2f9e44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+           <svg viewBox="0 0 24 24" style="width:17px;height:17px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round"><path d="M5 12l5 5L20 6"/></svg></div>`
+      : `<div style="width:28px;height:28px;border-radius:50%;border:2px solid var(--hint);opacity:.55;flex-shrink:0"></div>`;
+    return `<div class="lrow" style="cursor:pointer" onclick='ntToggle(${a.telegram_id},${a.on?0:1})'>
+      <div style="width:40px;height:40px;border-radius:12px;background:${avaBg(nm)};color:#fff;
+        display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:600">${esc((nm[0]||"A").toUpperCase())}</div>
+      <div class="mid" style="min-width:0"><div class="nm"><span>${nm}</span></div>
+        <div class="sub">${sub||"—"}</div></div>
+      ${check}</div>`;
+  }).join("");
+  document.getElementById("sv-body").innerHTML = `
+    <div style="font-size:13px;color:var(--hint);margin-bottom:10px;line-height:1.5">
+      Belgilangan (<b style="color:#2f9e44">✓</b>) adminlarga «⚠️ Javobsiz murojaat!» bildirishnomasi yuboriladi.
+      Belgilanmagan adminlar bu xabarni olmaydi.</div>
+    <div class="lrows">${rows||'<div class="empty">Admin topilmadi</div>'}</div>`;
+}
+async function ntToggle(tid,on){
+  const r=await q("/api/admin/notify_toggle","POST",Object.assign(auth(),{telegram_id:tid,on:!!on}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+  svNotify();
 }
 
 // ---- Sifat nazorati ----

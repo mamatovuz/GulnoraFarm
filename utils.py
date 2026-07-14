@@ -132,18 +132,23 @@ STATUS_LABEL = {
 # CRM'dan qo'shilgan adminlar (DB) — bot xotirasida keshlanadi.
 # Sinxron is_admin() tez ishlashi uchun; add/remove'da refresh_admins() chaqiriladi.
 _DB_ADMIN_IDS: set = set()
+# CRM'dan «o'chirilgan» .env adminlari — is_admin() ularni admin deb hisoblamaydi.
+_DISABLED_ADMIN_IDS: set = set()
 
 
 async def refresh_admins() -> None:
     """DB'dagi admin id'larini qayta yuklaydi (keshni yangilaydi)."""
-    global _DB_ADMIN_IDS
+    global _DB_ADMIN_IDS, _DISABLED_ADMIN_IDS
     try:
         _DB_ADMIN_IDS = await q.admin_telegram_ids()
+        _DISABLED_ADMIN_IDS = await q.disabled_admin_ids()
     except Exception:
         pass
 
 
 def is_admin(telegram_id: int) -> bool:
+    if telegram_id in _DISABLED_ADMIN_IDS:
+        return False
     return telegram_id in ADMIN_IDS or telegram_id in _DB_ADMIN_IDS
 
 
@@ -386,7 +391,9 @@ async def _escalation_watch(order_id):
     text = (f"⚠️ <b>Javobsiz murojaat!</b>\n\n"
             f"#{order_id} — {mins} daqiqada hech bir operator qabul qilmadi.\n\n{info}\n\n"
             f"📌 «Yakunlanmagan murojaatlar» bo'limidan ko'rishingiz mumkin.")
-    for aid in ADMIN_IDS:
+    # Faqat bildirishnoma yoqilgan adminlarga yuboriladi (CRM > Sozlamalar > Bildirishnomalar).
+    recipients = await q.notify_recipient_ids()
+    for aid in recipients:
         try:
             await client.send_message(aid, text, disable_web_page_preview=True)
         except Exception:
