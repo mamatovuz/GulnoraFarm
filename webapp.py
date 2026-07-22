@@ -19,6 +19,7 @@ from aiogram.types import BufferedInputFile
 
 from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE, ADMIN_IDS
 from database import queries as q
+from utils import BILL_TAG, send_branch_to_client, branch_card_text
 import locales as loc
 
 logger = logging.getLogger("bot")
@@ -663,17 +664,12 @@ async def api_cmd(request):
             b = await q.get_branch(int(arg))
             if not b:
                 return _json({"ok": False, "error": "filial topilmadi"})
-            text = (f"🏥 <b>{b['name']}</b>\n📍 {b['address'] or '—'}\n"
-                    f"📞 {b['phone'] or '—'}\n🕐 Ish vaqti: {b['open_time']}–{b['close_time']}")
-            has = b["lat"] is not None and b["lon"] is not None
-            markup = kb.branch_directions_kb(b["lat"], b["lon"]) if has else None
-            if b["photo_file_id"]:
-                await client.send_photo(uid, b["photo_file_id"], caption=text, reply_markup=markup)
-            else:
-                await client.send_message(uid, text, reply_markup=markup)
-            if has:
-                await client.send_venue(uid, latitude=b["lat"], longitude=b["lon"],
-                                        title=b["name"], address=b["address"] or "")
+            header = loc.t("op_branch_info", clang)
+            # rasm + nomi/manzili/telefoni/ish vaqti + «Yo'l ko'rsatish» + xaritadagi nuqta
+            if not await send_branch_to_client(client, uid, b, clang, header=header, src_bot=client):
+                return _json({"ok": False, "error": "mijozga yuborilmadi"}, 200)
+            await q.add_message(order_id, "operator", "text",
+                                branch_card_text(b, clang, header), None, None)
             return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
 
         if cmd == "bill":
@@ -682,50 +678,81 @@ async def api_cmd(request):
             media_data = body.get("media_data")
             sticker_id = body.get("sticker_id")
             cap = loc.t("bill_to_client", clang, id=order_id, bill=_htm.escape(billtext))
+            label = f"{BILL_TAG}: {billtext}" if billtext else BILL_TAG
+
+            async def _bill_to_channel(**kw):
+                # Kanalga joylash uzilsa ham CRM yozishmasidagi yozuv yo'qolmasin
+                try:
+                    await post_operator_to_channel(client, order, op["name"], src_bot=client, **kw)
+                except Exception:
+                    logger.exception("bill -> channel")
+
             if media_kind == "photo" and media_data:
                 raw = base64.b64decode(str(media_data).split(",")[-1])
                 sent = await client.send_photo(uid, BufferedInputFile(raw, "bill.jpg"), caption=cap)
                 fid = sent.photo[-1].file_id
                 await q.set_order_bill(order_id, billtext, fid)
-                await q.add_message(order_id, "operator", "photo",
-                                    f"🧾 Hisob-kitob: {billtext}", fid, None)
-                await post_operator_to_channel(client, order, op["name"], content_type="photo",
-                                               file_id=fid, src_bot=client,
-                                               text=f"🧾 Hisob-kitob: {billtext}")
+                await q.add_message(order_id, "operator", "photo", label, fid, None,
+                                    client_msg_id=sent.message_id)
+                await _bill_to_channel(content_type="photo", file_id=fid, text=label)
             elif media_kind == "voice" and media_data:
+                # Brauzer ogg/webm/mp4 yozishi mumkin — voice -> audio -> document zanjiri
                 raw = base64.b64decode(str(media_data).split(",")[-1])
+                mime = str(body.get("media_mime", "")).lower()
+                ext = "ogg" if "ogg" in mime else ("webm" if "webm" in mime else
+                                                   ("mp4" if "mp4" in mime else "audio"))
+                vlabel = f"{BILL_TAG} (ovozli)" + (f": {billtext}" if billtext else "")
+                fid, ct2, sent = None, "voice", None
+                for kind in ("voice", "audio", "document"):
+                    try:
+                        if kind == "voice":
+                            sent = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
+                            fid, ct2 = sent.voice.file_id, "voice"
+                        elif kind == "audio":
+                            sent = await client.send_audio(
+                                uid, BufferedInputFile(raw, "bill_audio." + ext))
+                            fid, ct2 = sent.audio.file_id, "audio"
+                        else:
+                            sent = await client.send_document(
+                                uid, BufferedInputFile(raw, "bill_voice." + ext), caption=vlabel)
+                            fid, ct2 = sent.document.file_id, "document"
+                        break
+                    except Exception:
+                        continue
+                if not fid:
+                    return _json({"ok": False, "error": "ovoz yuborilmadi (format qo'llanmadi)"}, 200)
                 try:
-                    sent = await client.send_voice(uid, BufferedInputFile(raw, "voice.ogg"))
-                    fid, ct2 = sent.voice.file_id, "voice"
+                    await client.send_message(uid, cap)
                 except Exception:
-                    sent = await client.send_audio(uid, BufferedInputFile(raw, "bill_audio.ogg"))
-                    fid, ct2 = sent.audio.file_id, "audio"
-                await client.send_message(uid, cap)
+                    logger.exception("bill caption")
                 await q.set_order_bill(order_id, billtext or "🎤 ovozli hisob-kitob", None)
-                await q.add_message(order_id, "operator", ct2, None, fid, None)
-                await post_operator_to_channel(client, order, op["name"], content_type=ct2,
-                                               file_id=fid, src_bot=client,
-                                               text="🧾 Hisob-kitob (ovozli)")
+                await q.add_message(order_id, "operator", ct2, vlabel, fid, None,
+                                    client_msg_id=sent.message_id)
+                await _bill_to_channel(content_type=ct2, file_id=fid, text=vlabel)
             elif sticker_id:
                 tpl = await q.get_template(int(sticker_id))
                 if not tpl or not tpl["sticker"]:
                     return _json({"ok": False, "error": "stiker topilmadi"})
-                await client.send_sticker(uid, tpl["sticker"])
-                await client.send_message(uid, cap)
+                sent = await client.send_sticker(uid, tpl["sticker"])
+                try:
+                    await client.send_message(uid, cap)
+                except Exception:
+                    logger.exception("bill caption")
                 await q.set_order_bill(order_id, billtext or "🎭 stiker", None)
-                await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
-                await post_operator_to_channel(client, order, op["name"], content_type="sticker",
-                                               file_id=tpl["sticker"], src_bot=client,
-                                               text="🧾 Hisob-kitob")
+                await q.add_message(order_id, "operator", "sticker", label, tpl["sticker"], None,
+                                    client_msg_id=sent.message_id)
+                await _bill_to_channel(content_type="sticker", file_id=tpl["sticker"], text=label)
             else:
+                if not billtext:
+                    return _json({"ok": False, "error": "Hisob-kitob matni bo'sh"}, 200)
+                sent = await client.send_message(uid, cap)
                 await q.set_order_bill(order_id, billtext, None)
-                await client.send_message(uid, cap)
-                await q.add_message(order_id, "operator", "text",
-                                    f"🧾 Hisob-kitob: {billtext}", None, None)
-                await post_operator_to_channel(client, order, op["name"],
-                                               text=f"🧾 Hisob-kitob: {billtext}")
+                await q.add_message(order_id, "operator", "text", label, None, None,
+                                    client_msg_id=sent.message_id)
+                await _bill_to_channel(text=label)
             return _json({"ok": True, "info": "Hisob-kitob yuborildi"})
     except Exception:
+        logger.exception("api_cmd %s (order %s)", cmd, order_id)
         return _json({"ok": False, "error": "bajarilmadi"}, 200)
     return _json({"ok": False, "error": "noma'lum buyruq"}, 400)
 
@@ -1293,6 +1320,7 @@ async def api_admin_orders(request):
     rows, total = await q.orders_page(20, page * 20, search, status, since)
     items = [{"id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
               "status": r["status"], "operator": r["operator"] or "",
+              "bill": bool((r["bill"] or "").strip()),   # hisob-kitob qilinganmi
               "time": (r["created_at"] or "")[5:16], "rating": r["rating"] or 0} for r in rows]
     return _json({"ok": True, "total": total, "page": page, "items": items})
 
@@ -1312,10 +1340,16 @@ async def api_admin_msgs(request):
     msgs = await q.order_messages(order_id)
     out = [{"own": m["sender"] == "operator", "type": m["content_type"] or "text",
             "text": m["text"] or "", "file_id": m["file_id"] or "",
+            # Hisob-kitob xabari — admin uni alohida rangda ko'rsatadi
+            "bill": (m["text"] or "").startswith(BILL_TAG),
             "time": (m["created_at"] or "")[11:16]} for m in msgs]
+    # Yozishmada xabar bo'lmasa ham (bot orqali «saqlangan» hisob-kitob) ko'rinib tursin
+    bill_text = (order["bill"] or "") if "bill" in order.keys() else ""
+    bill_photo = (order["bill_photo"] or "") if "bill_photo" in order.keys() else ""
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
                   "operator": op["name"] if op else "",
                   "rating": order["rating"] or 0,
+                  "bill": {"text": bill_text, "photo": bill_photo},
                   "client": {"name": user["full_name"] if user else "—",
                              "phone": user["phone"] if user else ""},
                   "messages": out})

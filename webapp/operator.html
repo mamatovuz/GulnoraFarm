@@ -1297,7 +1297,7 @@ async function _sendVoiceBlob(blob, mime, oid){
   rd.onerror=()=>tg.showAlert("Ovozni o'qib bo'lmadi");
   rd.onload=async()=>{ try{
       const r = asBill
-        ? await q("/api/cmd","POST",Object.assign(auth(),{order_id:oid,cmd:"bill",media_kind:"voice",media_data:rd.result}))
+        ? await q("/api/cmd","POST",Object.assign(auth(),{order_id:oid,cmd:"bill",media_kind:"voice",media_mime:mime,media_data:rd.result}))
         : await q("/api/send","POST",Object.assign(auth(),{order_id:oid,media_kind:"voice",media_mime:mime,media_data:rd.result}));
       if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
       if(asBill) tg.showAlert(r.info||"Hisob-kitob yuborildi");

@@ -17,6 +17,7 @@ from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
     update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw, send_file_from,
+    BILL_TAG, send_branch_to_client, branch_card_text,
 )
 
 router = Router()
@@ -639,13 +640,17 @@ async def bill_send(call: CallbackQuery):
     # Operator kanaliga ham joylaymiz (yozishuv ko'rinib tursin)
     op = await _op_of(call)
     op_name = op["name"] if op else "Operator"
+    billtext = (order["bill"] or "").strip()
+    label = f"{BILL_TAG}: {billtext}" if billtext else BILL_TAG
+    # Admin CRM yozishmasida ham ko'rinishi uchun xabarlar jadvaliga yozamiz
     if order["bill_photo"]:
+        await q.add_message(order_id, "operator", "photo", label, order["bill_photo"], None)
         await post_operator_to_channel(call.bot, order, op_name, content_type="photo",
                                        file_id=order["bill_photo"], src_bot=call.bot,
-                                       text=f"🧾 Hisob-kitob: {order['bill'] or ''}")
+                                       text=label)
     else:
-        await post_operator_to_channel(call.bot, order, op_name,
-                                       text=f"🧾 Hisob-kitob: {order['bill'] or ''}")
+        await q.add_message(order_id, "operator", "text", label, None, None)
+        await post_operator_to_channel(call.bot, order, op_name, text=label)
     await call.message.edit_text("✅ Hisob-kitob mijozga yuborildi.")
     await call.answer()
 
@@ -805,31 +810,19 @@ async def op_sendbranch_pick(call: CallbackQuery, bot: Bot):
     if not order or not b:
         await call.answer("Topilmadi", show_alert=True)
         return
-    client = cbot() or bot
-    text = (f"🏥 <b>{b['name']}</b>\n"
-            f"📍 {b['address'] or '—'}\n"
-            f"📞 {b['phone'] or '—'}\n"
-            f"🕐 Ish vaqti: {b['open_time']}–{b['close_time']}")
-    has_loc = b["lat"] is not None and b["lon"] is not None
-    markup = kb.branch_directions_kb(b["lat"], b["lon"]) if has_loc else None
-    try:
-        # 1) rasm + ma'lumot + "Yo'l ko'rsatish" tugmasi (rasm asosiy botniki — cross-bot kerak emas)
-        if b["photo_file_id"]:
-            await client.send_photo(order["user_id"], b["photo_file_id"], caption=text,
-                                    reply_markup=markup)
-        else:
-            await client.send_message(order["user_id"], text, reply_markup=markup)
-        # 2) lokatsiya — xaritada nuqta (Telegram o'zi yo'l ko'rsatishni beradi)
-        if has_loc:
-            await client.send_venue(order["user_id"], latitude=b["lat"], longitude=b["lon"],
-                                    title=b["name"], address=b["address"] or "")
-        await call.answer("✅ Filial ma'lumoti mijozga yuborildi", show_alert=True)
-        try:
-            await call.message.edit_text(f"✅ <b>{b['name']}</b> ma'lumoti mijozga yuborildi.")
-        except Exception:
-            pass
-    except (TelegramBadRequest, TelegramForbiddenError):
+    clang = await q.get_lang(order["user_id"])
+    # rasm + ma'lumot + «Yo'l ko'rsatish» tugmasi + xaritadagi nuqta (mijoz tilida)
+    if not await send_branch_to_client(cbot() or bot, order["user_id"], b, clang,
+                                       header=loc.t("op_branch_info", clang), src_bot=call.bot):
         await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
+        return
+    await q.add_message(int(order_id), "operator", "text",
+                        branch_card_text(b, clang, loc.t("op_branch_info", clang)), None, None)
+    await call.answer("✅ Filial ma'lumoti mijozga yuborildi", show_alert=True)
+    try:
+        await call.message.edit_text(f"✅ <b>{b['name']}</b> ma'lumoti mijozga yuborildi.")
+    except Exception:
+        pass
 
 
 # ---------------- Operatorning o'zi filialni almashtirishi ----------------
@@ -929,10 +922,23 @@ async def op_change_branch_pick(call: CallbackQuery, bot: Bot):
 
     await q.set_order_branch(oid, bid)
     await q.set_user_branch(order["user_id"], bid)
-    await q.add_message(oid, "operator", "text",
-                        f"🏥 Filial operator tomonidan o'zgartirildi: {branch['name']}",
-                        None, None)
     await update_group_card(bot, oid)
+
+    # Mijozga ham to'liq filial ma'lumotini yuboramiz:
+    # nomi, manzili, telefoni, ish vaqti + «Yo'l ko'rsatish» + xaritadagi nuqta
+    clang = await q.get_lang(order["user_id"])
+    header = loc.t("op_branch_changed", clang)
+    delivered = await send_branch_to_client(
+        cbot() or call.bot, order["user_id"], branch, clang, header=header, src_bot=call.bot,
+    )
+    # Yozishmada (CRM va kanalda) ham ko'rinib tursin
+    await q.add_message(oid, "operator", "text",
+                        branch_card_text(branch, clang, header) if delivered
+                        else f"🏥 Filial operator tomonidan o'zgartirildi: {branch['name']}",
+                        None, None)
+    if delivered:
+        await post_operator_to_channel(call.bot, order, op["name"] if op else "Operator",
+                                       text=f"🏥 Filial yuborildi: {branch['name']}")
 
     edited = await _refresh_operator_order_card(call.bot, call.message.chat.id, oid)
     if not edited:
@@ -943,13 +949,16 @@ async def op_change_branch_pick(call: CallbackQuery, bot: Bot):
             f"🏥 Filial yangilandi: <b>{branch['name']}</b>",
             kb.op_order_actions_kb(oid),
         )
+    note = ("📤 Mijozga filial ma'lumoti yuborildi."
+            if delivered else "⚠️ Mijozga yuborib bo'lmadi (botni bloklagan bo'lishi mumkin).")
     try:
         await call.message.edit_text(
             f"✅ Murojaat #{oid} filiali <b>{branch['name']}</b> qilib saqlandi.\n"
+            f"{note}\n"
             f"Keyingi murojaatlarda ham shu mijoz uchun shu filial ishlatiladi."
         )
     except Exception:
-        await call.message.answer(f"✅ Filial saqlandi: <b>{branch['name']}</b>")
+        await call.message.answer(f"✅ Filial saqlandi: <b>{branch['name']}</b>\n{note}")
     await call.answer("Filial o'zgartirildi ✅", show_alert=True)
 
 

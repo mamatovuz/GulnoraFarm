@@ -6,8 +6,14 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import keyboards as kb
 import botreg
+import locales as loc
 from config import ADMIN_IDS, OPERATORS_GROUP_ID
 from database import queries as q
+
+
+# Hisob-kitob (bill) xabarlari messages jadvaliga shu belgi bilan yoziladi —
+# admin CRM yozishmada ularni alohida ajratib ko'rsatadi.
+BILL_TAG = "🧾 Hisob-kitob"
 
 
 def cbot() -> Bot:
@@ -462,6 +468,47 @@ async def forward_client_to_operator(bot: Bot, order, message):
         await post_client_to_channel(bot, order, message)
     # Aks holda (murojaat hali qabul qilinmagan) — kanalga yubormaymiz.
     # Xabar saqlanadi va operator qabul qilganda hammasi ko'rsatiladi.
+
+
+# ---------------- Filial kartasini mijozga yuborish ----------------
+def branch_card_text(branch, lang="uz", header=None) -> str:
+    """Filial kartasi matni: nomi, manzili, telefoni, ish vaqti (mijoz tilida)."""
+    hours = f"{branch['open_time'] or '08:00'} — {branch['close_time'] or '23:00'}"
+    text = loc.t("branch_card", lang, name=branch["name"],
+                 address=branch["address"] or "—", phone=branch["phone"] or "—", hours=hours)
+    return f"{header}\n\n{text}" if header else text
+
+
+async def send_branch_to_client(client_bot: Bot, chat_id, branch, lang="uz",
+                                header=None, src_bot: Bot = None) -> bool:
+    """Mijozga filial ma'lumotini to'liq yuboradi:
+    rasm (bo'lsa) + nomi/manzili/telefoni/ish vaqti + «Yo'l ko'rsatish» tugmasi + xaritadagi nuqta.
+    header — karta ustidagi izoh (masalan «Operator filialni o'zgartirdi»).
+    Mijozga yetib borsa True qaytaradi."""
+    if not client_bot or not branch:
+        return False
+    text = branch_card_text(branch, lang, header)
+    has_loc = branch["lat"] is not None and branch["lon"] is not None
+    markup = kb.branch_directions_kb(branch["lat"], branch["lon"], lang) if has_loc else None
+    photo = branch["photo_file_id"]
+    try:
+        if photo:
+            try:
+                await client_bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
+            except TelegramBadRequest:
+                # file_id boshqa botniki bo'lishi mumkin — cross-bot, u ham bo'lmasa matn bilan
+                sent = await send_file_from(client_bot, chat_id, "photo", photo,
+                                            src_bot, caption=text, markup=markup) if src_bot else None
+                if sent is None:
+                    await client_bot.send_message(chat_id, text, reply_markup=markup)
+        else:
+            await client_bot.send_message(chat_id, text, reply_markup=markup)
+        if has_loc:
+            await client_bot.send_venue(chat_id, latitude=branch["lat"], longitude=branch["lon"],
+                                        title=branch["name"], address=branch["address"] or "")
+        return True
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return False
 
 
 # Kanaldagi yozishma uchun: order_id -> oxirgi mijoz savoli xabarining kanal message_id si

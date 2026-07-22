@@ -380,6 +380,18 @@ T = {
         "uz": "✅ Siz <b>{branch}</b> filialini tanladingiz.\n\nOperator tez orada javob beradi.",
         "ru": "✅ Вы выбрали филиал <b>{branch}</b>.\n\nОператор скоро ответит.",
     },
+    # Operator murojaat filialini o'zi almashtirganda — mijozga yuboriladigan izoh
+    "op_branch_changed": {
+        "uz": "✅ <b>Operator siz uchun filialni belgiladi.</b>\n"
+              "Quyidagi filialga murojaat qilishingiz mumkin 👇",
+        "ru": "✅ <b>Оператор выбрал для вас филиал.</b>\n"
+              "Вы можете обратиться в филиал ниже 👇",
+    },
+    # Operator «Filial ma'lumoti» tugmasi bilan yuborganda
+    "op_branch_info": {
+        "uz": "📋 <b>Filial ma'lumoti</b>",
+        "ru": "📋 <b>Информация о филиале</b>",
+    },
     "auto_close_warning": {
         "uz": "⏱ Agar {min} daqiqa ichida javob bermasangiz, suhbatimiz yakunlanadi.\n\n"
               "Savolingiz bo'lsa, istalgan vaqtda qayta yozishingiz mumkin.",

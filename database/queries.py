@@ -1572,7 +1572,7 @@ async def orders_page(limit, offset, search=None, status=None, since=None):
         params.append(since)
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     cur = await db.execute(
-        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, "
+        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, o.bill, "
         f"u.full_name, u.phone, op.name AS operator "
         f"FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         f"LEFT JOIN operators op ON op.id=o.operator_id {where} "
