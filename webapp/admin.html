@@ -173,6 +173,20 @@
   .b2 .bltag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.2px;
     color:#b97800;background:rgba(240,163,10,.22);border-radius:7px;padding:1px 7px;margin-bottom:4px}
   .b2 .blcap{margin-top:4px}
+  .b2 .doclink{display:inline-flex;align-items:center;gap:6px;color:inherit;text-decoration:underline;word-break:break-all}
+  /* Bosiladigan ism (yozishma sarlavhasi -> mijoz profili) */
+  .nmlink{cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+  .nmlink::after{content:"›";font-size:18px;opacity:.5;font-weight:400}
+  .nmlink:active{opacity:.6}
+  /* Sahifalagich (pagination) */
+  .pager{display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:wrap;margin-top:14px;padding:2px}
+  .pg-b{min-width:34px;height:34px;padding:0 8px;border:1px solid var(--sep);border-radius:9px;
+    background:var(--bg);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;line-height:1}
+  .pg-b:disabled{opacity:.35;cursor:default}
+  .pg-b.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .pg-b:not(.on):not(:disabled):active{background:var(--sec)}
+  .pg-gap{min-width:20px;text-align:center;color:var(--hint);font-weight:700;user-select:none}
+  .pg-info{width:100%;text-align:center;color:var(--hint);font-size:12px;margin-top:6px}
   /* Sarlavha ostidagi hisob-kitob kartasi */
   .billcard{margin:0;padding:10px 12px;background:rgba(240,163,10,.12);flex-shrink:0;
     border-bottom:1px solid var(--sep);font-size:13.5px;white-space:pre-wrap;
@@ -390,7 +404,7 @@
       <button data-p="month" onclick="setOrdPeriod('month')">Oy</button>
     </div>
     <div id="ord-rows" class="lrows"></div>
-    <button id="ord-more" class="morebtn hide" onclick="loadOrders(false)">Yana yuklash</button>
+    <div id="ord-pager" class="pager hide"></div>
   </div>
 
   <!-- MIJOZLAR -->
@@ -398,7 +412,7 @@
     <div class="searchbar"><input id="cl-q" placeholder="Qidiruv: ism yoki telefon"
       oninput="clSearchDeb()"></div>
     <div id="cl-rows" class="lrows"></div>
-    <button id="cl-more" class="morebtn hide" onclick="loadClients(false)">Yana yuklash</button>
+    <div id="cl-pager" class="pager hide"></div>
   </div>
 
   <!-- SOZLAMALAR -->
@@ -531,12 +545,11 @@
   <div class="topbar">
     <button class="iconbtn" onclick="closeTrans()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
     <div style="flex:1;min-width:0">
-      <div class="t" id="tr-name" style="font-size:16px">—</div>
+      <div class="t nmlink" id="tr-name" style="font-size:16px" onclick="openTransClient()">—</div>
       <div id="tr-sub" style="color:var(--hint);font-size:12px"></div>
     </div>
     <span id="tr-chip" class="chip"></span>
   </div>
-  <div id="tr-bill" class="billcard hide"></div>
   <div id="tr-msgs" class="msgs2"></div>
   <div id="tr-foot" class="transfoot hide">
     <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -859,9 +872,12 @@ function applyArf(){
   if(!sec) return;
   _arfTimer = setInterval(()=>{
     if(document.hidden || !ADM.token) return;
+    // Yozishma yoki profil ochiq bo'lsa — ro'yxatni yangilamaymiz (sahifa/holat buzilmasin)
+    if(!document.getElementById("trans").classList.contains("hide")
+       || !document.getElementById("clientv").classList.contains("hide")) return;
     if(TAB==="dash") loadDash();
-    else if(TAB==="orders") loadOrders(true);
-    else if(TAB==="clients") loadClients(true);
+    else if(TAB==="orders") loadOrders(false);   // joriy sahifada qoladi
+    else if(TAB==="clients") loadClients(false);
   }, sec*1000);
 }
 function setArf(sec){ localStorage.setItem("arf", String(sec)); applyArf(); }
@@ -1282,10 +1298,44 @@ function renderOps(ops, online){
     </div>`).join("");
 }
 
+// ================= Sahifalagich (pagination) =================
+const PAGE_SIZE=20;
+// Ko'rsatiladigan sahifa raqamlari: 1 … 4 5 [6] 7 8 … 20  (joriy ±2)
+function pageList(cur, total){
+  if(total<=7) return Array.from({length:total},(_,i)=>i+1);
+  const delta=2, left=Math.max(2,cur-delta), right=Math.min(total-1,cur+delta);
+  const range=[1];
+  for(let i=left;i<=right;i++) range.push(i);
+  range.push(total);
+  const out=[]; let prev=0;
+  for(const p of range){ if(p-prev>1) out.push("…"); out.push(p); prev=p; }
+  return out;
+}
+// el — konteyner; page — 0-based joriy sahifa; total — jami elementlar; go — "goOrdPage" kabi funksiya nomi
+function buildPager(el, page, total, go){
+  const pages=Math.ceil((total||0)/PAGE_SIZE);
+  if(pages<=1){ el.classList.add("hide"); el.innerHTML=""; return; }
+  el.classList.remove("hide");
+  const cur=page+1;
+  const b=(label,p,{on=false,dis=false}={})=>
+    `<button class="pg-b${on?" on":""}"${dis?" disabled":""} onclick="${go}(${p})">${label}</button>`;
+  let h=b("‹",page-1,{dis:page<=0});
+  for(const t of pageList(cur,pages))
+    h += (t==="…") ? `<span class="pg-gap">…</span>` : b(t,t-1,{on:t===cur});
+  h+=b("›",page+1,{dis:page>=pages-1});
+  h+=`<div class="pg-info">${cur} / ${pages} — jami ${total}</div>`;
+  el.innerHTML=h;
+}
+function scrollTabTop(){ try{ window.scrollTo({top:0}); }catch(e){}
+  document.querySelectorAll(".body").forEach(x=>x.scrollTop=0); }
+function goOrdPage(p){ ORD.page=p; scrollTabTop(); loadOrders(false); }
+function goCliPage(p){ CLI.page=p; scrollTabTop(); loadClients(false); }
+
 // ================= MUROJAATLAR =================
 const ORD={loaded:false,page:0,items:[],q:"",status:"",period:"all"};
 const ST_COL={new:C.nw,in_progress:C.prog,done:C.done,canceled:C.canceled};
 const ST_LBL={new:"Yangi",in_progress:"Jarayonda",done:"Yakunlangan",canceled:"Bekor"};
+const MLBL={document:"📎 Hujjat",animation:"GIF",location:"📍 Lokatsiya",contact:"👤 Kontakt",video_note:"📹 Video-xabar"};
 let ordT=null;
 function ordSearchDeb(){ clearTimeout(ordT); ordT=setTimeout(()=>loadOrders(true),350); }
 function setOrdStatus(s){ ORD.status=s;
@@ -1295,13 +1345,15 @@ function setOrdPeriod(p){ ORD.period=p;
   document.querySelectorAll("#ord-period button").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
   loadOrders(true); }
 async function loadOrders(reset){
-  if(reset){ ORD.page=0; ORD.items=[]; ORD.q=document.getElementById("ord-q").value.trim(); }
+  if(reset){ ORD.page=0; ORD.q=document.getElementById("ord-q").value.trim(); }
   const r=await q("/api/admin/orders","GET",Object.assign(auth(),
     {page:ORD.page,q:ORD.q,status:ORD.status,period:ORD.period}));
   if(!r.ok) return;
-  ORD.loaded=true; ORD.items=ORD.items.concat(r.items); ORD.page++;
+  ORD.loaded=true;
+  // Oxirgi sahifa o'chib bo'sh qolsa — bir sahifa orqaga
+  if(!r.items.length && ORD.page>0 && r.total>0){ ORD.page=Math.max(0,Math.ceil(r.total/PAGE_SIZE)-1); return loadOrders(false); }
   const box=document.getElementById("ord-rows");
-  box.innerHTML = ORD.items.length ? ORD.items.map(o=>`
+  box.innerHTML = r.items.length ? r.items.map(o=>`
     <div class="lrow" onclick='openTrans(${o.id},"orders")'>
       <div class="ava2" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
       <div class="mid">
@@ -1309,17 +1361,51 @@ async function loadOrders(reset){
         <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}</div>
       </div>
     </div>`).join("") : '<div class="empty">Topilmadi</div>';
-  document.getElementById("ord-more").classList.toggle("hide", ORD.items.length>=r.total);
+  buildPager(document.getElementById("ord-pager"), ORD.page, r.total, "goOrdPage");
 }
 
+// ---- Bitta xabar ichini chizadi (rasm/stiker/ovoz/video/hujjat/lokatsiya/matn) ----
+// Hisob-kitob (m.bill) bo'lsa — 🧾 yorlig'i + matn izoh sifatida ajratiladi.
+function msgMedia(m, fu){
+  let cap = m.text||"", tag="";
+  if(m.bill){
+    const i = cap.indexOf(":");
+    tag = `<div class="bltag">🧾 HISOB-KITOB</div>`;
+    cap = (i>=0) ? cap.slice(i+1).trim() : "";
+  }
+  const capHtml = cap?`<div class="blcap">${esc(cap)}</div>`:"";
+  // Rasm ochilmasa — bo'sh pufakcha o'rniga yorliq
+  const IE = `onerror="this.onerror=null;this.outerHTML='<div class=&quot;blcap&quot;>📎 Fayl ochilmadi</div>'"`;
+  const fid=m.file_id, t=m.type;
+  let inner="";
+  if(fid && t==="photo") inner=`<img src="${fu(fid,'photo')}" ${IE} onclick="openImg(this.src)" style="cursor:zoom-in">`+capHtml;
+  else if(fid && t==="sticker") inner=`<img src="${fu(fid,'sticker')}" ${IE} style="width:120px;height:120px;object-fit:contain">`+capHtml;
+  else if(fid && (t==="voice"||t==="audio")) inner=`<audio class="vaud" controls preload="metadata" src="${fu(fid,'voice')}"></audio>`+capHtml;
+  else if(fid && (t==="video"||t==="video_note")) inner=`<video controls playsinline style="max-width:220px;border-radius:10px" src="${fu(fid,'video')}"></video>`+capHtml;
+  else if(fid && t==="animation") inner=`<video autoplay loop muted playsinline style="max-width:220px;border-radius:10px" src="${fu(fid,'video')}"></video>`+capHtml;
+  else if(fid && t==="document") inner=`<a href="${fu(fid,'document')}" target="_blank" class="doclink">📎 ${esc(cap||"Hujjat")}</a>`;
+  else if(t==="location" && cap.includes(",")){ const [la,lo]=cap.split(","); inner=`<a href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(lo)}" target="_blank" class="doclink">📍 Lokatsiya (xaritada)</a>`; }
+  else if(t && t!=="text") inner=(MLBL[t]||"📎 Fayl")+(cap?": "+esc(cap):"");
+  else inner=esc(cap);
+  return tag+inner;
+}
+
+// Oxirgi ochilgan qatlam (trans/clientv) doim tepada tursin
+let _zTop=30;
+function raiseScreen(id){ const el=document.getElementById(id); el.style.zIndex=(++_zTop); return el; }
+
 // ---- Yozishma ----
-let TRO=null, TRBACK="orders";
+let TRO=null, TRBACK="orders", TRCLI=null;
+function openTransClient(){ if(TRCLI) openClientV(TRCLI); }
 async function openTrans(oid, back){
-  TRO=oid; TRBACK=back||"orders";
-  document.getElementById("trans").classList.remove("hide");
+  TRO=oid; TRBACK=back||"orders"; TRCLI=null;
+  raiseScreen("trans").classList.remove("hide");
   const r=await q("/api/admin/msgs","GET",Object.assign(auth(),{order_id:oid}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
-  document.getElementById("tr-name").textContent = "#"+oid+" · "+r.client.name;
+  TRCLI = r.client.tg || null;   // ism bosilganda mijoz profilini ochish uchun
+  const nm=document.getElementById("tr-name");
+  nm.textContent = "#"+oid+" · "+r.client.name;
+  nm.classList.toggle("nmlink", !!TRCLI);
   document.getElementById("tr-sub").textContent =
     (r.client.phone||"") + (r.operator?" · "+r.operator:"") + (r.rating?" · "+r.rating+"★":"");
   const chip=document.getElementById("tr-chip");
@@ -1327,34 +1413,16 @@ async function openTrans(oid, back){
   const open = (r.status==="new"||r.status==="in_progress");
   document.getElementById("tr-foot").classList.toggle("hide", !open);
   const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
-  // Hisob-kitob kartasi (bot orqali «saqlangan», lekin yozishmada xabari yo'q holat uchun ham)
+  // Yozishmani chizamiz. Eski hisob-kitob (faqat order.bill'da, xabari yo'q) bo'lsa — sun'iy pufakcha qo'shamiz
+  const msgs = r.messages.slice();
   const bill = r.bill || {};
-  const bc = document.getElementById("tr-bill");
-  if(bill.text || bill.photo){
-    bc.innerHTML = `<div class="h">🧾 HISOB-KITOB</div>${esc(bill.text||"—")}`
-      + (bill.photo?`<img src="${fu(bill.photo,'photo')}" onclick="openImg(this.src)">`:"");
-    bc.classList.remove("hide");
-  } else { bc.innerHTML=""; bc.classList.add("hide"); }
-  const MLBL = {document:"Hujjat",animation:"GIF",location:"Lokatsiya",contact:"Kontakt",video_note:"Video-xabar"};
-  document.getElementById("tr-msgs").innerHTML = r.messages.map(m=>{
-    // Hisob-kitob xabarida matn belgi sifatida ajratiladi, qolgani izoh bo'lib qoladi
-    let cap = m.text||"", tag="";
-    if(m.bill){
-      const i = cap.indexOf(":");
-      tag = `<div class="bltag">🧾 HISOB-KITOB</div>`;
-      cap = (i>=0) ? cap.slice(i+1).trim() : "";
-    }
-    const capHtml = cap?`<div class="blcap">${esc(cap)}</div>`:"";
-    let inner="";
-    if(m.type==="photo"&&m.file_id) inner=`<img src="${fu(m.file_id,'photo')}" onclick="openImg(this.src)" style="cursor:zoom-in">`+capHtml;
-    else if((m.type==="voice"||m.type==="audio")&&m.file_id) inner=`<audio class="vaud" controls preload="metadata" src="${fu(m.file_id,'voice')}"></audio>`+capHtml;
-    else if(m.type==="sticker"&&m.file_id) inner=`<img src="${fu(m.file_id,'sticker')}" style="width:100px;height:100px;object-fit:contain">`+capHtml;
-    else if(m.type==="video"&&m.file_id) inner=`<video controls style="max-width:215px;border-radius:10px" src="${fu(m.file_id,'video')}"></video>`+capHtml;
-    else if(m.type==="document"&&m.file_id) inner=`<a href="${fu(m.file_id,'document')}" target="_blank" style="color:inherit">📎 ${esc(cap||"Hujjat")}</a>`;
-    else if(m.type!=="text") inner=(MLBL[m.type]||"Fayl")+(cap?": "+esc(cap):"");
-    else inner=esc(cap);
-    return `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${tag}${inner}<div class="tm">${m.time}</div></div>`;
-  }).join("") || '<div class="empty">Yozishma yo\'q</div>';
+  if(!msgs.some(m=>m.bill) && (bill.text || bill.photo)){
+    msgs.push({own:true, bill:true, type: bill.photo?"photo":"text",
+               text:"🧾 Hisob-kitob: "+(bill.text||""), file_id:bill.photo||"", time:""});
+  }
+  document.getElementById("tr-msgs").innerHTML = msgs.map(m=>
+    `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${msgMedia(m,fu)}<div class="tm">${m.time||""}</div></div>`
+  ).join("") || '<div class="empty">Yozishma yo\'q</div>';
   const bx=document.getElementById("tr-msgs"); bindVoice(bx); bx.scrollTop=bx.scrollHeight;
 }
 function closeTrans(){ document.getElementById("trans").classList.add("hide"); TRO=null; }
@@ -1398,12 +1466,13 @@ const CLI={loaded:false,page:0,items:[],q:""};
 let cliT=null;
 function clSearchDeb(){ clearTimeout(cliT); cliT=setTimeout(()=>loadClients(true),350); }
 async function loadClients(reset){
-  if(reset){ CLI.page=0; CLI.items=[]; CLI.q=document.getElementById("cl-q").value.trim(); }
+  if(reset){ CLI.page=0; CLI.q=document.getElementById("cl-q").value.trim(); }
   const r=await q("/api/admin/clients","GET",Object.assign(auth(),{page:CLI.page,q:CLI.q}));
   if(!r.ok) return;
-  CLI.loaded=true; CLI.items=CLI.items.concat(r.items); CLI.page++;
+  CLI.loaded=true;
+  if(!r.items.length && CLI.page>0 && r.total>0){ CLI.page=Math.max(0,Math.ceil(r.total/PAGE_SIZE)-1); return loadClients(false); }
   const box=document.getElementById("cl-rows");
-  box.innerHTML = CLI.items.length ? CLI.items.map(c=>`
+  box.innerHTML = r.items.length ? r.items.map(c=>`
     <div class="lrow" onclick='openClientV(${c.tg})'>
       <div class="ava2" style="background:${avaBg(c.name)}">${ini(c.name)}</div>
       <div class="mid">
@@ -1411,7 +1480,7 @@ async function loadClients(reset){
         <div class="sub">${esc(c.phone)}${c.branch?" · "+esc(c.branch):""} · ${c.cnt} murojaat</div>
       </div>
     </div>`).join("") : '<div class="empty">Topilmadi</div>';
-  document.getElementById("cl-more").classList.toggle("hide", CLI.items.length>=r.total);
+  buildPager(document.getElementById("cl-pager"), CLI.page, r.total, "goCliPage");
 }
 async function openClientV(tg_){
   const r=await q("/api/admin/client","GET",Object.assign(auth(),{tg:tg_}));
@@ -1458,7 +1527,7 @@ async function openClientV(tg_){
           <svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg>
         </div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'
       }</div></div>`;
-  document.getElementById("clientv").classList.remove("hide");
+  raiseScreen("clientv").classList.remove("hide");
 }
 function closeClientV(){ document.getElementById("clientv").classList.add("hide"); }
 async function clNoteSave(tg_){

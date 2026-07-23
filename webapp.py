@@ -1350,7 +1350,8 @@ async def api_admin_msgs(request):
                   "operator": op["name"] if op else "",
                   "rating": order["rating"] or 0,
                   "bill": {"text": bill_text, "photo": bill_photo},
-                  "client": {"name": user["full_name"] if user else "—",
+                  "client": {"tg": order["user_id"],
+                             "name": user["full_name"] if user else "—",
                              "phone": user["phone"] if user else ""},
                   "messages": out})
 
