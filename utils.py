@@ -597,9 +597,10 @@ async def client_bot_username() -> str:
 
 
 async def post_canceled_to_channel(order_id, by_client: bool = False):
-    """Bekor qilingan murojaatni alohida kanalga joylaydi (admin belgilagan).
-    Karta ostida mini app'ni shu murojaat chati bilan ochadigan tugma bo'ladi.
-    Kanal belgilanmagan bo'lsa — hech narsa qilmaydi."""
+    """«Отказ» bosilgan murojaatni alohida kanalga (admin belgilagan) joylaydi.
+    Mijoz rasm(lar) yuborgan bo'lsa — albom (media group) sifatida, malumotlar caption'da.
+    Karta ostida mini app'ni shu murojaat chatini (faqat ko'rish) ochadigan tugma bo'ladi.
+    Murojaat yopilmaydi — bu faqat kanalga nusxa. Kanal belgilanmagan bo'lsa — hech narsa qilmaydi."""
     chat_id = (await q.get_setting("cancel_channel_id", "")).strip()
     if not chat_id:
         return
@@ -613,16 +614,34 @@ async def post_canceled_to_channel(order_id, by_client: bool = False):
     # birinchi mijoz xabari (bo'lsa) — kartada qisqacha ko'rinsin
     msgs = await q.order_messages(order_id)
     note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
-    who = "🙍 Mijoz o'zi bekor qildi" if by_client else "👨‍⚕️ Operator bekor qildi"
     body = (f"{note}\n\n{info}" if note else info)
-    text = f"🔴 <b>Bekor qilingan murojaat</b>\n{who}\n\n{body}"
+    text = f"🚫 <b>Отказ — murojaat</b>\n\n{body}"
     username = await client_bot_username()
     markup = kb.canceled_post_kb(username, order_id)
+    # Mijoz yuborgan rasmlar — albom uchun. file_id asosiy botniki, to'g'ridan-to'g'ri ishlaydi.
+    photos = [m["file_id"] for m in msgs
+              if m["sender"] == "client" and m["content_type"] == "photo" and m["file_id"]]
     try:
-        await client.send_message(chat_id, text, reply_markup=markup,
-                                  disable_web_page_preview=True)
+        if len(photos) >= 2:
+            from aiogram.types import InputMediaPhoto
+            media = [InputMediaPhoto(media=fid, caption=(text if i == 0 else None),
+                                     parse_mode="HTML")
+                     for i, fid in enumerate(photos[:10])]
+            await client.send_media_group(chat_id, media)
+            # Albomga inline tugma qo'shib bo'lmaydi — tugmani alohida xabarda beramiz
+            await client.send_message(chat_id, "👆 Yuqoridagi murojaat", reply_markup=markup)
+        elif len(photos) == 1:
+            await client.send_photo(chat_id, photos[0], caption=text, reply_markup=markup)
+        else:
+            await client.send_message(chat_id, text, reply_markup=markup,
+                                      disable_web_page_preview=True)
     except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+        # media file_id ishlamasa — hech bo'lmasa matn + tugma ketsin
+        try:
+            await client.send_message(chat_id, text, reply_markup=markup,
+                                      disable_web_page_preview=True)
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
 
 
 async def save_message_from_message(order_id, sender, message):

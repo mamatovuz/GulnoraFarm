@@ -25,6 +25,7 @@ import locales as loc
 logger = logging.getLogger("bot")
 _HTML = os.path.join(os.path.dirname(__file__), "webapp", "operator.html")
 _ADMIN_HTML = os.path.join(os.path.dirname(__file__), "webapp", "admin.html")
+_VIEW_HTML = os.path.join(os.path.dirname(__file__), "webapp", "view.html")
 
 
 # ---------------- Auth: Telegram WebApp initData ----------------
@@ -1084,6 +1085,15 @@ async def admin_index(request):
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache", "Expires": "0"})
     return web.Response(text="Admin mini app topilmadi.", status=404)
+
+
+async def view_index(request):
+    """Отказ murojaat chatini faqat ko'rish (read-only) uchun alohida mini app sahifasi."""
+    if os.path.exists(_VIEW_HTML):
+        return web.FileResponse(_VIEW_HTML, headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0"})
+    return web.Response(text="Ko'rish sahifasi topilmadi.", status=404)
 
 
 async def api_admin_login(request):
@@ -2475,6 +2485,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/client_info", api_client_info)
     # Admin mini app
     app.router.add_get("/admin", admin_index)
+    app.router.add_get("/view", view_index)
     app.router.add_post("/api/admin/login", api_admin_login)
     app.router.add_get("/api/admin/dash", api_admin_dash)
     app.router.add_get("/api/admin/orders", api_admin_orders)

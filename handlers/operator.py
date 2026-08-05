@@ -709,24 +709,24 @@ async def op_cancel(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("opc:reject:"))
 async def op_reject(call: CallbackQuery):
-    """Отказ — murojaatni rad etadi (bekor qilgani kabi yopadi) VA bekor qilinganlar
-    kanaliga joylaydi. Oddiy «Bekor» esa kanalga tushmaydi."""
+    """Отказ — murojaatni bekor qilinganlar kanaliga joylaydi, LEKIN yopmaydi.
+    Chat ochiq qoladi, operator davom ettiraverishi mumkin. Faqat «Yakunlash»
+    bosilganda murojaat yopiladi. Oddiy «Bekor» esa kanalga tushmaydi."""
     op = await _op_of(call)
     if not op:
         await call.answer("Avval /operator orqali kiring.", show_alert=True)
         return
     order_id = int(call.data.split(":")[2])
     order = await q.get_order(order_id)
-    await q.set_order_status(order_id, "canceled", f"operator:{op['id']}:reject")
-    await q.set_operator_active_order(op["id"], None)
-    await q.set_operator_availability(op["id"], "free")
-    await q.set_user_active_order(order["user_id"], None)
-    await update_group_card(call.bot, order_id)
-    await post_canceled_to_channel(order_id, by_client=False)  # alohida "bekor" kanaliga
-    clang = await q.get_lang(order["user_id"])
-    await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
-    await call.message.answer(f"🚫 Murojaat #{order_id} rad etildi (kanalga joylandi).")
-    await call.answer("Отказ ✅")
+    if not order:
+        await call.answer("Murojaat topilmadi", show_alert=True)
+        return
+    await post_canceled_to_channel(order_id)   # rasmlar bilan albom + tugma
+    await call.message.answer(
+        f"🚫 Murojaat #{order_id} — Отказ kanaliga joylandi.\n"
+        f"Chat ochiq qoladi — davom ettiraverishingiz mumkin. "
+        f"Yopish uchun «Yakunlash» tugmasini bosing.")
+    await call.answer("Отказ ✅ (kanalga joylandi)")
 
 
 # ---------------- Yetkazib berish / Olib ketish (faqat statistikaga) ----------------
@@ -1251,8 +1251,9 @@ async def op_restore_done_chat(call: CallbackQuery, bot: Bot):
         await q.set_operator_active_order(op["id"], order_id)
         await call.answer("Chat allaqachon faol.", show_alert=True)
         return
-    if order["status"] != "done":
-        await call.answer("Faqat yakunlangan murojaatni tiklash mumkin.", show_alert=True)
+    if order["status"] not in ("done", "canceled"):
+        await call.answer("Faqat yakunlangan yoki bekor qilingan murojaatni tiklash mumkin.",
+                          show_alert=True)
         return
 
     user = await q.get_user(order["user_id"])
@@ -1283,6 +1284,89 @@ async def op_restore_done_chat(call: CallbackQuery, bot: Bot):
     except Exception:
         pass
     await call.answer("Chat tiklandi ✅", show_alert=True)
+
+
+# ---------------- Bekor qilingan murojaatlar (davr bo'yicha) ----------------
+@router.message(IsOperator(), F.text == "🚫 Bekor qilinganlar")
+async def op_canceled_menu(message: Message):
+    await message.answer(
+        "🚫 <b>Bekor qilingan murojaatlar</b>\n\nQaysi davr uchun ko'rasiz?",
+        reply_markup=kb.op_canceled_period_kb(),
+    )
+
+
+@router.callback_query(F.data == "opcanc:menu")
+async def op_canceled_menu_cb(call: CallbackQuery):
+    await call.message.edit_text(
+        "🚫 <b>Bekor qilingan murojaatlar</b>\n\nQaysi davr uchun ko'rasiz?",
+        reply_markup=kb.op_canceled_period_kb(),
+    )
+    await call.answer()
+
+
+def _canceled_period(period: str):
+    """(since, until, label) — davr chegaralari va nomi."""
+    today = now_local().strftime("%Y-%m-%d")
+    tomorrow = (now_local() + timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (now_local() - timedelta(days=1)).strftime("%Y-%m-%d")
+    if period == "today":
+        return today + " 00:00:00", tomorrow + " 00:00:00", "bugun"
+    if period == "yday":
+        return yesterday + " 00:00:00", today + " 00:00:00", "kecha"
+    # shu hafta (dushanbadan)
+    monday = (now_local() - timedelta(days=now_local().weekday())).strftime("%Y-%m-%d")
+    return monday + " 00:00:00", None, "shu hafta"
+
+
+@router.callback_query(F.data.startswith("opcanc:"))
+async def op_canceled_list(call: CallbackQuery):
+    op = await _op_of(call)
+    if not op:
+        await call.answer("Avval /operator orqali kiring.", show_alert=True)
+        return
+    period = call.data.split(":")[1]
+    if period not in ("today", "yday", "week"):
+        return
+    since, until, label = _canceled_period(period)
+    orders = await q.canceled_orders_by_operator(op["id"], since, until)
+    if not orders:
+        await call.message.edit_text(
+            f"🚫 <b>{label.capitalize()}</b> bekor qilingan murojaatingiz yo'q.",
+            reply_markup=kb.op_canceled_period_kb())
+        await call.answer()
+        return
+    await call.message.edit_text(
+        f"🚫 <b>{label.capitalize()}</b> bekor qilingan murojaatlar: <b>{len(orders)}</b>\n"
+        f"Tiklash uchun keraklisini tanlang:",
+        reply_markup=kb.op_canceled_orders_kb(orders),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("opcancview:"))
+async def op_canceled_view(call: CallbackQuery):
+    op = await _op_of(call)
+    order_id = int(call.data.split(":")[1])
+    order = await q.get_order(order_id)
+    if not op or not order or order["operator_id"] != op["id"] or order["status"] != "canceled":
+        await call.answer("Topilmadi yoki bu murojaat sizniki emas.", show_alert=True)
+        return
+    info = await order_card_text(order)
+    msgs = await q.order_messages(order_id)
+    tail = []
+    for m in msgs[-8:]:
+        who = "Mijoz" if m["sender"] == "client" else "Operator"
+        body = (m["text"] or f"({m['content_type']})").strip()
+        if len(body) > 140:
+            body = body[:137] + "..."
+        tail.append(f"• {who}: {body}")
+    text = info
+    if tail:
+        text += "\n\n<b>So'nggi xabarlar:</b>\n" + "\n".join(tail)
+    text += "\n\n🔄 Tiklansa — chat qayta ochiladi va «Yakunlash» bilan yopiladi."
+    await call.message.answer(text, reply_markup=kb.op_canceled_detail_kb(order_id),
+                              disable_web_page_preview=True)
+    await call.answer()
 
 
 # ---------------- Statistika ----------------

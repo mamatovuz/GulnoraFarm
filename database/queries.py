@@ -376,6 +376,22 @@ async def done_orders_today_by_operator(operator_id):
     return await cur.fetchall()
 
 
+async def canceled_orders_by_operator(operator_id, since, until=None):
+    """Operatorning bekor qilingan (status='canceled') murojaatlari — [since, until) davrida.
+    until berilmasa — yuqori chegara qo'yilmaydi (masalan 'shu hafta')."""
+    db = await get_db()
+    sql = ("SELECT o.*, u.full_name FROM orders o "
+           "LEFT JOIN users u ON u.telegram_id = o.user_id "
+           "WHERE o.operator_id = ? AND o.status = 'canceled' AND o.closed_at >= ? ")
+    args = [operator_id, since]
+    if until:
+        sql += "AND o.closed_at < ? "
+        args.append(until)
+    sql += "ORDER BY o.closed_at DESC, o.id DESC"
+    cur = await db.execute(sql, tuple(args))
+    return await cur.fetchall()
+
+
 async def log_status(order_id, old, new, changed_by):
     db = await get_db()
     await db.execute(

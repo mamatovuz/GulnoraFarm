@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Gulnora Farm — Murojaat (ko'rish)</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg: var(--tg-theme-bg-color, #fff);
+    --sec: var(--tg-theme-secondary-bg-color, #f1f2f5);
+    --text: var(--tg-theme-text-color, #0f1419);
+    --hint: var(--tg-theme-hint-color, #8a929c);
+    --link: var(--tg-theme-link-color, #3390ec);
+    --accent: #3390ec;
+    --sep: rgba(128,128,128,.18);
+    --own: #eeffde;
+    --oth: #fff;
+  }
+  html[data-theme="dark"]{--bg:#17212b;--sec:#0e1621;--text:#f5f5f5;--hint:#7d8b99;--link:#6ab3f3;--sep:rgba(255,255,255,.09);--own:#2b5278;--oth:#182533}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{background:var(--sec);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;height:100vh}
+  a{color:var(--link)}
+  .hide{display:none!important}
+  /* Sarlavha */
+  header{background:var(--bg);border-bottom:1px solid var(--sep);padding:10px 14px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+  .ava{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:17px}
+  .htitle{flex:1;min-width:0}
+  .hname{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hname.link{color:var(--link);cursor:pointer}
+  .hsub{font-size:12.5px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip{font-size:11px;font-weight:600;color:#fff;border-radius:10px;padding:2px 8px;flex:none}
+  /* Xabarlar */
+  #msgs{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+  .b2{max-width:82%;padding:7px 10px;border-radius:14px;position:relative;word-wrap:break-word;overflow-wrap:anywhere}
+  .b2.c{align-self:flex-start;background:var(--oth);border-bottom-left-radius:5px;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+  .b2.o{align-self:flex-end;background:var(--own);border-bottom-right-radius:5px}
+  .b2.bill{background:#fff8e1;color:#5b4300}
+  html[data-theme="dark"] .b2.bill{background:#3a3320;color:#ffe08a}
+  .b2 img{max-width:230px;border-radius:10px;display:block;cursor:zoom-in}
+  .b2 video{max-width:230px;border-radius:10px;display:block}
+  .tm{font-size:10.5px;color:var(--hint);text-align:right;margin-top:2px}
+  .cap{margin-top:4px;white-space:pre-wrap}
+  .doclink{display:inline-block;padding:6px 4px;color:var(--link);text-decoration:none}
+  .blcap{color:var(--hint);font-size:13px}
+  audio.vaud{max-width:230px;height:38px}
+  .vplay{display:inline-flex;align-items:center;gap:8px}
+  .vpb{width:34px;height:34px;border-radius:50%;border:none;background:var(--accent);color:#fff;font-size:15px;cursor:pointer}
+  .vpt{font-size:13px;color:var(--hint)}
+  .empty{color:var(--hint);text-align:center;margin:30px 0}
+  .ro-note{background:var(--bg);border-top:1px solid var(--sep);padding:9px 14px;text-align:center;font-size:12.5px;color:var(--hint)}
+  /* Image viewer */
+  #imgv{position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;z-index:40}
+  #imgv img{max-width:96%;max-height:92%;border-radius:8px}
+  /* Profil sheeti */
+  #prof{position:fixed;inset:0;background:var(--sec);z-index:30;display:flex;flex-direction:column}
+  #prof header .hname{cursor:default;color:var(--text)}
+  .pcard{background:var(--bg);margin:10px;border-radius:14px;padding:14px}
+  .prow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--sep);font-size:14px}
+  .prow:last-child{border-bottom:none}
+  .prow .k{color:var(--hint)}
+  .prow .v{text-align:right;font-weight:500}
+  .pord{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--sep);font-size:14px}
+  .pback{background:none;border:none;color:var(--link);font-size:16px;cursor:pointer;padding:4px 6px}
+  #gate{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--hint)}
+  .spin{width:34px;height:34px;border:3px solid var(--sep);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+  <div id="gate">
+    <div class="spin" id="gate-spin"></div>
+    <div id="gate-err" class="hide" style="color:#e5484d;padding:0 24px;text-align:center"></div>
+  </div>
+
+  <div id="app" class="hide" style="display:flex;flex-direction:column;height:100%">
+    <header>
+      <div class="ava" id="h-ava">?</div>
+      <div class="htitle">
+        <div class="hname link" id="h-name" onclick="openProfile()">—</div>
+        <div class="hsub" id="h-sub"></div>
+      </div>
+      <div class="chip" id="h-chip"></div>
+    </header>
+    <div id="msgs"><div class="empty">Yuklanmoqda…</div></div>
+    <div class="ro-note">👁 Faqat ko'rish — bu yerda yozib bo'lmaydi</div>
+  </div>
+
+  <!-- Profil -->
+  <div id="prof" class="hide">
+    <header>
+      <button class="pback" onclick="closeProfile()">‹ Orqaga</button>
+      <div class="htitle"><div class="hname" id="p-name">—</div><div class="hsub" id="p-sub"></div></div>
+    </header>
+    <div style="flex:1;overflow-y:auto">
+      <div class="pcard" id="p-info"></div>
+      <div class="pcard"><div style="font-weight:600;margin-bottom:6px">Murojaatlari</div><div id="p-orders"></div></div>
+    </div>
+  </div>
+
+  <!-- Rasm ko'rish -->
+  <div id="imgv" class="hide" onclick="this.classList.add('hide')"><img id="imgv-img" src=""></div>
+
+<script>
+const tg = window.Telegram.WebApp;
+try{ tg.ready(); tg.expand(); }catch(e){}
+try{ document.documentElement.setAttribute("data-theme", tg.colorScheme || "light");
+  tg.onEvent && tg.onEvent("themeChanged", ()=>document.documentElement.setAttribute("data-theme", tg.colorScheme||"light"));
+}catch(e){}
+const INIT = tg.initData || "";
+const _QP = new URLSearchParams(location.search);
+const OID = parseInt(_QP.get("order")||"", 10);
+let ADM = { id:null, token:null };
+
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
+const _AVA=[["#ff885e","#ff516a"],["#ffcd6a","#ffa85c"],["#82b1ff","#665fff"],["#a0de7e","#54cb68"],
+            ["#53edd6","#28c9b7"],["#72d5fd","#2a9ef1"],["#e0a2f3","#d669ed"]];
+function avaBg(n){ let h=0; for(const ch of (n||"?")) h=(h*31+ch.charCodeAt(0))>>>0;
+  const p=_AVA[h%7]; return `linear-gradient(135deg,${p[0]},${p[1]})`; }
+
+function q(path, method, body){
+  const b = Object.assign({ _init: INIT }, body||{});
+  const o = { method, headers:{ "X-Init-Data":INIT, "Content-Type":"application/json" } };
+  if(method==="GET"){ return fetch(path+"?"+new URLSearchParams(b), o).then(r=>r.json()); }
+  o.body = JSON.stringify(b); return fetch(path, o).then(r=>r.json());
+}
+function auth(){ return { admin_id: ADM.id, token: ADM.token }; }
+const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
+
+// ---- Ovozli xabar (Ogg/Opus) fallback — iOS WebView uchun ----
+let _actx=null;
+function actx(){ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); return _actx; }
+let _oggDecP=null;
+function loadOggDecoder(){
+  const has=()=> window.OggOpusDecoder || (window["ogg-opus-decoder"]||{}).OggOpusDecoder;
+  if(has()) return Promise.resolve(has());
+  if(_oggDecP) return _oggDecP;
+  _oggDecP=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/ogg-opus-decoder@1.6.9/dist/ogg-opus-decoder.min.js";
+    s.onload=()=>{ const D=has(); D?res(D):rej(new Error("dekoder")); };
+    s.onerror=()=>rej(new Error("dekoder yuklanmadi"));
+    document.head.appendChild(s);
+  });
+  return _oggDecP;
+}
+const _vbuf={};
+async function decodeVoice(url){
+  if(_vbuf[url]) return _vbuf[url];
+  const ab=await (await fetch(url)).arrayBuffer();
+  const ctx=actx();
+  try{ const b=await ctx.decodeAudioData(ab.slice(0)); _vbuf[url]=b; return b; }catch(e){}
+  const Dec=await loadOggDecoder();
+  const dec=new Dec(); await dec.ready;
+  const {channelData,samplesDecoded,sampleRate}=await dec.decodeFile(new Uint8Array(ab));
+  try{ dec.free(); }catch(e){}
+  const chs=(channelData&&channelData.length)?channelData.length:1;
+  const buf=ctx.createBuffer(chs, samplesDecoded||1, sampleRate||48000);
+  for(let ch=0; ch<chs; ch++) buf.copyToChannel(channelData[ch], ch);
+  _vbuf[url]=buf; return buf;
+}
+function swapVoicePlayer(a){
+  if(a._swapped) return; a._swapped=true;
+  const url=a.getAttribute("src");
+  const wrap=document.createElement("span"); wrap.className="vplay";
+  wrap.innerHTML='<button class="vpb" type="button">▶</button><span class="vpt">🎤 ovoz</span>';
+  a.replaceWith(wrap);
+  const btn=wrap.querySelector(".vpb"), lab=wrap.querySelector(".vpt");
+  let node=null, buf=null, playing=false;
+  btn.onclick=async()=>{
+    const ctx=actx(); try{ ctx.resume(); }catch(e){}
+    if(playing && node){ try{ node.stop(); }catch(e){} return; }
+    if(!buf){ lab.textContent="⏳ yuklanmoqda";
+      try{ buf=await decodeVoice(url); }catch(e){ lab.textContent="✖ ijro etilmadi"; btn.textContent="▶"; return; } }
+    node=ctx.createBufferSource(); node.buffer=buf; node.connect(ctx.destination);
+    node.onended=()=>{ playing=false; btn.textContent="▶"; lab.textContent="🎤 ovoz"; };
+    node.start(); playing=true; btn.textContent="⏸"; lab.textContent="🔊 ijro";
+  };
+}
+function bindVoice(container){
+  (container||document).querySelectorAll("audio.vaud").forEach(a=>{
+    if(a._vbound) return; a._vbound=true;
+    a.addEventListener("error",()=>swapVoicePlayer(a));
+  });
+}
+function openImg(src){ document.getElementById("imgv-img").src=src; document.getElementById("imgv").classList.remove("hide"); }
+
+const ST_COL={new:"#d97706",in_progress:"#3390ec",done:"#2f9e44",canceled:"#e5484d"};
+const ST_LBL={new:"Yangi",in_progress:"Jarayonda",done:"Yakunlangan",canceled:"Bekor"};
+const MLBL={document:"📎 Hujjat",animation:"GIF",location:"📍 Lokatsiya",contact:"👤 Kontakt",video_note:"📹 Video-xabar"};
+
+function msgMedia(m){
+  const t=m.type||"text", fid=m.file_id||"", cap=m.text||"";
+  const capHtml = cap ? `<div class="cap">${esc(cap)}</div>` : "";
+  const IE = `onerror="this.onerror=null;this.outerHTML='<div class=&quot;blcap&quot;>📎 Fayl ochilmadi</div>'"`;
+  if(fid && t==="photo") return `<img src="${fu(fid,'photo')}" ${IE} onclick="openImg(this.src)">`+capHtml;
+  if(fid && t==="sticker") return `<img src="${fu(fid,'sticker')}" ${IE} style="width:120px;height:120px;object-fit:contain;cursor:default">`+capHtml;
+  if(fid && (t==="voice"||t==="audio")) return `<audio class="vaud" controls preload="metadata" src="${fu(fid,'voice')}"></audio>`+capHtml;
+  if(fid && (t==="video"||t==="video_note")) return `<video controls playsinline src="${fu(fid,'video')}"></video>`+capHtml;
+  if(fid && t==="animation") return `<video autoplay loop muted playsinline src="${fu(fid,'video')}"></video>`+capHtml;
+  if(fid && t==="document") return `<a href="${fu(fid,'document')}" target="_blank" class="doclink">📎 ${esc(cap||"Hujjat")}</a>`;
+  if(t==="location" && cap.includes(",")){ const [la,lo]=cap.split(","); return `<a href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(lo)}" target="_blank" class="doclink">📍 Lokatsiya (xaritada)</a>`; }
+  if(t && t!=="text") return (MLBL[t]||"📎 Fayl")+(cap?": "+esc(cap):"");
+  return esc(cap);
+}
+
+let CLIENT=null;
+async function load(){
+  if(!OID){ showErr("Murojaat aniqlanmadi."); return; }
+  const r = await q("/api/admin/msgs","GET",Object.assign(auth(),{order_id:OID}));
+  if(!r.ok){ showErr(r.error||"Murojaatni ochib bo'lmadi."); return; }
+  document.getElementById("gate").classList.add("hide");
+  document.getElementById("app").classList.remove("hide");
+  CLIENT = r.client;
+  const nm=document.getElementById("h-name");
+  nm.textContent = "#"+OID+" · "+(r.client.name||"Mijoz");
+  document.getElementById("h-sub").textContent =
+    (r.client.phone||"") + (r.operator?" · "+r.operator:"") + (r.rating?" · "+r.rating+"★":"");
+  const av=document.getElementById("h-ava");
+  av.textContent = ini(r.client.name); av.style.background = avaBg(r.client.name);
+  const chip=document.getElementById("h-chip");
+  chip.textContent = ST_LBL[r.status]||r.status; chip.style.background = ST_COL[r.status]||"#999";
+  // Xabarlar (+ eski hisob-kitob pufakchasi)
+  const msgs = (r.messages||[]).slice();
+  const bill = r.bill || {};
+  if(!msgs.some(m=>m.bill) && (bill.text || bill.photo)){
+    msgs.push({own:true, bill:true, type: bill.photo?"photo":"text",
+               text:"🧾 Hisob-kitob: "+(bill.text||""), file_id:bill.photo||"", time:""});
+  }
+  const box=document.getElementById("msgs");
+  box.innerHTML = msgs.map(m=>
+    `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${msgMedia(m)}<div class="tm">${m.time||""}</div></div>`
+  ).join("") || '<div class="empty">Yozishma yo\'q</div>';
+  bindVoice(box); box.scrollTop=box.scrollHeight;
+}
+function showErr(msg){
+  document.getElementById("gate-spin").classList.add("hide");
+  const er=document.getElementById("gate-err"); er.textContent=msg; er.classList.remove("hide");
+}
+
+// ---- Mijoz profili ----
+async function openProfile(){
+  if(!CLIENT) return;
+  const r = await q("/api/admin/client","GET",Object.assign(auth(),{tg:CLIENT.tg}));
+  if(!r.ok){ tg.showAlert && tg.showAlert(r.error||"Profil topilmadi"); return; }
+  const c=r.client;
+  document.getElementById("p-name").textContent = c.name;
+  document.getElementById("p-sub").textContent = c.phone||"";
+  const rows=[
+    ["Ism", c.name], ["Telefon", c.phone||"—"], ["Filial", c.branch||"—"],
+    ["Ro'yxatdan", c.reg||"—"], ["Holati", c.blocked?"⛔ Bloklangan":"✅ Faol"],
+  ];
+  if(c.note) rows.push(["Izoh", c.note]);
+  let info = rows.map(([k,v])=>`<div class="prow"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
+  info += `<div class="prow"><span class="k">Telegram</span><span class="v"><a href="tg://user?id=${c.tg}">Profilni ochish</a></span></div>`;
+  document.getElementById("p-info").innerHTML = info;
+  document.getElementById("p-orders").innerHTML = (r.orders||[]).map(o=>
+    `<div class="pord"><span>#${o.id} · ${o.date||""}</span><span style="color:${ST_COL[o.status]||'#999'}">${ST_LBL[o.status]||o.status}${o.rating?" · "+o.rating+"★":""}</span></div>`
+  ).join("") || '<div class="empty">Yo\'q</div>';
+  document.getElementById("prof").classList.remove("hide");
+}
+function closeProfile(){ document.getElementById("prof").classList.add("hide"); }
+
+// ---- Gate: admin avto-login, keyin murojaatni yuklaymiz ----
+async function gate(){
+  const r = await q("/api/admin/login","POST",{});
+  if(!r.ok){ showErr(r.error||"Kirish rad etildi."); return; }
+  ADM = { id: r.admin_id, token: r.token };
+  load();
+}
+gate();
+</script>
+</body>
+</html>

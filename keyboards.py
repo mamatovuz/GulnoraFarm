@@ -389,11 +389,11 @@ def canceled_post_kb(bot_username: str, order_id) -> InlineKeyboardMarkup:
 
 
 def open_canceled_chat_kb(order_id) -> InlineKeyboardMarkup:
-    """Bot ichida: bekor qilingan murojaat chatini mini app'da ochish (WebApp tugmasi)."""
+    """Bot ichida: Отказ murojaat chatini ALOHIDA (faqat ko'rish) mini app'da ochish."""
     kb = InlineKeyboardBuilder()
     if _WEBAPP_URL:
-        kb.row(InlineKeyboardButton(text="📂 Chatni ochish (mini app)",
-                                    web_app=WebAppInfo(url=_WEBAPP_URL + f"/admin?order={order_id}")))
+        kb.row(InlineKeyboardButton(text="📂 Chatni ochish (ko'rish)",
+                                    web_app=WebAppInfo(url=_WEBAPP_URL + f"/view?order={order_id}")))
     return kb.as_markup()
 
 
@@ -523,8 +523,9 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
     rows += [
         [KeyboardButton(text="📥 Yangi murojaatlar"), KeyboardButton(text="📂 Mening murojaatlarim")],
         [KeyboardButton(text="📌 Yakunlanmagan murojaatlar")],
-        [KeyboardButton(text="✅ Yakunlangan murojaatlarim"), KeyboardButton(text="📊 Mening statistikam")],
-        [KeyboardButton(text="🏆 Reyting"), KeyboardButton(text=status_btn)],
+        [KeyboardButton(text="✅ Yakunlangan murojaatlarim"), KeyboardButton(text="🚫 Bekor qilinganlar")],
+        [KeyboardButton(text="📊 Mening statistikam"), KeyboardButton(text="🏆 Reyting")],
+        [KeyboardButton(text=status_btn)],
         [KeyboardButton(text="🚪 Chiqish (logout)"), KeyboardButton(text=BTN_OP_BACK)],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -533,8 +534,8 @@ def operator_menu(availability="free") -> ReplyKeyboardMarkup:
 # Bot taniydigan barcha menyu tugmalari (proxy-chat ularni yutib yubormasligi uchun)
 OPERATOR_MENU_BUTTONS = {
     "📥 Yangi murojaatlar", "📂 Mening murojaatlarim", "📌 Yakunlanmagan murojaatlar",
-    "✅ Yakunlanganlar", "✅ Yakunlangan murojaatlarim", "📊 Mening statistikam", "🏆 Reyting",
-    "🚪 Chiqish (logout)", BTN_OP_BACK,
+    "✅ Yakunlanganlar", "✅ Yakunlangan murojaatlarim", "🚫 Bekor qilinganlar",
+    "📊 Mening statistikam", "🏆 Reyting", "🚪 Chiqish (logout)", BTN_OP_BACK,
 }
 ALL_MENU_BUTTONS = (
     loc.labels("order", "faq", "branches", "contact", "admin", "op_cabinet", "register",
@@ -679,6 +680,31 @@ def op_done_orders_kb(orders) -> InlineKeyboardMarkup:
 def op_done_detail_kb(order_id) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔄 Chatni tiklash", callback_data=f"oprestore:{order_id}"))
+    return kb.as_markup()
+
+
+def op_canceled_period_kb() -> InlineKeyboardMarkup:
+    """Bekor qilingan murojaatlar davri: bugun / kecha / shu hafta."""
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="📅 Bugun", callback_data="opcanc:today"))
+    kb.row(InlineKeyboardButton(text="📅 Kecha", callback_data="opcanc:yday"))
+    kb.row(InlineKeyboardButton(text="📅 Shu hafta (1 haftalik)", callback_data="opcanc:week"))
+    return kb.as_markup()
+
+
+def op_canceled_orders_kb(orders) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for o in orders:
+        name = o["full_name"] or "Mijoz"
+        kb.row(InlineKeyboardButton(text=f"#{o['id']} — {name}", callback_data=f"opcancview:{o['id']}"))
+    kb.row(InlineKeyboardButton(text="🔙 Davrni tanlash", callback_data="opcanc:menu"))
+    return kb.as_markup()
+
+
+def op_canceled_detail_kb(order_id) -> InlineKeyboardMarkup:
+    """Bekor qilingan murojaatni tiklash — tiklangach «Yakunlash» bilan yopiladi."""
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔄 Tiklash (davom ettirish)", callback_data=f"oprestore:{order_id}"))
     return kb.as_markup()
 
 
