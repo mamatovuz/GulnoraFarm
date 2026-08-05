@@ -736,6 +736,9 @@ async function gate(){
   document.getElementById("gate").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
   loadDash();
+  // Deep-link: bekor qilingan murojaat chatini to'g'ridan-to'g'ri ochish (?order=123)
+  const _oid = parseInt(_QP.get("order")||"", 10);
+  if(_oid) { try{ openTrans(_oid, "orders"); }catch(e){} }
 }
 
 // ---- Tabs / period ----

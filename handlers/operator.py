@@ -17,7 +17,7 @@ from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
     update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw, send_file_from,
-    BILL_TAG, send_branch_to_client, branch_card_text,
+    BILL_TAG, send_branch_to_client, branch_card_text, post_canceled_to_channel,
 )
 
 router = Router()
@@ -100,7 +100,9 @@ async def _notify_admins_login(from_user, op, old_tg):
             f"👤 Operator hisobi: {op['name']}\n"
             f"🙍 Kim kirdi: {who}\n"
             f"🆔 <code>{from_user.id}</code>")
-    for aid in ADMIN_IDS:
+    # Faqat bildirishnoma yoqilgan adminlarga (CRM > Sozlamalar > Bildirishnomalar).
+    recipients = await q.notify_recipient_ids()
+    for aid in recipients:
         try:
             await client.send_message(aid, text, disable_web_page_preview=True)
         except (TelegramBadRequest, TelegramForbiddenError):
@@ -703,6 +705,28 @@ async def op_cancel(call: CallbackQuery):
     await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
     await call.message.answer(f"🔴 Murojaat #{order_id} bekor qilindi.")
     await call.answer("Bekor qilindi")
+
+
+@router.callback_query(F.data.startswith("opc:reject:"))
+async def op_reject(call: CallbackQuery):
+    """Отказ — murojaatni rad etadi (bekor qilgani kabi yopadi) VA bekor qilinganlar
+    kanaliga joylaydi. Oddiy «Bekor» esa kanalga tushmaydi."""
+    op = await _op_of(call)
+    if not op:
+        await call.answer("Avval /operator orqali kiring.", show_alert=True)
+        return
+    order_id = int(call.data.split(":")[2])
+    order = await q.get_order(order_id)
+    await q.set_order_status(order_id, "canceled", f"operator:{op['id']}:reject")
+    await q.set_operator_active_order(op["id"], None)
+    await q.set_operator_availability(op["id"], "free")
+    await q.set_user_active_order(order["user_id"], None)
+    await update_group_card(call.bot, order_id)
+    await post_canceled_to_channel(order_id, by_client=False)  # alohida "bekor" kanaliga
+    clang = await q.get_lang(order["user_id"])
+    await notify_client(call.bot, order["user_id"], loc.t("order_canceled", clang, id=order_id))
+    await call.message.answer(f"🚫 Murojaat #{order_id} rad etildi (kanalga joylandi).")
+    await call.answer("Отказ ✅")
 
 
 # ---------------- Yetkazib berish / Olib ketish (faqat statistikaga) ----------------

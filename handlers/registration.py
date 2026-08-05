@@ -9,7 +9,7 @@ import keyboards as kb
 import locales as loc
 from states import Reg, OperatorFlow
 from database import queries as q
-from utils import check_subscription, main_kb, haversine_km
+from utils import check_subscription, main_kb, haversine_km, is_admin
 
 router = Router()
 
@@ -44,8 +44,29 @@ async def proceed_after_phone(message: Message, state: FSMContext, bot: Bot, lan
 async def cmd_start(message: Message, state: FSMContext, bot: Bot, command: CommandObject):
     await state.clear()
 
-    # Operatorlar guruhidagi "Qabul qilish" havolasi: /start accept_<id>
+    # Bekor qilingan murojaat kanalidagi tugma: /start cancel_<id>
     arg = command.args if command else None
+    if arg and arg.startswith("cancel_"):
+        try:
+            order_id = int(arg.split("_", 1)[1])
+        except (ValueError, IndexError):
+            await message.answer("Noto'g'ri havola.")
+            return
+        if not is_admin(message.from_user.id):
+            await message.answer("⛔️ Bu havola faqat administratorlar uchun.")
+            return
+        order = await q.get_order(order_id)
+        if not order:
+            await message.answer("Murojaat topilmadi.")
+            return
+        await message.answer(
+            f"🔴 Bekor qilingan murojaat — #{order_id}\n\n"
+            "Chatni ko'rish uchun quyidagi tugmani bosing 👇",
+            reply_markup=kb.open_canceled_chat_kb(order_id),
+        )
+        return
+
+    # Operatorlar guruhidagi "Qabul qilish" havolasi: /start accept_<id>
     if arg and arg.startswith("accept_"):
         from handlers.operator import do_accept, remember_pending_accept
         try:

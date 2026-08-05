@@ -290,6 +290,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="📌 Yakunlanmagan murojaatlar", callback_data="adm:unfin"))
     kb.row(InlineKeyboardButton(text="📨 Ommaviy xabar", callback_data="adm:bc"))
     kb.row(InlineKeyboardButton(text="📢 Kanal boshqaruvi", callback_data="adm:ch"))
+    kb.row(InlineKeyboardButton(text="🚫 Bekor qilinganlar kanali", callback_data="adm:cch"))
     kb.row(InlineKeyboardButton(text="❓ FAQ boshqaruvi", callback_data="adm:faq"))
     kb.row(InlineKeyboardButton(text="🏥 Filiallar", callback_data="adm:br"))
     kb.row(InlineKeyboardButton(text="👨‍⚕️ Operatorlar", callback_data="adm:op"))
@@ -363,6 +364,36 @@ def channels_kb() -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="ch_add"))
     kb.row(InlineKeyboardButton(text="🗑 Kanalni o'chirish", callback_data="ch_del"))
     kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def cancel_channel_kb(has_channel: bool) -> InlineKeyboardMarkup:
+    """Bekor qilingan murojaatlar kanalini boshqarish."""
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="➕ Kanalni belgilash / o'zgartirish", callback_data="cch_add"))
+    if has_channel:
+        kb.row(InlineKeyboardButton(text="🗑 Kanalni o'chirish", callback_data="cch_del"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def canceled_post_kb(bot_username: str, order_id) -> InlineKeyboardMarkup:
+    """Kanaldagi bekor qilingan murojaat kartasi ostidagi tugma.
+    Kanal postida WebApp tugmasi ishlamaydi — shuning uchun bot deep-link'i (URL) beramiz.
+    Bosilganda bot mini app'ni shu murojaat chati bilan ochadi."""
+    kb = InlineKeyboardBuilder()
+    if bot_username:
+        url = f"https://t.me/{bot_username}?start=cancel_{order_id}"
+        kb.row(InlineKeyboardButton(text="💬 Chatni ochish (mini app)", url=url))
+    return kb.as_markup()
+
+
+def open_canceled_chat_kb(order_id) -> InlineKeyboardMarkup:
+    """Bot ichida: bekor qilingan murojaat chatini mini app'da ochish (WebApp tugmasi)."""
+    kb = InlineKeyboardBuilder()
+    if _WEBAPP_URL:
+        kb.row(InlineKeyboardButton(text="📂 Chatni ochish (mini app)",
+                                    web_app=WebAppInfo(url=_WEBAPP_URL + f"/admin?order={order_id}")))
     return kb.as_markup()
 
 
@@ -527,6 +558,7 @@ OP_BTN = {
     "pickup": "🏃 Olib ketish",
     "done": "✅ Yakunlash",
     "cancel": "❌ Bekor",
+    "reject": "🚫 Отказ",
 }
 
 # Tugma kalitlari uchun chiroyli nomlar (admin ko'rishi uchun)
@@ -538,6 +570,7 @@ OP_BTN_TITLES = {
     "autoclose": "10 daqiqada avto-yakunlash",
     "deliver": "Yetkazib berish (statistika)", "pickup": "Olib ketish (statistika)",
     "done": "Yakunlash", "cancel": "Bekor qilish",
+    "reject": "Отказ (kanalga tushadi)",
 }
 
 
@@ -562,6 +595,7 @@ def op_order_actions_kb(order_id) -> InlineKeyboardMarkup:
            InlineKeyboardButton(text=OP_BTN["pickup"], callback_data=f"opc:pickup:{order_id}"))
     kb.row(InlineKeyboardButton(text=OP_BTN["done"], callback_data=f"opc:done:{order_id}"),
            InlineKeyboardButton(text=OP_BTN["cancel"], callback_data=f"opc:cancel:{order_id}"))
+    kb.row(InlineKeyboardButton(text=OP_BTN["reject"], callback_data=f"opc:reject:{order_id}"))
     return kb.as_markup()
 
 

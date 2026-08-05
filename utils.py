@@ -577,6 +577,54 @@ async def update_group_card(bot: Bot, order_id):
         pass
 
 
+# ---------------- Bekor qilingan murojaatlar kanali ----------------
+_client_bot_username = None
+
+
+async def client_bot_username() -> str:
+    """Mijoz/asosiy bot @username'i (deep-link havolalar uchun) — keshlanadi."""
+    global _client_bot_username
+    if _client_bot_username is None:
+        client = cbot()
+        if not client:
+            return ""
+        try:
+            me = await client.get_me()
+            _client_bot_username = me.username or ""
+        except Exception:
+            return ""
+    return _client_bot_username
+
+
+async def post_canceled_to_channel(order_id, by_client: bool = False):
+    """Bekor qilingan murojaatni alohida kanalga joylaydi (admin belgilagan).
+    Karta ostida mini app'ni shu murojaat chati bilan ochadigan tugma bo'ladi.
+    Kanal belgilanmagan bo'lsa — hech narsa qilmaydi."""
+    chat_id = (await q.get_setting("cancel_channel_id", "")).strip()
+    if not chat_id:
+        return
+    client = cbot()
+    if not client:
+        return
+    order = await q.get_order(order_id)
+    if not order:
+        return
+    info = await order_card_text(order)
+    # birinchi mijoz xabari (bo'lsa) — kartada qisqacha ko'rinsin
+    msgs = await q.order_messages(order_id)
+    note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
+    who = "🙍 Mijoz o'zi bekor qildi" if by_client else "👨‍⚕️ Operator bekor qildi"
+    body = (f"{note}\n\n{info}" if note else info)
+    text = f"🔴 <b>Bekor qilingan murojaat</b>\n{who}\n\n{body}"
+    username = await client_bot_username()
+    markup = kb.canceled_post_kb(username, order_id)
+    try:
+        await client.send_message(chat_id, text, reply_markup=markup,
+                                  disable_web_page_preview=True)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
 async def save_message_from_message(order_id, sender, message):
     ct, fid, txt = extract_content(message)
     return await q.add_message(order_id, sender, ct, txt, fid, message.message_id)

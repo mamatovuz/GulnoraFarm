@@ -34,6 +34,8 @@ class AdminFlow(StatesGroup):
     bc_target_branch = State()
     # kanal
     ch_add = State()
+    # bekor qilinganlar kanali
+    cch_add = State()
     # faq
     faq_title = State()
     faq_answer = State()

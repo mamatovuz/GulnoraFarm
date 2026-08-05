@@ -254,7 +254,6 @@ async def client_resume(call: CallbackQuery, bot: Bot):
     """Mijoz avto-yakunlangan murojaatni «Qayta boshlash» tugmasi orqali tiklaydi.
     Murojaat oldingi operatorga qayta biriktiriladi, operator va adminlarga xabar boradi."""
     import botreg
-    from config import ADMIN_IDS
     order_id = int(call.data.split(":")[1])
     lang = await q.get_lang(call.from_user.id)
     order = await q.get_order(order_id)
@@ -304,8 +303,8 @@ async def client_resume(call: CallbackQuery, bot: Bot):
                     reply_markup=kb.open_crm_kb("operator"))
             except (TelegramBadRequest, TelegramForbiddenError):
                 pass
-    # Adminlarga xabar (asosiy bot)
-    for aid in ADMIN_IDS:
+    # Adminlarga xabar (asosiy bot) — faqat bildirishnoma yoqilgan adminlarga
+    for aid in await q.notify_recipient_ids():
         try:
             await bot.send_message(
                 aid, f"🔄 Murojaat <b>#{order_id}</b> mijoz tomonidan qayta tiklandi. "

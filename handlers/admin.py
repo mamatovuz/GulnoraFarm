@@ -333,6 +333,77 @@ async def ch_del(call: CallbackQuery):
     await call.answer()
 
 
+# ---------------- Bekor qilinganlar kanali ----------------
+@router.callback_query(F.data == "adm:cch")
+async def cch_menu(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    cid = (await q.get_setting("cancel_channel_id", "")).strip()
+    title = (await q.get_setting("cancel_channel_title", "")).strip()
+    if cid:
+        cur = f"✅ Joriy kanal: <b>{title or cid}</b> (<code>{cid}</code>)"
+    else:
+        cur = "❌ Kanal hali belgilanmagan."
+    await call.message.edit_text(
+        "🚫 <b>Bekor qilingan murojaatlar kanali</b>\n\n"
+        "Murojaat bekor qilinganda (operator yoki mijoz tomonidan) shu kanalga tushadi. "
+        "Karta ostidagi tugma orqali murojaat chatini mini app'da ochish mumkin.\n\n"
+        f"{cur}",
+        reply_markup=kb.cancel_channel_kb(bool(cid)),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "cch_add")
+async def cch_add(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminFlow.cch_add)
+    await call.message.edit_text(
+        "Bekor qilingan murojaatlar tushadigan kanal username yoki ID raqamini yuboring.\n\n"
+        "Masalan: <code>@bekor_murojaatlar</code> yoki <code>-100...</code>\n\n"
+        "⚠️ Bot ushbu kanalda <b>ADMIN</b> bo'lishi shart (post yubora olishi uchun)!"
+    )
+    await call.answer()
+
+
+@router.message(AdminFlow.cch_add)
+async def cch_add_save(message: Message, state: FSMContext, bot: Bot):
+    raw = message.text.strip()
+    try:
+        chat = await bot.get_chat(raw)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer(
+            "⚠️ Kanal topilmadi yoki bot unga kira olmadi.\n\n"
+            "1) Avval botni kanalga <b>ADMIN</b> qiling.\n"
+            "2) Keyin kanal <code>@username</code> yoki ID (-100...) ni yuboring.",
+        )
+        return
+    try:
+        me = await bot.get_me()
+        mem = await bot.get_chat_member(chat.id, me.id)
+        bot_is_admin = mem.status in ("administrator", "creator")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        bot_is_admin = False
+    # Post yuborish uchun ID kerak (@username o'zgarishi mumkin) — chat.id saqlaymiz
+    await q.set_setting("cancel_channel_id", str(chat.id))
+    await q.set_setting("cancel_channel_title", chat.title or str(chat.id))
+    await state.clear()
+    warn = ("" if bot_is_admin else
+            "\n\n⚠️ <b>DIQQAT:</b> bot bu kanalda ADMIN emas — post yubora olmaydi! "
+            "Botni kanalga admin qiling.")
+    await message.answer(
+        f"✅ Bekor qilinganlar kanali belgilandi: <b>{chat.title}</b>{warn}",
+        reply_markup=kb.admin_back_kb("adm:cch"),
+    )
+
+
+@router.callback_query(F.data == "cch_del")
+async def cch_del(call: CallbackQuery):
+    await q.set_setting("cancel_channel_id", "")
+    await q.set_setting("cancel_channel_title", "")
+    await call.message.edit_text("🗑 Bekor qilinganlar kanali o'chirildi.",
+                                 reply_markup=kb.admin_back_kb("adm:cch"))
+    await call.answer()
+
+
 # ---------------- FAQ boshqaruvi ----------------
 @router.callback_query(F.data == "adm:faq")
 async def faq_admin(call: CallbackQuery, state: FSMContext):
