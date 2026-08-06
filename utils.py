@@ -596,8 +596,9 @@ async def client_bot_username() -> str:
     return _client_bot_username
 
 
-async def post_canceled_to_channel(order_id, by_client: bool = False):
+async def post_canceled_to_channel(order_id, op_name: str = None, by_client: bool = False):
     """«Отказ» bosilgan murojaatni alohida kanalga (admin belgilagan) joylaydi.
+    op_name — otkaz qilgan operator ismi (kartada ko'rsatiladi).
     Mijoz rasm(lar) yuborgan bo'lsa — albom (media group) sifatida, malumotlar caption'da.
     Karta ostida mini app'ni shu murojaat chatini (faqat ko'rish) ochadigan tugma bo'ladi.
     Murojaat yopilmaydi — bu faqat kanalga nusxa. Kanal belgilanmagan bo'lsa — hech narsa qilmaydi."""
@@ -615,7 +616,8 @@ async def post_canceled_to_channel(order_id, by_client: bool = False):
     msgs = await q.order_messages(order_id)
     note = next((m["text"] for m in msgs if m["sender"] == "client" and m["text"]), "")
     body = (f"{note}\n\n{info}" if note else info)
-    text = f"🚫 <b>Отказ — murojaat</b>\n\n{body}"
+    who = f"\n🚫 Отказ qildi: <b>{op_name}</b>" if op_name else ""
+    text = f"🚫 <b>Отказ — murojaat</b>{who}\n\n{body}"
     username = await client_bot_username()
     markup = kb.canceled_post_kb(username, order_id)
     # Mijoz yuborgan rasmlar — albom uchun. file_id asosiy botniki, to'g'ridan-to'g'ri ishlaydi.

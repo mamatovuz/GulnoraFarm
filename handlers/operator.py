@@ -721,7 +721,7 @@ async def op_reject(call: CallbackQuery):
     if not order:
         await call.answer("Murojaat topilmadi", show_alert=True)
         return
-    await post_canceled_to_channel(order_id)   # rasmlar bilan albom + tugma
+    await post_canceled_to_channel(order_id, op_name=op["name"])   # rasmlar bilan albom + tugma
     await call.message.answer(
         f"🚫 Murojaat #{order_id} — Отказ kanaliga joylandi.\n"
         f"Chat ochiq qoladi — davom ettiraverishingiz mumkin. "
