@@ -31,6 +31,10 @@ _pending_accept: dict[int, int] = {}
 # Operator chatidagi oxirgi murojaat kartalari: filial o'zgarganda matnni edit qilish uchun.
 _op_order_cards: dict[tuple[int, int], dict] = {}
 
+# Ish vaqti tugagach ATAYLAB /operator orqali qayta kirganlar — avto-logout loop
+# ularni qayta chiqarmaydi. Ish vaqti qayta boshlanganda (yoki chiqib ketishganda) tozalanadi.
+_offhours_ok: set[int] = set()
+
 
 def remember_pending_accept(telegram_id: int, order_id: int):
     _pending_accept[telegram_id] = order_id
@@ -133,9 +137,10 @@ async def operator_cmd(message: Message, state: FSMContext):
     if op and op["status"] == "active":
         within, ws, we = operator_in_hours(op)
         if not within:
-            await q.logout_operator(message.from_user.id, bot_id)
-            await message.answer(_hours_warn(op))
-            return
+            # Ish vaqti tugagan bo'lsa ham kira oladi — avto-logout qayta chiqarmasin.
+            _offhours_ok.add(op["id"])
+        else:
+            _offhours_ok.discard(op["id"])
         await _show_cabinet(message.bot, message.from_user.id, op)
         return
     # Saqlangan login bo'lsa — tezkor kirish taklif qilamiz (faqat shu botники)
@@ -163,9 +168,10 @@ async def quick_login(call: CallbackQuery, state: FSMContext):
         return
     within, ws, we = operator_in_hours(op)
     if not within:
-        await call.message.answer(_hours_warn(op))
-        await call.answer()
-        return
+        # Ish vaqti tugagan bo'lsa ham kira oladi — avto-logout qayta chiqarmasin.
+        _offhours_ok.add(op_id)
+    else:
+        _offhours_ok.discard(op_id)
     old_tg = op["telegram_id"]
     await q.login_operator(op_id, call.from_user.id)
     await state.clear()
@@ -231,9 +237,10 @@ async def op_password(message: Message, state: FSMContext):
         return
     within, ws, we = operator_in_hours(op)
     if not within:
-        await state.clear()
-        await message.answer(_hours_warn(op))
-        return
+        # Ish vaqti tugagan bo'lsa ham kira oladi — avto-logout qayta chiqarmasin.
+        _offhours_ok.add(op["id"])
+    else:
+        _offhours_ok.discard(op["id"])
     old_tg = op["telegram_id"]
     await q.login_operator(op["id"], message.from_user.id)
     await state.clear()
@@ -1167,6 +1174,8 @@ async def op_workhours_loop(bot: Bot):
             for op in await q.logged_in_operators():
                 within, ws, we = operator_in_hours(op)
                 if within:
+                    # Ish vaqti (qayta) boshlandi — keyingi tugashda yana chiqarsin.
+                    _offhours_ok.discard(op["id"])
                     # Tugashiga <=10 daqiqa qolganda — bir marta ogohlantirish
                     try:
                         n = now_local()
@@ -1183,6 +1192,10 @@ async def op_workhours_loop(bot: Bot):
                     except Exception:
                         pass
                     continue
+                # Ish vaqti tugadi. Agar operator ataylab qayta kirgan bo'lsa — chiqarmaymiz.
+                if op["id"] in _offhours_ok:
+                    continue
+                _offhours_ok.add(op["id"])
                 tg = op["telegram_id"]
                 await q.logout_operator(tg, op["bot_id"])
                 ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
@@ -1190,7 +1203,7 @@ async def op_workhours_loop(bot: Bot):
                     await (ob or bot).send_message(
                         tg,
                         f"🕐 Ish vaqtingiz tugadi ({ws}–{we}).\n"
-                        f"Tizimdan chiqdingiz. Ish vaqti boshlanganda /operator orqali qayta kiring.",
+                        f"Tizimdan chiqdingiz. Xohlasangiz istalgan vaqtda /operator orqali qayta kira olasiz.",
                         reply_markup=kb.REMOVE,
                     )
                 except (TelegramBadRequest, TelegramForbiddenError):
