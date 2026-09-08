@@ -1336,6 +1336,32 @@ async def notify_recipient_ids() -> set:
     return {i for i in sel if i in eff}
 
 
+async def backup_recipient_ids() -> set:
+    """Kunlik baza zaxirasini oladigan adminlar.
+    Bosh admin (SUPER_ADMIN_ID) bildirishnoma o'chiq bo'lsa ham DOIM oladi —
+    baza sug'urtasi yo'qolmasligi uchun. Qolganlar galichka yoniq bo'lsagina oladi."""
+    from config import SUPER_ADMIN_ID
+    ids = set(await notify_recipient_ids())
+    if SUPER_ADMIN_ID:
+        ids.add(SUPER_ADMIN_ID)
+    return ids
+
+
+# ---- «Asosiy admin» (manager): bosh admin tayinlaydi, u admin qo'sha/o'chira oladi ----
+async def get_manager_admin_id():
+    """Tayinlangan asosiy admin telegram_id'si (yo'q bo'lsa — None)."""
+    raw = await get_setting("manager_admin_id", "")
+    try:
+        return int(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def set_manager_admin_id(tid):
+    """Asosiy adminni tayinlaydi (None — bekor qiladi)."""
+    await set_setting("manager_admin_id", "" if tid is None else str(int(tid)))
+
+
 # ============================ STATISTIKA ============================
 async def general_stats():
     db = await get_db()

@@ -1065,6 +1065,20 @@ async def _is_admin(tg_id) -> bool:
     return tg_id in await q.admin_telegram_ids()
 
 
+def _is_super(tg_id) -> bool:
+    """Bosh admin (super-admin) — faqat u asosiy adminni tanlaydi."""
+    from config import SUPER_ADMIN_ID
+    return SUPER_ADMIN_ID and int(tg_id) == SUPER_ADMIN_ID
+
+
+async def _can_manage_admins(tg_id) -> bool:
+    """Admin qo'sha/o'chira oladimi? Faqat bosh admin va u tayinlagan asosiy admin."""
+    if _is_super(tg_id):
+        return True
+    mgr = await q.get_manager_admin_id()
+    return mgr is not None and int(tg_id) == mgr
+
+
 async def _auth_admin(request, data):
     """Admin sessiya tokenini tekshiradi (avto-login orqali olingan)."""
     try:
@@ -1960,26 +1974,38 @@ async def api_admin_admins(request):
         return _json({"ok": False}, 401)
     items = []
     disabled = await q.disabled_admin_ids()
-    # .env ADMIN_IDS — asosiy adminlar (CRM'dan o'chirilganlari ro'yxatda ko'rinmaydi)
+    mgr = await q.get_manager_admin_id()
+    seen = set()
+    # .env ADMIN_IDS (bosh admin bu ro'yxatda) — CRM'dan o'chirilganlari ko'rinmaydi
     for aid in ADMIN_IDS:
-        if aid in disabled:
+        if aid in disabled or aid in seen:
             continue
+        seen.add(aid)
         u = await q.get_user(aid)
         items.append({
             "telegram_id": aid,
             "username": (u["username"] if u and u["username"] else None),
             "name": (u["full_name"] if u and u["full_name"] else "Admin"),
-            "super": True, "you": aid == tg})
+            "super": _is_super(aid), "manager": (mgr is not None and aid == mgr),
+            "you": aid == tg})
     # DB'dan qo'shilganlar
     for a in await q.list_admins():
+        aid = a["telegram_id"]
+        if aid is not None and aid in seen:
+            continue
+        if aid is not None:
+            seen.add(aid)
         items.append({
-            "telegram_id": a["telegram_id"],
+            "telegram_id": aid,
             "username": a["username"],
             "name": a["name"] or (("@" + a["username"]) if a["username"]
-                                  else str(a["telegram_id"])),
-            "pending": a["telegram_id"] is None,
-            "super": False, "you": a["telegram_id"] == tg})
-    return _json({"ok": True, "items": items})
+                                  else str(aid)),
+            "pending": aid is None,
+            "super": False, "manager": (mgr is not None and aid == mgr),
+            "you": aid == tg})
+    return _json({"ok": True, "items": items,
+                  "me_super": bool(_is_super(tg)),
+                  "me_can_manage": await _can_manage_admins(tg)})
 
 
 async def api_admin_admin_add(request):
@@ -1990,6 +2016,8 @@ async def api_admin_admin_add(request):
     tg = await _auth_admin(request, body)
     if not tg:
         return _json({"ok": False}, 401)
+    if not await _can_manage_admins(tg):
+        return _json({"ok": False, "error": "Sizda admin qo'shish huquqi yo'q"}, 403)
     ident = str(body.get("ident", "")).strip()
     if not ident:
         return _json({"ok": False, "error": "ID yoki username kiriting"})
@@ -2044,6 +2072,8 @@ async def api_admin_admin_del(request):
     tg = await _auth_admin(request, body)
     if not tg:
         return _json({"ok": False}, 401)
+    if not await _can_manage_admins(tg):
+        return _json({"ok": False, "error": "Sizda admin o'chirish huquqi yo'q"}, 403)
     tid = body.get("telegram_id")
     username = body.get("username")
     try:
@@ -2053,6 +2083,13 @@ async def api_admin_admin_del(request):
     # O'zini o'chirib qo'yishdan saqlaymiz
     if tid is not None and tid == tg:
         return _json({"ok": False, "error": "O'zingizni o'chira olmaysiz"})
+    # Bosh admin (super-admin) hech qachon o'chirilmaydi.
+    if tid is not None and _is_super(tid):
+        return _json({"ok": False, "error": "Bosh adminni o'chirib bo'lmaydi"})
+    # Tayinlangan asosiy admin o'chirilsa — tayinlashni ham bekor qilamiz.
+    mgr = await q.get_manager_admin_id()
+    if tid is not None and mgr is not None and tid == mgr:
+        await q.set_manager_admin_id(None)
     # .env adminini bazadan o'chirib bo'lmaydi (u .env'da yozilgan), shuning uchun
     # uni «o'chirilgan» deb belgilaymiz — admin huquqi va bildirishnomalari olib tashlanadi.
     if tid is not None and tid in ADMIN_IDS:
@@ -2062,6 +2099,35 @@ async def api_admin_admin_del(request):
     from utils import refresh_admins
     await refresh_admins()
     return _json({"ok": True})
+
+
+async def api_admin_set_manager(request):
+    """Bosh admin (SUPER_ADMIN_ID) bitta «asosiy admin»ni tanlaydi/bekor qiladi.
+    Asosiy admin admin qo'sha/o'chira oladi; boshqa adminlar bu ishni qila olmaydi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    if not _is_super(tg):
+        return _json({"ok": False, "error": "Faqat bosh admin asosiy admin tayinlaydi"}, 403)
+    tid = body.get("telegram_id")
+    try:
+        tid = int(tid) if tid is not None and str(tid) != "" else None
+    except (TypeError, ValueError):
+        tid = None
+    if tid is None:
+        await q.set_manager_admin_id(None)   # bekor qilish
+        return _json({"ok": True, "manager_id": None})
+    if _is_super(tid):
+        return _json({"ok": False, "error": "Bosh admin allaqachon to'liq huquqli"})
+    # Tanlangan shaxs haqiqatan admin bo'lishi shart.
+    if not await _is_admin(tid):
+        return _json({"ok": False, "error": "Avval bu shaxsni admin qiling"})
+    await q.set_manager_admin_id(tid)
+    return _json({"ok": True, "manager_id": tid})
 
 
 # ---------------- Admin: bildirishnomalar (kim «Javobsiz murojaat» oladi) ----------------
@@ -2528,6 +2594,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/admin/admins", api_admin_admins)
     app.router.add_post("/api/admin/admin_add", api_admin_admin_add)
     app.router.add_post("/api/admin/admin_del", api_admin_admin_del)
+    app.router.add_post("/api/admin/set_manager", api_admin_set_manager)
     app.router.add_get("/api/admin/notify_list", api_admin_notify_list)
     app.router.add_post("/api/admin/notify_toggle", api_admin_notify_toggle)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)

@@ -1779,19 +1779,26 @@ function obDel(id){ tg.showConfirm("Botni va uning operatorlarini o'chirasizmi?"
 // ---- Adminlar ----
 async function svAdmins(){
   const r=await q("/api/admin/admins","GET",auth()); if(!r.ok) return;
+  const canManage = !!r.me_can_manage, meSuper = !!r.me_super;
   const rows=r.items.map(a=>{
     const sub = a.pending
       ? "@"+esc(a.username||"")+" · botni ochishi kutilmoqda"
       : (a.username?("@"+esc(a.username)):"")+(a.username&&a.telegram_id?" · ":"")+(a.telegram_id?("ID: "+a.telegram_id):"");
-    const badge = a.super
-      ? '<span style="font-size:11px;background:#e5484d22;color:#e5484d;padding:2px 7px;border-radius:8px;margin-left:6px">Asosiy</span>'
-      : (a.pending?'<span style="font-size:11px;background:#d9770622;color:#d97706;padding:2px 7px;border-radius:8px;margin-left:6px">Kutilmoqda</span>':'');
+    const bg=(c,t)=>`<span style="font-size:11px;background:${c}22;color:${c};padding:2px 7px;border-radius:8px;margin-left:6px">${t}</span>`;
+    const badge = a.super ? bg("#e5484d","Bosh admin")
+      : (a.manager ? bg("#2f9e44","Asosiy admin")
+      : (a.pending ? bg("#d97706","Kutilmoqda") : ""));
     const you = a.you?'<span style="font-size:11px;color:var(--hint);margin-left:6px">(siz)</span>':'';
-    // Faqat o'zini o'chirib bo'lmaydi (asosiy .env adminlarini ham o'chirsa bo'ladi)
-    const canDel = !a.you;
+    // O'chirish: faqat huquqli admin; o'zini va bosh adminni o'chirib bo'lmaydi.
+    const canDel = canManage && !a.you && !a.super;
     const label = a.username ? ("@"+a.username) : String(a.telegram_id);
     const del = canDel
       ? `<button class="delbtn" onclick='admDel(${a.telegram_id!=null?a.telegram_id:"null"},"${esc(a.username||"")}","${esc(label)}")'>${DELSVG}</button>`
+      : '';
+    // Asosiy admin tayinlash — faqat bosh adminda ko'rinadi (bosh adminning o'zidan va pendingdan tashqari).
+    const mgrBtn = (meSuper && !a.super && !a.pending && a.telegram_id!=null)
+      ? `<button class="sbtn" style="padding:6px 10px;font-size:12px;margin-left:8px;flex-shrink:0;background:${a.manager?'#e5484d':'#2f9e44'}"
+           onclick='admSetMgr(${a.telegram_id},${a.manager?0:1},"${esc(label)}")'>${a.manager?"Olib tashlash":"Asosiy qilish"}</button>`
       : '';
     const nm = esc(a.name||"Admin");
     return `<div class="lrow">
@@ -1799,17 +1806,31 @@ async function svAdmins(){
         display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:600">${esc((nm[0]||"A").toUpperCase())}</div>
       <div class="mid" style="min-width:0"><div class="nm"><span>${nm}${badge}${you}</span></div>
         <div class="sub">${sub||"—"}</div></div>
-      ${del}</div>`;
+      ${mgrBtn}${del}</div>`;
   }).join("");
-  document.getElementById("sv-body").innerHTML = `
-    <div class="lrows">${rows}</div>
+  const addCard = canManage ? `
     <div class="card" style="margin-top:12px"><h3>Yangi admin qo'shish</h3>
     <div class="frm">
       <input id="adm-ident" placeholder="Telegram ID yoki @username">
       <button class="sbtn" onclick="admAdd(this)">Qo'shish</button>
       <div style="font-size:12px;color:var(--hint)">Raqam (masalan <b>123456789</b>) yoki foydalanuvchi nomi (masalan <b>@user</b>) kiriting.
       Agar @username orqali qo'shsangiz, o'sha shaxs botdagi Mini app tugmasini bosgach admin bo'ladi.</div>
-    </div></div>`;
+    </div></div>` : `
+    <div class="card" style="margin-top:12px"><div style="font-size:13px;color:var(--hint);line-height:1.5">
+      Admin qo'shish/o'chirish huquqi faqat <b>bosh admin</b> va u tayinlagan <b>asosiy admin</b>da bo'ladi.</div></div>`;
+  const hint = meSuper ? `
+    <div style="font-size:13px;color:var(--hint);margin-bottom:10px;line-height:1.5">
+      Siz — <b style="color:#e5484d">bosh admin</b>siz. Bitta adminni «<b style="color:#2f9e44">Asosiy qilish</b>» orqali tayinlang —
+      shu admingina boshqa adminlarni qo'sha/o'chira oladi.</div>` : "";
+  document.getElementById("sv-body").innerHTML = hint + `<div class="lrows">${rows}</div>` + addCard;
+}
+async function admSetMgr(tid,on,label){
+  const msg = on ? (label+" — asosiy admin qilinsinmi? U admin qo'sha/o'chira oladi.")
+                 : (label+" asosiy adminlikdan olinsinmi?");
+  tg.showConfirm(msg, async ok=>{ if(!ok) return;
+    const r=await q("/api/admin/set_manager","POST",Object.assign(auth(),{telegram_id:on?tid:null}));
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    svAdmins(); });
 }
 async function admAdd(btn){
   const ident=document.getElementById("adm-ident").value.trim();

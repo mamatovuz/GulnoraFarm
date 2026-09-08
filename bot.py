@@ -26,7 +26,7 @@ logger = logging.getLogger("bot")
 async def backup_loop(bot):
     """Har kuni (03:00 dan keyin) bazani admin botiga yuboradi — eng katta sug'urta."""
     from aiogram.types import FSInputFile
-    from config import DB_PATH, ADMIN_IDS, now_local
+    from config import DB_PATH, now_local
     while True:
         await asyncio.sleep(1800)
         try:
@@ -35,7 +35,8 @@ async def backup_loop(bot):
             if n.hour >= 3 and (await q.get_setting("last_backup", "")) != today:
                 await q.checkpoint_wal()   # WAL'ni faylga o'tkazamiz — to'liq nusxa
                 f = FSInputFile(DB_PATH, filename=f"zaxira_{n.strftime('%Y%m%d')}.db")
-                for aid in ADMIN_IDS:
+                # Bosh admin doim oladi; qolganlar bildirishnoma yoqilgan bo'lsa.
+                for aid in await q.backup_recipient_ids():
                     try:
                         await bot.send_document(
                             aid, f, caption=f"🗄 Kunlik baza zaxirasi — {today}\n"
@@ -81,7 +82,6 @@ async def sched_bc_loop(bot):
     import base64
     import html as _h
     from aiogram.types import BufferedInputFile
-    from config import ADMIN_IDS
     while True:
         await asyncio.sleep(60)
         try:
@@ -118,7 +118,7 @@ async def sched_bc_loop(bot):
                         sent += 1
                     except Exception:
                         failed += 1
-                for aid in ADMIN_IDS:
+                for aid in await q.notify_recipient_ids():
                     try:
                         await bot.send_message(
                             aid, f"📣 Rejalashtirilgan e'lon yuborildi ({b['send_at'][:16]})\n"
@@ -228,7 +228,7 @@ async def unfinished_operator_reminder_loop(bot):
 async def weekly_report_loop(bot):
     """Har dushanba 09:00 da adminlarga o'tgan hafta hisobotini yuboradi."""
     from datetime import timedelta
-    from config import now_local, ADMIN_IDS
+    from config import now_local
     while True:
         try:
             n = now_local()
@@ -247,7 +247,8 @@ async def weekly_report_loop(bot):
                             f"🟢 Yakunlangan: {r['done']}   🔴 Bekor: {r['canceled']}\n"
                             f"⏱ O'rtacha javob: {round(r['resp'])} daqiqa\n\n"
                             f"<b>Top operatorlar:</b>\n{top or '—'}")
-                    for aid in ADMIN_IDS:
+                    # Faqat bildirishnoma yoqilgan adminlarga (CRM > Bildirishnomalar).
+                    for aid in await q.notify_recipient_ids():
                         try:
                             await bot.send_message(aid, text)
                         except Exception:

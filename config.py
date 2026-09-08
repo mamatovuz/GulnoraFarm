@@ -19,6 +19,13 @@ ADMIN_IDS = [
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x.strip().isdigit()
 ]
 
+# Bosh admin (super-admin) — o'zgarmas. Faqat u «asosiy admin»ni tanlaydi va uni
+# adminlikdan olib bo'lmaydi. Kunlik baza zaxirasini bildirishnoma o'chiq bo'lsa ham
+# doim shu admin oladi (eng katta sug'urta).
+SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "7903688837") or "7903688837")
+if SUPER_ADMIN_ID and SUPER_ADMIN_ID not in ADMIN_IDS:
+    ADMIN_IDS.append(SUPER_ADMIN_ID)
+
 _group = os.getenv("OPERATORS_GROUP_ID", "").strip()
 OPERATORS_GROUP_ID = int(_group) if _group and _group.lstrip("-").isdigit() else None
 
