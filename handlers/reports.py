@@ -35,10 +35,20 @@ def _period_start(period: str) -> str:
         return n.strftime("%Y-%m-01 00:00:00")
     if period == "year":
         return n.strftime("%Y-01-01 00:00:00")
+    # oxirgi N kunlik (aylanma) davrlar
+    if period == "m1":
+        return (n - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
+    if period == "m2":
+        return (n - timedelta(days=60)).strftime("%Y-%m-%d 00:00:00")
+    if period == "m3":
+        return (n - timedelta(days=90)).strftime("%Y-%m-%d 00:00:00")
+    if period == "y1":
+        return (n - timedelta(days=365)).strftime("%Y-%m-%d 00:00:00")
     return "0000-01-01 00:00:00"
 
 
-_PLABEL = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy", "year": "Joriy yil"}
+_PLABEL = {"today": "Bugun", "week": "Joriy hafta", "month": "Joriy oy", "year": "Joriy yil",
+           "m1": "Oxirgi 1 oy", "m2": "Oxirgi 2 oy", "m3": "Oxirgi 3 oy", "y1": "Oxirgi 1 yil"}
 
 
 def _hm(dt) -> str:
@@ -391,6 +401,9 @@ async def ops_report(call: CallbackQuery):
     b.row(*[InlineKeyboardButton(text=("• " + t if p == period else t),
                                  callback_data=f"rep:ops:{p}:{sort}")
             for p, t in (("today", "Bugun"), ("week", "Hafta"), ("month", "Oy"), ("year", "Yil"))])
+    b.row(*[InlineKeyboardButton(text=("• " + t if p == period else t),
+                                 callback_data=f"rep:ops:{p}:{sort}")
+            for p, t in (("m1", "1 oy"), ("m2", "2 oy"), ("m3", "3 oy"), ("y1", "1 yil"))])
     # saralash (davrni saqlaydi)
     b.row(*[InlineKeyboardButton(text=("• " + t if s == sort else t),
                                  callback_data=f"rep:ops:{period}:{s}")
