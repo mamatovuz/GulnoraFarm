@@ -1197,13 +1197,29 @@ async def op_workhours_loop(bot: Bot):
                     continue
                 _offhours_ok.add(op["id"])
                 tg = op["telegram_id"]
+                # Ish vaqti tugadi — operatorning jarayondagi (qabul qilingan) murojaatlarini
+                # avtomatik yakunlaymiz. Har biri uchun mijozga yakunlash + baholash yuboriladi,
+                # kanaldagi karta yangilanadi va operator bo'shatiladi.
+                closed_cnt = 0
+                try:
+                    for o in await q.orders_by_status("in_progress", op["id"]):
+                        try:
+                            await _finish_with_rating(bot, o["id"], "auto")
+                            closed_cnt += 1
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 await q.logout_operator(tg, op["bot_id"])
                 ob = botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot
                 try:
+                    extra = (f"\n\n✅ Jarayondagi <b>{closed_cnt}</b> ta murojaatingiz avtomatik yakunlandi."
+                             if closed_cnt else "")
                     await (ob or bot).send_message(
                         tg,
                         f"🕐 Ish vaqtingiz tugadi ({ws}–{we}).\n"
-                        f"Tizimdan chiqdingiz. Xohlasangiz istalgan vaqtda /operator orqali qayta kira olasiz.",
+                        f"Tizimdan chiqdingiz. Xohlasangiz istalgan vaqtda /operator orqali qayta kira olasiz."
+                        + extra,
                         reply_markup=kb.REMOVE,
                     )
                 except (TelegramBadRequest, TelegramForbiddenError):
