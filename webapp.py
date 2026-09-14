@@ -19,7 +19,7 @@ from aiogram.types import BufferedInputFile
 
 from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE, ADMIN_IDS
 from database import queries as q
-from utils import BILL_TAG, send_branch_to_client, branch_card_text
+from utils import BILL_TAG, send_branch_to_client, branch_card_text, op_client_name
 import locales as loc
 
 logger = logging.getLogger("bot")
@@ -361,7 +361,7 @@ async def api_send(request):
                 await post_operator_to_channel(client, order, op["name"], content_type=ctype,
                                                file_id=fid, src_bot=client, text="🎤 ovozli xabar")
         else:
-            snt = await client.send_message(uid, loc.t("operator_reply", clang, name=op["name"],
+            snt = await client.send_message(uid, loc.t("operator_reply", clang, name=op_client_name(op),
                                                        text=_htm.escape(text)), **rkw)
             await q.add_message(order_id, "operator", "text", text, None, None,
                                 client_msg_id=snt.message_id)
@@ -899,7 +899,7 @@ async def api_msg_edit(request):
     clang = await q.get_lang(order["user_id"])
     try:
         await client.edit_message_text(
-            loc.t("operator_reply", clang, name=op["name"], text=_htm.escape(new_text)),
+            loc.t("operator_reply", clang, name=op_client_name(op), text=_htm.escape(new_text)),
             chat_id=order["user_id"], message_id=row["client_msg_id"])
     except Exception:
         return _json({"ok": False, "error": "Tahrirlab bo'lmadi (48 soatdan oshgan)"})
@@ -1446,7 +1446,8 @@ async def api_admin_ops(request):
     bots = {b["id"]: b["username"] for b in await q.list_operator_bots()}
     items = []
     for o in ops:
-        items.append({"id": o["id"], "name": o["name"], "login": o["login"],
+        items.append({"id": o["id"], "name": o["name"],
+                      "display_name": o["display_name"] or "", "login": o["login"],
                       "active": o["status"] == "active",
                       "online": bool(o["telegram_id"]),
                       "avail": o["availability"],
@@ -1463,6 +1464,7 @@ async def api_admin_op_save(request):
     if not await _auth_admin(request, body):
         return _json({"ok": False}, 401)
     name = str(body.get("name", "")).strip()
+    display_name = str(body.get("display_name", "")).strip()
     login = str(body.get("login", "")).strip()
     password = str(body.get("password", "")).strip()
     ws = str(body.get("ws", "08:00")).strip() or "08:00"
@@ -1476,6 +1478,7 @@ async def api_admin_op_save(request):
     if oid:
         oid = int(oid)
         await q.update_operator(oid, "name", name)
+        await q.update_operator(oid, "display_name", display_name)
         await q.update_operator(oid, "login", login)
         await q.update_operator(oid, "work_start", ws)
         await q.update_operator(oid, "work_end", we)
@@ -1485,7 +1488,9 @@ async def api_admin_op_save(request):
     else:
         if not password:
             return _json({"ok": False, "error": "Parol kiriting"})
-        await q.add_operator(name, login, password, bot_id=None)
+        new_id = await q.add_operator(name, login, password, bot_id=None)
+        if display_name:
+            await q.update_operator(new_id, "display_name", display_name)
     return _json({"ok": True})
 
 
@@ -1531,7 +1536,8 @@ async def api_admin_op_detail(request):
     s = await q.operator_stats(oid)
     recent = await q.orders_by_operator(oid)
     return _json({"ok": True,
-                  "op": {"name": op["name"], "login": op["login"],
+                  "op": {"name": op["name"], "display_name": op["display_name"] or "",
+                         "login": op["login"],
                          "active": op["status"] == "active", "online": bool(op["telegram_id"]),
                          "ws": op["work_start"], "we": op["work_end"]},
                   "stats": s,

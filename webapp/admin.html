@@ -1705,7 +1705,7 @@ async function svOps(){
     <div class="lrows">${r.items.map(o=>`
       <div class="lrow" onclick='opForm(${JSON.stringify(o)})'>
         <div class="ava2" style="width:40px;height:40px;font-size:16px;background:${avaBg(o.name)}">${ini(o.name)}</div>
-        <div class="mid"><div class="nm"><span>${esc(o.name)} ${o.active?"":"⛔"}</span></div>
+        <div class="mid"><div class="nm"><span>${esc(o.name)} ${o.active?"":"⛔"}${o.display_name?` <span style="color:var(--hint);font-weight:400">→ 👤 ${esc(o.display_name)}</span>`:""}</span></div>
           <div class="sub">@${esc(o.login)} · ${esc(o.bot)} · ${o.online?"🟢 online":"⚪ oflayn"} · ${o.ws}–${o.we}</div></div>
         <button class="delbtn" style="color:${o.active?'#e5484d':'#2f9e44'};font-size:12px;padding:5px 8px"
           onclick="event.stopPropagation();opToggle(${o.id})">${o.active?"Bloklash":"Ochish"}</button>
@@ -1717,7 +1717,8 @@ function opForm(o){
   document.getElementById("op-form").innerHTML = `
     <div class="card" style="margin-top:12px"><h3>${o?"Tahrirlash — "+esc(o.name):"Yangi operator"}</h3>
     <div class="frm">
-      <input id="op-name" placeholder="Ismi" value="${o?esc(o.name):''}">
+      <input id="op-name" placeholder="Asl ismi (admin/statistikada)" value="${o?esc(o.name):''}">
+      <input id="op-dname" placeholder="Mijozga ko'rinadigan nom (bo'sh = asl ism)" value="${o&&o.display_name?esc(o.display_name):''}">
       <input id="op-login" placeholder="Login" value="${o?esc(o.login):''}">
       <input id="op-pass" placeholder="${o?"Yangi parol (bo'sh = o'zgarmaydi)":"Parol"}">
       <label>Ish vaqti</label>
@@ -1729,7 +1730,9 @@ function opForm(o){
 }
 async function opSave(id){
   const r=await q("/api/admin/op_save","POST",Object.assign(auth(),{id,
-    name:document.getElementById("op-name").value, login:document.getElementById("op-login").value,
+    name:document.getElementById("op-name").value,
+    display_name:document.getElementById("op-dname").value,
+    login:document.getElementById("op-login").value,
     password:document.getElementById("op-pass").value,
     ws:document.getElementById("op-ws").value, we:document.getElementById("op-we").value}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }

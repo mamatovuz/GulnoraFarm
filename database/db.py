@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS msg_links (
 
 CREATE TABLE IF NOT EXISTS operators (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT,
+    name          TEXT,                            -- asl ism (admin/statistikada ko'rinadi)
+    display_name  TEXT,                            -- mijozga ko'rinadigan nom (bo'sh = asl ism)
     login         TEXT UNIQUE,
     password_hash TEXT,
     telegram_id   INTEGER,
@@ -318,6 +319,10 @@ async def init_db():
     if "bot_id" not in opcols:
         # bot_id = NULL -> asosiy botga tegishli (eski operatorlar)
         await db.execute("ALTER TABLE operators ADD COLUMN bot_id INTEGER")
+        await db.commit()
+    if "display_name" not in opcols:
+        # mijozga ko'rinadigan nom (bo'sh bo'lsa asl ism ishlatiladi)
+        await db.execute("ALTER TABLE operators ADD COLUMN display_name TEXT")
         await db.commit()
 
     # Boshlang'ich tayyor javob shablonlari

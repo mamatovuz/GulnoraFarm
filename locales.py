@@ -299,8 +299,8 @@ T = {
         "ru": "Пожалуйста, сначала зарегистрируйтесь через /start и выберите филиал.",
     },
     "accept_notify": {
-        "uz": "👨‍⚕️ Operatorimiz murojaatingizni qabul qildi. Tez orada javob beradi.",
-        "ru": "👨‍⚕️ Наш оператор принял ваше обращение. Скоро ответит.",
+        "uz": "👨‍⚕️ Operator <b>{name}</b> sizni qabul qildi. Tez orada javob beradi.",
+        "ru": "👨‍⚕️ Оператор <b>{name}</b> принял ваше обращение. Скоро ответит.",
     },
     "bill_to_client": {
         "uz": "💊 <b>Hisob-kitob (#{id}):</b>\n\n{bill}",

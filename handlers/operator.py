@@ -17,7 +17,7 @@ from database import queries as q
 from utils import (
     order_card_text, save_message_from_message, STATUS_LABEL, main_kb, send_content_message,
     update_group_card, post_operator_to_channel, operator_in_hours, cbot, send_raw, send_file_from,
-    BILL_TAG, send_branch_to_client, branch_card_text, post_canceled_to_channel,
+    BILL_TAG, send_branch_to_client, branch_card_text, post_canceled_to_channel, op_client_name,
 )
 
 router = Router()
@@ -480,7 +480,7 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
 
     # 3) Mijozga xabar
     clang = await q.get_lang(order["user_id"])
-    await notify_client(bot, order["user_id"], loc.t("accept_notify", clang))
+    await notify_client(bot, order["user_id"], loc.t("accept_notify", clang, name=op_client_name(op)))
     return True, None
 
 
@@ -812,7 +812,7 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
         else:
             await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
             await client.send_message(order["user_id"],
-                                      loc.t("operator_reply", clang, name=op["name"], text=tpl["text"]),
+                                      loc.t("operator_reply", clang, name=op_client_name(op), text=tpl["text"]),
                                       reply_to_message_id=reply_to, allow_sending_without_reply=True)
             await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
         await call.answer("✅ Mijozga yuborildi")
@@ -1466,7 +1466,7 @@ async def operator_proxy(message: Message, bot: Bot):
     clang = await q.get_lang(order["user_id"])
     from utils import msg_html
     # entity'lar saqlanadi: premium emoji, havolalar, qalin matn — mijozga asl ko'rinishda boradi
-    caption = loc.t("operator_reply", clang, name=op["name"], text=msg_html(message))
+    caption = loc.t("operator_reply", clang, name=op_client_name(op), text=msg_html(message))
 
     # tirkash: reply bo'lmasa mijozning oxirgi xabariga
     if reply_to is None:

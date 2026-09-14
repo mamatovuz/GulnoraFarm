@@ -649,3 +649,17 @@ async def post_canceled_to_channel(order_id, op_name: str = None, by_client: boo
 async def save_message_from_message(order_id, sender, message):
     ct, fid, txt = extract_content(message)
     return await q.add_message(order_id, sender, ct, txt, fid, message.message_id)
+
+
+def op_client_name(op) -> str:
+    """Mijozga ko'rsatiladigan operator nomi.
+    display_name bo'lsa — o'sha, aks holda asl ism. Admin/statistikada esa op['name'] ishlatiladi."""
+    if not op:
+        return "Operator"
+    try:
+        dn = op["display_name"]
+    except (IndexError, KeyError):
+        dn = None
+    if dn and str(dn).strip():
+        return str(dn).strip()
+    return op["name"] or "Operator"
