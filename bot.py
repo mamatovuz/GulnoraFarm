@@ -49,30 +49,45 @@ async def backup_loop(bot):
 
 
 async def rate_remind_loop(bot):
-    """Yakunlangandan 24 soat o'tib baholanmagan murojaatlar uchun bir marta eslatma."""
+    """Yakunlangandan keyin baholanmagan murojaatlar uchun eslatma — 2 bosqichda:
+    1-eslatma 24-48 soatdan keyin, 2-eslatma (hali baholamagan bo'lsa) 72-120 soatdan keyin."""
     import keyboards as kb2
-    import locales as loc2
     from datetime import timedelta
     from config import now_local
+
+    async def _send(r, stage):
+        await q.mark_rate_reminded(r["id"])
+        clang = await q.get_lang(r["user_id"])
+        if stage == 0:
+            txt = (("⭐ Murojaatingiz (#%d) bo'yicha xizmatni baholab qo'ysangiz — "
+                    "biz uchun juda muhim!" % r["id"]) if clang != "ru" else
+                   ("⭐ Пожалуйста, оцените обслуживание по обращению #%d — "
+                    "это важно для нас!" % r["id"]))
+        else:
+            txt = (("🙏 Sizni bir daqiqangizni ajratib, murojaatingizni (#%d) baholashingizni "
+                    "so'raymiz — fikringiz xizmatimizni yaxshilashga yordam beradi." % r["id"])
+                   if clang != "ru" else
+                   ("🙏 Уделите минутку и оцените обращение #%d — ваш отзыв помогает нам "
+                    "стать лучше." % r["id"]))
+        try:
+            await bot.send_message(r["user_id"], txt, reply_markup=kb2.rating_kb(r["id"]))
+        except Exception:
+            pass
+
     while True:
         await asyncio.sleep(1800)
         try:
             n = now_local()
+            # 1-eslatma: 24-48 soat oralig'i, hali eslatilmagan
             lo = (n - timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
             hi = (n - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-            for r in await q.rate_remind_candidates(lo, hi):
-                await q.mark_rate_reminded(r["id"])
-                clang = await q.get_lang(r["user_id"])
-                try:
-                    await bot.send_message(
-                        r["user_id"],
-                        ("⭐ Murojaatingiz (#%d) bo'yicha xizmatni baholab qo'ysangiz — "
-                         "biz uchun juda muhim!" % r["id"]) if clang != "ru" else
-                        ("⭐ Пожалуйста, оцените обслуживание по обращению #%d — "
-                         "это важно для нас!" % r["id"]),
-                        reply_markup=kb2.rating_kb(r["id"]))
-                except Exception:
-                    pass
+            for r in await q.rate_remind_candidates(lo, hi, stage=0):
+                await _send(r, 0)
+            # 2-eslatma: 72-120 soat oralig'i, bir marta eslatilgan, hali baholamagan
+            lo2 = (n - timedelta(hours=120)).strftime("%Y-%m-%d %H:%M:%S")
+            hi2 = (n - timedelta(hours=72)).strftime("%Y-%m-%d %H:%M:%S")
+            for r in await q.rate_remind_candidates(lo2, hi2, stage=1):
+                await _send(r, 1)
         except Exception:
             pass
 
@@ -225,6 +240,61 @@ async def unfinished_operator_reminder_loop(bot):
             pass
 
 
+# Oxirgi yuborilgan "qabul qilinmagan murojaatlar" eslatmasi: (bot_id, telegram_id) -> message_id
+_unaccepted_reminder_msgs: dict = {}
+
+
+async def unaccepted_orders_reminder_loop(bot):
+    """Har 5 daqiqada qabul qilinmagan (yangi) murojaatlar bo'lsa — retsept bo'lsin
+    yoki bo'lmasin — ish vaqtidagi BARCHA operatorlarga (band ham, bo'sh ham)
+    «Qabul qilasizmi?» eslatmasi yuboradi. Har bir murojaat uchun to'g'ridan-to'g'ri
+    «Qabul qilish» tugmasi bo'ladi; bittasini qabul qilgan operatorda o'sha murojaat band
+    bo'lib, keyingi siklda ro'yxatdan tushadi (qabul atomar — faqat bitta operator yutadi)."""
+    from utils import operator_in_hours
+    while True:
+        await asyncio.sleep(300)
+        try:
+            news = await q.orders_by_status("new")
+            for brow in await q.list_operator_bots(only_enabled=True):
+                opbot = botreg.get_operator_bot(brow["id"])
+                if not opbot:
+                    continue
+                for op in await q.operators_by_bot(brow["id"]):
+                    # Eslatma band va bo'sh operatorlarга — hammasiga boradi
+                    if not (op["telegram_id"] and op["status"] == "active"):
+                        continue
+                    if not operator_in_hours(op)[0]:
+                        continue
+                    key = (brow["id"], op["telegram_id"])
+                    # Avvalgi eslatmani o'chiramiz — chat chalkashmasin
+                    old = _unaccepted_reminder_msgs.pop(key, None)
+                    if old:
+                        try:
+                            await opbot.delete_message(op["telegram_id"], old)
+                        except Exception:
+                            pass
+                    if not news:
+                        continue
+                    lines = [f"📥 <b>{len(news)} ta qabul qilinmagan murojaat bor!</b>",
+                             "Qabul qilasizmi? Pastdagi tugma orqali biriktirib oling.\n"]
+                    for o in news[:10]:
+                        u = await q.get_user(o["user_id"])
+                        nm = (u["full_name"] if u else None) or "mijoz"
+                        lines.append(f"• #{o['id']} — {nm} ({(o['created_at'] or '')[11:16]})")
+                    if len(news) > 10:
+                        lines.append(f"… va yana {len(news) - 10} ta")
+                    try:
+                        sent = await opbot.send_message(
+                            op["telegram_id"], "\n".join(lines),
+                            reply_markup=kb.op_unaccepted_reminder_kb(news[:10]))
+                        if sent:
+                            _unaccepted_reminder_msgs[key] = sent.message_id
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
 async def weekly_report_loop(bot):
     """Har dushanba 09:00 da adminlarga o'tgan hafta hisobotini yuboradi."""
     from datetime import timedelta
@@ -318,6 +388,8 @@ async def main():
     asyncio.create_task(reminders_loop(bot))
     # Qabul qilingan, lekin yakunlanmagan murojaatlar bo'yicha 5 daqiqalik eslatma
     asyncio.create_task(unfinished_operator_reminder_loop(bot))
+    # Qabul QILINMAGAN (yangi) murojaatlar bo'yicha har 5 daqiqada operatorlarga eslatma
+    asyncio.create_task(unaccepted_orders_reminder_loop(bot))
     # Kunlik baza zaxirasi (admin botiga)
     asyncio.create_task(backup_loop(bot))
     # Baholash eslatmasi (24 soatdan keyin, bir marta)

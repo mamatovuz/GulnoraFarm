@@ -632,18 +632,23 @@ async def checkpoint_wal():
         pass
 
 
-async def rate_remind_candidates(lo, hi):
-    """24-48 soat oldin yakunlangan, baholanmagan va eslatilmagan murojaatlar."""
+async def rate_remind_candidates(lo, hi, stage=0):
+    """[lo, hi] oralig'ida yakunlangan, hali baholanmagan murojaatlar.
+    stage=0 — hali eslatilmagan (1-eslatma); stage=1 — bir marta eslatilgan (2-eslatma)."""
     db = await get_db()
     cur = await db.execute(
         "SELECT id, user_id FROM orders WHERE status='done' AND rating IS NULL "
-        "AND COALESCE(rate_reminded,0)=0 AND closed_at >= ? AND closed_at <= ?", (lo, hi))
+        "AND COALESCE(rate_reminded,0)=? AND closed_at >= ? AND closed_at <= ?",
+        (stage, lo, hi))
     return await cur.fetchall()
 
 
 async def mark_rate_reminded(order_id):
+    """Baholash eslatmalari sonini bittaga oshiradi (1-eslatma -> 1, 2-eslatma -> 2)."""
     db = await get_db()
-    await db.execute("UPDATE orders SET rate_reminded = 1 WHERE id = ?", (order_id,))
+    await db.execute(
+        "UPDATE orders SET rate_reminded = COALESCE(rate_reminded,0)+1 WHERE id = ?",
+        (order_id,))
     await db.commit()
 
 
@@ -1635,6 +1640,47 @@ async def low_rated_orders(limit=40):
         "LEFT JOIN operators op ON op.id=o.operator_id "
         "WHERE o.rating IS NOT NULL AND o.rating <= 3 "
         "ORDER BY o.id DESC LIMIT ?", (limit,))
+    return await cur.fetchall()
+
+
+async def all_rated_orders(min_star=1, max_star=5, limit=100):
+    """Barcha baholangan (otzivli) murojaatlar — yulduz oralig'i bo'yicha filtr bilan."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.rating, o.feedback, o.closed_at, o.created_at, "
+        "u.full_name, op.name AS operator "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN operators op ON op.id=o.operator_id "
+        "WHERE o.rating IS NOT NULL AND o.rating BETWEEN ? AND ? "
+        "ORDER BY o.id DESC LIMIT ?", (min_star, max_star, limit))
+    return await cur.fetchall()
+
+
+async def operator_recent_ratings(operator_id, limit=20):
+    """Operatorning o'z so'nggi baholari (baho + izoh) — o'z-o'zini nazorat uchun."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.rating, o.feedback, o.closed_at, u.full_name "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE o.operator_id=? AND o.rating IS NOT NULL "
+        "ORDER BY o.id DESC LIMIT ?", (operator_id, limit))
+    return await cur.fetchall()
+
+
+async def operator_done_orders(operator_id, search=None, limit=100):
+    """Operatorning yakunlangan/bekor qilingan murojaatlari — qidiruv bilan (tarix)."""
+    db = await get_db()
+    where = "WHERE o.operator_id=? AND o.status IN ('done','canceled')"
+    params = [operator_id]
+    if search:
+        s = search.strip()
+        where += " AND (u.full_name LIKE ? OR u.phone LIKE ? OR CAST(o.id AS TEXT) LIKE ?)"
+        params += [f"%{s}%", f"%{s}%", f"%{s}%"]
+    cur = await db.execute(
+        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, "
+        f"u.full_name, u.phone FROM orders o "
+        f"LEFT JOIN users u ON u.telegram_id=o.user_id {where} "
+        f"ORDER BY o.id DESC LIMIT ?", params + [limit])
     return await cur.fetchall()
 
 

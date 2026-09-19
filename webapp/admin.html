@@ -446,6 +446,7 @@
       <div class="item" onclick="openSet('notify')"><svg class="ic" viewBox="0 0 24 24" style="color:#d97706"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><div class="lbl">Bildirishnomalar<div style="font-size:12px;color:var(--hint)">Javobsiz murojaat kimga borsin</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('ops')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><div class="lbl">Operatorlar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('opbots')"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 13h.01M16 13h.01M9 17h6"/></svg><div class="lbl">Operator botlari</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('reviews')"><svg class="ic" viewBox="0 0 24 24" style="color:#d97706"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Otzivlar<div style="font-size:12px;color:var(--hint)">Barcha baholar · tahrirlash / o'chirish</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
@@ -550,6 +551,7 @@
     </div>
     <span id="tr-chip" class="chip"></span>
   </div>
+  <div id="tr-review"></div>
   <div id="tr-msgs" class="msgs2"></div>
   <div id="tr-foot" class="transfoot hide">
     <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -1415,6 +1417,7 @@ async function openTrans(oid, back){
   chip.textContent = ST_LBL[r.status]||r.status; chip.style.background = ST_COL[r.status]||"#999";
   const open = (r.status==="new"||r.status==="in_progress");
   document.getElementById("tr-foot").classList.toggle("hide", !open);
+  renderReview(r.rating||0, r.feedback||"", open);
   const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
   // Yozishmani chizamiz. Eski hisob-kitob (faqat order.bill'da, xabari yo'q) bo'lsa — sun'iy pufakcha qo'shamiz
   const msgs = r.messages.slice();
@@ -1429,6 +1432,59 @@ async function openTrans(oid, back){
   const bx=document.getElementById("tr-msgs"); bindVoice(bx); bx.scrollTop=bx.scrollHeight;
 }
 function closeTrans(){ document.getElementById("trans").classList.add("hide"); TRO=null; }
+
+// ---- Otziv (mijoz bahosi + izohi) tahrirlash ----
+let TR_RATING=0;
+function renderReview(rating, feedback, open){
+  const box=document.getElementById("tr-review");
+  // Ochiq (yakunlanmagan) murojaatda hali baho bo'lmaydi — blokni ko'rsatmaymiz
+  if(open){ box.innerHTML=""; return; }
+  TR_RATING = rating||0;
+  const stars = [1,2,3,4,5].map(n=>
+    `<span class="rvstar" data-n="${n}" onclick="rvSetStar(${n})" style="cursor:pointer;font-size:26px;line-height:1;color:${n<=TR_RATING?'#f59e0b':'var(--sep)'}">★</span>`
+  ).join("");
+  box.innerHTML = `
+    <div class="card" style="margin:10px 12px 0">
+      <h3 style="margin:0 0 8px">⭐ Mijoz otzivi</h3>
+      <div id="rv-stars" style="display:flex;gap:6px;margin-bottom:4px">${stars}</div>
+      <div id="rv-rlabel" style="font-size:12px;color:var(--hint);margin-bottom:8px">${TR_RATING?TR_RATING+" / 5":"Baholanmagan"}</div>
+      <div class="frm">
+        <label>Izoh (mijoz sababi)</label>
+        <textarea id="rv-fb" placeholder="Izoh yo'q">${esc(feedback||"")}</textarea>
+        <button class="sbtn" onclick="rvSave()">💾 Otzivni saqlash</button>
+        <button class="sbtn" style="background:var(--sec);color:#e5484d" onclick="rvDelete()">🗑 Otzivni butunlay o'chirish</button>
+      </div>
+    </div>`;
+}
+function rvSetStar(n){
+  TR_RATING = (TR_RATING===n) ? 0 : n;   // bir yulduzni qayta bossa — bahoni tozalaydi
+  document.querySelectorAll("#rv-stars .rvstar").forEach(el=>{
+    el.style.color = (+el.dataset.n<=TR_RATING) ? "#f59e0b" : "var(--sep)";
+  });
+  document.getElementById("rv-rlabel").textContent = TR_RATING? TR_RATING+" / 5" : "Baholanmagan";
+}
+async function rvSave(){
+  if(!TRO) return;
+  const feedback=document.getElementById("rv-fb").value.trim();
+  const r=await q("/api/admin/review","POST",Object.assign(auth(),{order_id:TRO,rating:TR_RATING,feedback}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+  tg.showAlert("Otziv saqlandi ✅");
+  rvRefreshBack();
+  openTrans(TRO, TRBACK);
+}
+function rvRefreshBack(){
+  try{ if(TRBACK==="low") svLow(); else if(TRBACK==="reviews") svReviews(); else if(TRBACK==="orders") loadOrders(true); }catch(e){}
+}
+function rvDelete(){
+  tg.showConfirm("Otziv butunlay o'chirilsinmi? (baho ham, izoh ham)", async ok=>{
+    if(!ok||!TRO) return;
+    const r=await q("/api/admin/review","POST",Object.assign(auth(),{order_id:TRO,delete:true}));
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    tg.showAlert("Otziv o'chirildi 🗑");
+    rvRefreshBack();
+    openTrans(TRO, TRBACK);
+  });
+}
 async function adminSend(){
   const inp=document.getElementById("tr-msg"); const text=inp.value.trim();
   if(!text||!TRO) return;
@@ -1576,7 +1632,7 @@ function compressImage(file, maxDim, quality){
 // ================= SOZLAMALAR =================
 const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy xabar",
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
-            opbots:"Operator botlari",low:"Sifat nazorati",excel:"Excel hisobot",
+            opbots:"Operator botlari",low:"Sifat nazorati",reviews:"Otzivlar",excel:"Excel hisobot",
             stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar",
             notify:"Bildirishnomalar"};
 function openSet(kind){
@@ -1584,7 +1640,7 @@ function openSet(kind){
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
-    ops:svOps,opbots:svOpbots,low:svLow,excel:svExcel,stale:svStale,stats:svStats,
+    ops:svOps,opbots:svOpbots,low:svLow,reviews:svReviews,excel:svExcel,stale:svStale,stats:svStats,
     admins:svAdmins,notify:svNotify})[kind]();
 }
 
@@ -1882,6 +1938,28 @@ async function ntToggle(tid,on){
   const r=await q("/api/admin/notify_toggle","POST",Object.assign(auth(),{telegram_id:tid,on:!!on}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
   svNotify();
+}
+
+// ---- Otzivlar (barcha baholar, filtr + tahrirlash/o'chirish) ----
+let RVFILTER="";
+function rvFilter(v){ RVFILTER=v; svReviews(); }
+async function svReviews(){
+  const chips=[["","Hammasi"],["5","5★"],["4","4★"],["3","3★"],["2","2★"],["1","1★"],["low","Past (1-3)"]];
+  const bar=`<div class="seg" style="flex-wrap:wrap;gap:6px;margin:0 0 12px">${
+    chips.map(([v,l])=>`<button onclick="rvFilter('${v}')" class="${RVFILTER===v?'on':''}" style="padding:7px 12px;font-size:13px">${l}</button>`).join("")}</div>`;
+  const body=document.getElementById("sv-body");
+  body.innerHTML=bar+'<div class="empty">Yuklanmoqda...</div>';
+  const r=await q("/api/admin/reviews","GET",Object.assign(auth(),RVFILTER?{stars:RVFILTER}:{}));
+  if(!r.ok){ body.innerHTML=bar+'<div class="empty">Xatolik</div>'; return; }
+  body.innerHTML = bar + (r.items.length ? `
+    <div class="lrows">${r.items.map(x=>{
+      const col=x.rating<=2?"#e5484d":(x.rating===3?"#f59e0b":"#2f9e44");
+      return `<div class="lrow" onclick='openTrans(${x.id},"reviews")'>
+        <div class="mid"><div class="nm"><span style="color:${col}">${"★".repeat(x.rating)}${"☆".repeat(5-x.rating)}</span> <span>#${x.id} · ${esc(x.name)}</span>
+          <span class="tm">${esc(x.date)}</span></div>
+          <div class="sub" style="white-space:normal">${esc(x.operator)}${x.feedback?" — «"+esc(x.feedback)+"»":""}</div></div>
+      </div>`;}).join("")}</div>`
+    : '<div class="empty">Otziv topilmadi</div>');
 }
 
 // ---- Sifat nazorati ----

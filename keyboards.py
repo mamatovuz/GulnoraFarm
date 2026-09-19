@@ -268,6 +268,15 @@ def order_accept_kb(order_id) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+# ---- Qabul qilinmagan murojaatlar bo'yicha davriy eslatma (har bir murojaat = tugma) ----
+def op_unaccepted_reminder_kb(orders) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for o in orders:
+        kb.row(InlineKeyboardButton(text=f"✅ #{o['id']} ni qabul qilish",
+                                    callback_data=f"op_accept:{o['id']}"))
+    return kb.as_markup()
+
+
 # ---- Operatorlar guruhi uchun — havola (bosilsa avtomatik botga o'tadi) ----
 def order_accept_link_kb(order_id, bot_username) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()

@@ -774,12 +774,25 @@ async def api_done(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False}, 401)
-    rows = await q.orders_by_status("done", op["id"])
-    items = []
-    for r in rows[:50]:
-        u = await q.get_user(r["user_id"])
-        items.append({"order_id": r["id"], "name": u["full_name"] if u else "—",
-                      "time": (r["closed_at"] or r["created_at"] or "")[:16], "rating": r["rating"] or 0})
+    search = request.query.get("q") or None
+    rows = await q.operator_done_orders(op["id"], search, limit=100)
+    items = [{"order_id": r["id"],
+              "name": r["full_name"] or r["phone"] or "Mijoz",
+              "status": r["status"],
+              "time": (r["closed_at"] or r["created_at"] or "")[:16],
+              "rating": r["rating"] or 0} for r in rows]
+    return _json({"ok": True, "items": items})
+
+
+async def api_my_ratings(request):
+    """Operatorning o'z so'nggi baholari (baho + izoh)."""
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.operator_recent_ratings(op["id"], 20)
+    items = [{"order_id": r["id"], "rating": r["rating"], "feedback": r["feedback"] or "",
+              "name": r["full_name"] or "Mijoz",
+              "time": (r["closed_at"] or "")[:10]} for r in rows]
     return _json({"ok": True, "items": items})
 
 
@@ -1373,6 +1386,7 @@ async def api_admin_msgs(request):
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
                   "operator": op["name"] if op else "",
                   "rating": order["rating"] or 0,
+                  "feedback": (order["feedback"] or "") if "feedback" in order.keys() else "",
                   "bill": {"text": bill_text, "photo": bill_photo},
                   "client": {"tg": order["user_id"],
                              "name": user["full_name"] if user else "—",
@@ -1643,6 +1657,24 @@ async def api_admin_lowratings(request):
          "date": (r["closed_at"] or "")[:10]} for r in rows]})
 
 
+async def api_admin_reviews(request):
+    """Barcha otzivlar — yulduz bo'yicha filtr: stars=1..5, 'low' (1-3) yoki bo'sh (hammasi)."""
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    stars = str(request.query.get("stars", "") or "")
+    if stars == "low":
+        mn, mx = 1, 3
+    elif stars in ("1", "2", "3", "4", "5"):
+        mn = mx = int(stars)
+    else:
+        mn, mx = 1, 5
+    rows = await q.all_rated_orders(mn, mx, 100)
+    return _json({"ok": True, "items": [
+        {"id": r["id"], "rating": r["rating"], "feedback": r["feedback"] or "",
+         "name": r["full_name"] or "—", "operator": r["operator"] or "—",
+         "date": (r["closed_at"] or r["created_at"] or "")[:10]} for r in rows]})
+
+
 # ---------------- Admin: mijozga yozish + o'tkazish ----------------
 async def api_admin_send(request):
     try:
@@ -1781,6 +1813,48 @@ async def api_admin_note_save(request):
         return _json({"ok": False}, 400)
     await q.set_client_note(tg_, str(body.get("note", "")).strip())
     return _json({"ok": True})
+
+
+# ---------------- Admin: mijoz otzivini (baho + izoh) tahrirlash / o'chirish ----------------
+async def api_admin_review(request):
+    """Otziv boshqaruvi. body:
+      order_id                              — majburiy
+      delete=True                           — otzivni butunlay o'chirish (baho+izoh NULL)
+      rating (0..5)                         — bahoni o'zgartirish (0 = bahoni o'chirish)
+      feedback (matn)                       — izohni tahrirlash ("" = izohni o'chirish)
+    'rating' yoki 'feedback' kalitini yubormasangiz — o'sha qism o'zgarmaydi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+
+    if body.get("delete"):
+        await q.set_order_rating(order_id, None)
+        await q.set_order_feedback(order_id, None)
+        return _json({"ok": True, "rating": 0, "feedback": ""})
+
+    if "rating" in body:
+        try:
+            rv = int(body.get("rating"))
+        except (TypeError, ValueError):
+            rv = 0
+        await q.set_order_rating(order_id, rv if 1 <= rv <= 5 else None)
+    if "feedback" in body:
+        fb = str(body.get("feedback", "")).strip()
+        await q.set_order_feedback(order_id, fb or None)
+
+    upd = await q.get_order(order_id)
+    return _json({"ok": True, "rating": upd["rating"] or 0,
+                  "feedback": (upd["feedback"] or "") if "feedback" in upd.keys() else ""})
 
 
 # ---------------- Admin: eski ochiq murojaatlarni yopish ----------------
@@ -2544,6 +2618,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/newcount", api_newcount)
     app.router.add_get("/api/unfinished", api_unfinished)
     app.router.add_get("/api/done", api_done)
+    app.router.add_get("/api/my_ratings", api_my_ratings)
     app.router.add_get("/api/rating", api_rating)
     app.router.add_get("/api/stickers", api_stickers)
     app.router.add_post("/api/send_sticker", api_send_sticker)
@@ -2584,11 +2659,13 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/opbot_toggle", api_admin_opbot_toggle)
     app.router.add_post("/api/admin/opbot_del", api_admin_opbot_del)
     app.router.add_get("/api/admin/lowratings", api_admin_lowratings)
+    app.router.add_get("/api/admin/reviews", api_admin_reviews)
     app.router.add_post("/api/admin/send", api_admin_send)
     app.router.add_post("/api/admin/transfer", api_admin_transfer)
     app.router.add_post("/api/admin/client_block", api_admin_client_block)
     app.router.add_post("/api/admin/client_del", api_admin_client_del)
     app.router.add_post("/api/admin/note_save", api_admin_note_save)
+    app.router.add_post("/api/admin/review", api_admin_review)
     app.router.add_post("/api/admin/excel_clients", api_admin_excel_clients)
     app.router.add_post("/api/admin/close_stale", api_admin_close_stale)
     app.router.add_get("/api/admin/bc_pending", api_admin_bc_pending)

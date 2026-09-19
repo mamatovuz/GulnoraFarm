@@ -351,7 +351,9 @@
     </div>
     <div class="list">
       <div class="item" onclick="openList('unfinished')"><svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" onclick="openList('rating')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Reyting</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openList('done')"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><div class="lbl">Suhbatlar tarixi</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openList('myratings')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">So'nggi baholarim</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openList('rating')"><svg class="ic" viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM12 15v6M8 21h8"/></svg><div class="lbl">Reyting (operatorlar)</div><svg class="ic chev" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
       <div class="item" style="display:block">
@@ -472,6 +474,10 @@
   <div class="topbar">
     <button class="iconbtn" onclick="closeList()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
     <div class="t" id="lv-title" style="font-size:17px">—</div>
+  </div>
+  <div id="lv-search" class="hide" style="padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--sep)">
+    <input id="lv-q" placeholder="Qidiruv (ism, telefon yoki #raqam)" oninput="lvSearchDeb()"
+      style="width:100%;padding:10px 13px;border:1px solid var(--sep);border-radius:11px;background:var(--sec);color:var(--text);font-size:15px;outline:none">
   </div>
   <div id="lv-body" class="body"></div>
 </div>
@@ -1255,12 +1261,28 @@ async function sendSticker(id){
 }
 
 // ---- Sozlamalar ro'yxatlari ----
+let _lvKind=null, _lvT=null;
+const LV_CFG={unfinished:{t:"Yakunlanmagan murojaatlar",u:"/api/unfinished",search:false},
+              done:{t:"Suhbatlar tarixi",u:"/api/done",search:true},
+              myratings:{t:"So'nggi baholarim",u:"/api/my_ratings",search:false},
+              rating:{t:"Reyting",u:"/api/rating",search:false}};
+function lvSearchDeb(){ clearTimeout(_lvT); _lvT=setTimeout(()=>loadList(),300); }
 async function openList(kind){
-  const cfg={unfinished:{t:"Yakunlanmagan murojaatlar",u:"/api/unfinished"},
-             done:{t:"Yakunlanganlar",u:"/api/done"}, rating:{t:"Reyting",u:"/api/rating"}};
-  const c=cfg[kind]; document.getElementById("lv-title").textContent=c.t; sh("listview");
+  _lvKind=kind;
+  const c=LV_CFG[kind];
+  document.getElementById("lv-title").textContent=c.t;
+  const sbox=document.getElementById("lv-search");
+  sbox.classList.toggle("hide", !c.search);
+  if(c.search) document.getElementById("lv-q").value="";
+  sh("listview");
+  await loadList();
+}
+async function loadList(){
+  const kind=_lvKind, c=LV_CFG[kind];
   const box=document.getElementById("lv-body"); box.innerHTML='<div class="empty">Yuklanmoqda...</div>';
-  const r=await q(c.u,"GET",auth());
+  const params=auth();
+  if(c.search){ const term=(document.getElementById("lv-q").value||"").trim(); if(term) params.q=term; }
+  const r=await q(c.u,"GET",params);
   if(!r.ok){ box.innerHTML='<div class="empty">Xatolik</div>'; return; }
   if(kind==="rating"){
     box.innerHTML=r.items.map((it,i)=>`<div class="row"><div class="ava" style="width:40px;height:40px;font-size:15px">${i+1}</div>
@@ -1268,17 +1290,29 @@ async function openList(kind){
       <div class="pv">${it.done} yakun · ${it.score} ball${it.rating?" · "+it.rating+"★":""}</div></div></div>`).join("")
       ||'<div class="empty">Bo\'sh</div>'; return;
   }
+  if(kind==="myratings"){
+    box.innerHTML=r.items.map(it=>{
+      const stars="★".repeat(it.rating)+"☆".repeat(5-it.rating);
+      const col=it.rating<=2?"#e5484d":(it.rating===3?"#f59e0b":"#2f9e44");
+      return `<div class="row" onclick='openChat(${it.order_id}, ${JSON.stringify(it.name)})'>
+        <div class="ava" style="background:${avaBg(it.name)}">${ini(it.name)}</div>
+        <div class="mid"><div class="nm"><span>${esc(it.name)}</span><span class="tm">${esc(it.time||"")}</span></div>
+        <div class="pv"><span style="color:${col};font-weight:600">${stars}</span>${it.feedback?" · «"+esc(it.feedback)+"»":""}</div></div></div>`;
+    }).join("")||'<div class="empty">Hali baho yo\'q</div>'; return;
+  }
   if(!r.items.length){ box.innerHTML='<div class="empty">Bo\'sh</div>'; return; }
   box.innerHTML=r.items.map(it=>{
-    const sub = kind==="unfinished"
-      ? ((it.status==="new"?"Yangi":"Jarayonda")+(it.operator?" · "+esc(it.operator):"")+(it.mine?" · siznikida":""))
-      : ((it.time||"")+(it.rating?" · "+it.rating+"★":""));
+    let sub;
+    if(kind==="unfinished")
+      sub=(it.status==="new"?"Yangi":"Jarayonda")+(it.operator?" · "+esc(it.operator):"")+(it.mine?" · siznikida":"");
+    else
+      sub=(it.status==="canceled"?"🔴 Bekor · ":"🟢 Yakun · ")+(it.time||"")+(it.rating?" · "+it.rating+"★":"");
     return `<div class="row" onclick='openChat(${it.order_id}, ${JSON.stringify(it.name)})'>
       <div class="ava" style="background:${avaBg(it.name)}">${ini(it.name)}</div>
       <div class="mid"><div class="nm">${esc(it.name)}</div><div class="pv">${sub}</div></div></div>`;
   }).join("");
 }
-function closeList(){ sh("app"); showTab("prof"); }
+function closeList(){ document.getElementById("lv-search").classList.add("hide"); sh("app"); showTab("prof"); }
 // ---- Voice yozish (Telegram uslubi: taymer + jonli to'lqin) ----
 // opus-recorder bo'lsa — HAQIQIY OGG/Opus (Telegram voice); bo'lmasa MediaRecorder (fallback)
 const OPUS_ENC="https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/encoderWorker.min.js";
