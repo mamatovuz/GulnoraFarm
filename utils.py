@@ -88,7 +88,7 @@ async def send_file_from(target_bot: Bot, chat_id, content_type, file_id, src_bo
 
 
 async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=None,
-                   reply_to=None, raw=None):
+                   reply_to=None, raw=None, filename=None):
     """Kontent turini berib yuboradi. file_id boshqa botniki bo'lsa (cross-bot),
     mijoz boti orqali yuklab, shu bot orqali qayta yuboradi."""
     kw = {"reply_markup": markup}
@@ -108,7 +108,8 @@ async def send_raw(bot: Bot, chat_id, content_type, file_id, caption, markup=Non
             raw = await _download_file(client, file_id)
         if raw is not None:
             cap = None if content_type == "sticker" else caption
-            return await _send_media_bytes(bot, chat_id, content_type, raw, cap, kw)
+            return await _send_media_bytes(bot, chat_id, content_type, raw, cap, kw,
+                                           filename=filename)
         # yuklab bo'lmadi — pastda file_id bilan urinib ko'ramiz (fallback)
     try:
         if content_type == "photo":
@@ -354,7 +355,8 @@ async def get_bot_username(bot: Bot) -> str:
     return _bot_username
 
 
-async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, text):
+async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, text,
+                                     filename=None):
     """Kanalga (tugmasiz) joylaydi + pin qiladi, hamda har bir operator botiga
     (Qabul qilish tugmasi bilan) push qiladi."""
     order = await q.get_order(order_id)
@@ -373,7 +375,7 @@ async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, 
             except Exception:
                 pass
     # 2) Har bir operator botiga push (bo'sh, login qilgan operatorlarga)
-    await push_to_operator_bots(order_id, content_type, file_id, caption)
+    await push_to_operator_bots(order_id, content_type, file_id, caption, filename=filename)
     # 3) Eskalatsiya: belgilangan vaqtda qabul qilinmasa — admin'ga eslatma
     schedule_escalation(order_id)
 
@@ -414,7 +416,7 @@ def schedule_escalation(order_id):
         pass  # event loop yo'q (masalan test)
 
 
-async def push_to_operator_bots(order_id, content_type, file_id, caption):
+async def push_to_operator_bots(order_id, content_type, file_id, caption, filename=None):
     """Operator botlaridagi 🟢 bo'sh, login qilgan operatorlarga Qabul tugmasi bilan yuboradi.
     Media file_id boshqa botniki bo'lgani uchun bir marta yuklab olamiz va qayta yuboramiz."""
     raw = None
@@ -429,7 +431,8 @@ async def push_to_operator_bots(order_id, content_type, file_id, caption):
         for op in await q.operators_by_bot(brow["id"]):
             if op["telegram_id"] and op["status"] == "active" and op["availability"] == "free":
                 sent = await send_raw(opbot, op["telegram_id"], content_type, file_id, caption,
-                                      markup=kb.order_accept_kb(order_id), raw=raw)
+                                      markup=kb.order_accept_kb(order_id), raw=raw,
+                                      filename=filename)
                 if sent:
                     await q.add_order_notif(order_id, brow["id"], op["telegram_id"], sent.message_id)
 
@@ -437,7 +440,8 @@ async def push_to_operator_bots(order_id, content_type, file_id, caption):
 async def send_first_content_to_operators(bot: Bot, order_id: int, message):
     """Yangi murojaatni (message obyektidan) operatorlar guruhiga yuboradi."""
     ct, fid, txt = extract_content(message)
-    await deliver_order_to_operators(bot, order_id, ct, fid, txt)
+    filename = message.document.file_name if ct == "document" and message.document else None
+    await deliver_order_to_operators(bot, order_id, ct, fid, txt, filename=filename)
 
 
 async def forward_client_to_operator(bot: Bot, order, message):
@@ -648,7 +652,12 @@ async def post_canceled_to_channel(order_id, op_name: str = None, by_client: boo
 
 async def save_message_from_message(order_id, sender, message):
     ct, fid, txt = extract_content(message)
-    return await q.add_message(order_id, sender, ct, txt, fid, message.message_id)
+    doc = message.document if ct == "document" else None
+    return await q.add_message(
+        order_id, sender, ct, txt, fid, message.message_id,
+        file_name=doc.file_name if doc else None,
+        mime_type=doc.mime_type if doc else None,
+    )
 
 
 def op_client_name(op) -> str:

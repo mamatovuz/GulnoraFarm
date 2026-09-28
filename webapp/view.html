@@ -127,7 +127,7 @@ function q(path, method, body){
   o.body = JSON.stringify(b); return fetch(path, o).then(r=>r.json());
 }
 function auth(){ return { admin_id: ADM.id, token: ADM.token }; }
-const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
+const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,name,mime,_init:INIT}));
 
 // ---- Ovozli xabar (Ogg/Opus) fallback — iOS WebView uchun ----
 let _actx=null;
@@ -200,7 +200,7 @@ function msgMedia(m){
   if(fid && (t==="voice"||t==="audio")) return `<audio class="vaud" controls preload="metadata" src="${fu(fid,'voice')}"></audio>`+capHtml;
   if(fid && (t==="video"||t==="video_note")) return `<video controls playsinline src="${fu(fid,'video')}"></video>`+capHtml;
   if(fid && t==="animation") return `<video autoplay loop muted playsinline src="${fu(fid,'video')}"></video>`+capHtml;
-  if(fid && t==="document") return `<a href="${fu(fid,'document')}" target="_blank" class="doclink">📎 ${esc(cap||"Hujjat")}</a>`;
+  if(fid && t==="document") return `<a href="${fu(fid,'document',m.file_name||'',m.mime_type||'')}" target="_blank" class="doclink">📎 ${esc(m.file_name||cap||"Hujjat")}</a>`;
   if(t==="location" && cap.includes(",")){ const [la,lo]=cap.split(","); return `<a href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(lo)}" target="_blank" class="doclink">📍 Lokatsiya (xaritada)</a>`; }
   if(t && t!=="text") return (MLBL[t]||"📎 Fayl")+(cap?": "+esc(cap):"");
   return esc(cap);

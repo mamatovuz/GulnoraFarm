@@ -142,7 +142,9 @@ async def _collect_album(message: Message, state: FSMContext, bot: Bot):
     gid = message.media_group_id
     ct, fid, caption = extract_content(message)
     data = _albums.setdefault(gid, {"items": [], "task": None})
-    data["items"].append((ct, fid, caption, message.message_id))
+    doc = message.document if ct == "document" else None
+    data["items"].append((ct, fid, caption, message.message_id,
+                          doc.file_name if doc else None, doc.mime_type if doc else None))
     if data["task"]:
         data["task"].cancel()
     data["task"] = asyncio.create_task(_finalize_album(gid, message, state, bot))
@@ -162,14 +164,16 @@ async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
     items = data["items"]
     first_ct = items[0][0]
     order_id = await q.create_order(message.from_user.id, user["branch_id"], first_ct)
-    for (ct, fid, cap, mid) in items:
-        await q.add_message(order_id, "client", ct, cap, fid, mid)
+    for (ct, fid, cap, mid, fname, mime) in items:
+        await q.add_message(order_id, "client", ct, cap, fid, mid,
+                            file_name=fname, mime_type=mime)
     await q.set_user_active_order(message.from_user.id, order_id)
     await state.clear()
     await message.answer(
         loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id) + await _hours_suffix(lang),
         reply_markup=await main_kb(message.from_user.id))
-    await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2])
+    await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2],
+                                     filename=items[0][4])
 
 
 @router.message(OrderFlow.waiting_content, F.text)

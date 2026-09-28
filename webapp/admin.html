@@ -1388,7 +1388,7 @@ function msgMedia(m, fu){
   else if(fid && (t==="voice"||t==="audio")) inner=`<audio class="vaud" controls preload="metadata" src="${fu(fid,'voice')}"></audio>`+capHtml;
   else if(fid && (t==="video"||t==="video_note")) inner=`<video controls playsinline style="max-width:220px;border-radius:10px" src="${fu(fid,'video')}"></video>`+capHtml;
   else if(fid && t==="animation") inner=`<video autoplay loop muted playsinline style="max-width:220px;border-radius:10px" src="${fu(fid,'video')}"></video>`+capHtml;
-  else if(fid && t==="document") inner=`<a href="${fu(fid,'document')}" target="_blank" class="doclink">📎 ${esc(cap||"Hujjat")}</a>`;
+  else if(fid && t==="document") inner=`<a href="${fu(fid,'document',m.file_name||'',m.mime_type||'')}" target="_blank" class="doclink">📎 ${esc(m.file_name||cap||"Hujjat")}</a>`;
   else if(t==="location" && cap.includes(",")){ const [la,lo]=cap.split(","); inner=`<a href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(lo)}" target="_blank" class="doclink">📍 Lokatsiya (xaritada)</a>`; }
   else if(t && t!=="text") inner=(MLBL[t]||"📎 Fayl")+(cap?": "+esc(cap):"");
   else inner=esc(cap);
@@ -1417,8 +1417,8 @@ async function openTrans(oid, back){
   chip.textContent = ST_LBL[r.status]||r.status; chip.style.background = ST_COL[r.status]||"#999";
   const open = (r.status==="new"||r.status==="in_progress");
   document.getElementById("tr-foot").classList.toggle("hide", !open);
-  renderReview(r.rating||0, r.feedback||"", open);
-  const fu = (fid,kind)=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,_init:INIT}));
+  renderReview(r.rating||0, r.feedback||"", open, TRBACK==="reviews");
+  const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,name,mime,_init:INIT}));
   // Yozishmani chizamiz. Eski hisob-kitob (faqat order.bill'da, xabari yo'q) bo'lsa — sun'iy pufakcha qo'shamiz
   const msgs = r.messages.slice();
   const bill = r.bill || {};
@@ -1435,10 +1435,10 @@ function closeTrans(){ document.getElementById("trans").classList.add("hide"); T
 
 // ---- Otziv (mijoz bahosi + izohi) tahrirlash ----
 let TR_RATING=0;
-function renderReview(rating, feedback, open){
+function renderReview(rating, feedback, open, editable){
   const box=document.getElementById("tr-review");
-  // Ochiq (yakunlanmagan) murojaatda hali baho bo'lmaydi — blokni ko'rsatmaymiz
-  if(open){ box.innerHTML=""; return; }
+  // Tahrirlash faqat Sozlamalar > Otzivlar ichida ko'rsatiladi.
+  if(open || !editable){ box.innerHTML=""; return; }
   TR_RATING = rating||0;
   const stars = [1,2,3,4,5].map(n=>
     `<span class="rvstar" data-n="${n}" onclick="rvSetStar(${n})" style="cursor:pointer;font-size:26px;line-height:1;color:${n<=TR_RATING?'#f59e0b':'var(--sep)'}">★</span>`

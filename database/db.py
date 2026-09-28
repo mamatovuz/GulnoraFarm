@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content_type TEXT,                          -- text | photo | document | video | location
     text         TEXT,
     file_id      TEXT,
+    file_name    TEXT,                          -- hujjatning asl nomi (masalan retsept.pdf)
+    mime_type    TEXT,                          -- hujjat MIME turi (masalan application/pdf)
     tg_msg_id    INTEGER,                        -- jo'natuvchi chatdagi Telegram message_id
     created_at   TEXT
 );
@@ -269,6 +271,12 @@ async def init_db():
     if "client_msg_id" not in cols:
         # mijoz chatidagi message_id — CRM'dan o'chirish/tahrirlash uchun
         await db.execute("ALTER TABLE messages ADD COLUMN client_msg_id INTEGER")
+        await db.commit()
+    if "file_name" not in cols:
+        await db.execute("ALTER TABLE messages ADD COLUMN file_name TEXT")
+        await db.commit()
+    if "mime_type" not in cols:
+        await db.execute("ALTER TABLE messages ADD COLUMN mime_type TEXT")
         await db.commit()
 
     # Migratsiya: orders.rating ustuni

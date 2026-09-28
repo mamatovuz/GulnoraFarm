@@ -565,8 +565,8 @@ function q(path, method, body){
   if(method === "GET"){ return fetch(path + "?" + new URLSearchParams(b), o).then(r => r.json()); }
   o.body = JSON.stringify(b); return fetch(path, o).then(r => r.json());
 }
-function fileUrl(fid, kind){
-  return "/api/file?" + new URLSearchParams({ fid, kind, operator_id: OP.id, token: OP.token, _init: INIT });
+function fileUrl(fid, kind, name="", mime=""){
+  return "/api/file?" + new URLSearchParams({ fid, kind, name, mime, operator_id: OP.id, token: OP.token, _init: INIT });
 }
 function esc(s){ return (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
@@ -778,6 +778,8 @@ async function loadChannel(){
       media=`<video controls src="${fileUrl(it.file_id,'video')}" style="max-width:100%;border-radius:10px;margin:4px 0"></video>`;
     else if(it.file_id && it.ftype==="sticker")
       media=`<img src="${fileUrl(it.file_id,'sticker')}" style="width:110px;height:110px;object-fit:contain">`;
+    else if(it.file_id && it.ftype==="document")
+      media=`<a href="${fileUrl(it.file_id,'document',it.file_name||'',it.mime_type||'')}" target="_blank" class="sub" style="display:block;text-decoration:none">📎 ${esc(it.file_name||it.text||"Hujjat")}</a>`;
     else if(it.file_id) media=`<div class="sub">${_MLBL[it.ftype]||"Fayl"}</div>`;
     const txt = it.text?`<div class="txt">${esc(it.text)}</div>`:"";
     return `<div class="ccard">
@@ -924,7 +926,7 @@ async function loadMsgs(scroll){
       return `<div class="b ${cls} stick"${rep}><img src="${fileUrl(m.file_id,'sticker')}"><div class="tm">${tmv}</div></div>`;
     }
     if(m.type === "document" && m.file_id){
-      return `<div class="b ${cls}"${rep}><a href="${fileUrl(m.file_id,'document')}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.text||"Hujjat")}</span></a><div class="tm">${tmv}</div></div>`;
+      return `<div class="b ${cls}"${rep}><a href="${fileUrl(m.file_id,'document',m.file_name||'',m.mime_type||'')}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;color:inherit;text-decoration:none"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.file_name||m.text||"Hujjat")}</span></a><div class="tm">${tmv}</div></div>`;
     }
     if((m.type === "voice" || m.type === "audio") && m.file_id){
       return `<div class="b ${cls}"><div class="vp" onclick="event.stopPropagation()" data-src="${fileUrl(m.file_id,'voice')}" data-fid="${m.file_id}"><button class="pp"></button><canvas class="vpwave"></canvas><span class="vt">0:00</span></div><div class="tm">${tmv}</div></div>`;
@@ -1060,7 +1062,7 @@ document.getElementById("file-doc").onchange = function(){
   const rd=new FileReader();
   rd.onload=async()=>{
     const r=await q("/api/send","POST",Object.assign(auth(),
-      {order_id:CUR,media_kind:"document",media_name:name,media_data:rd.result,reply_tgid:rep}));
+      {order_id:CUR,media_kind:"document",media_name:name,media_mime:f.type||"",media_data:rd.result,reply_tgid:rep}));
     if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
     await loadMsgs(true);
   };

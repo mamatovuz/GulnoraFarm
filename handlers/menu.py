@@ -453,9 +453,12 @@ async def contact_section(message: Message, state: FSMContext):
 async def contact_got_message(message: Message, state: FSMContext):
     lang = await q.get_lang(message.from_user.id)
     ct, fid, txt = extract_content(message)
-    await state.update_data(c_type=ct, c_file=fid, c_text=txt, c_msgid=message.message_id)
+    doc = message.document if ct == "document" else None
+    await state.update_data(c_type=ct, c_file=fid, c_text=txt, c_msgid=message.message_id,
+                            c_fname=doc.file_name if doc else None,
+                            c_mime=doc.mime_type if doc else None)
     await state.set_state(ContactFlow.confirm)
-    preview = txt if txt else f"({ct})"
+    preview = txt or (doc.file_name if doc else f"({ct})")
     await message.answer(loc.t("contact_preview", lang, preview=preview),
                          reply_markup=kb.contact_confirm_kb(lang))
 
@@ -479,14 +482,16 @@ async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
         return
     order_id = await q.create_order(call.from_user.id, user["branch_id"], data["c_type"])
     await q.add_message(order_id, "client", data["c_type"], data["c_text"],
-                        data["c_file"], data["c_msgid"])
+                        data["c_file"], data["c_msgid"],
+                        file_name=data.get("c_fname"), mime_type=data.get("c_mime"))
     await q.set_user_active_order(call.from_user.id, order_id)
     await state.clear()
     within, ws, we = await work_hours()
     suffix = "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
     await call.message.edit_text(loc.t("contact_sent", lang, id=order_id) + suffix)
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
-    await deliver_order_to_operators(bot, order_id, data["c_type"], data["c_file"], data["c_text"])
+    await deliver_order_to_operators(bot, order_id, data["c_type"], data["c_file"], data["c_text"],
+                                     filename=data.get("c_fname"))
     await call.answer()
 
 

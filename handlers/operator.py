@@ -338,7 +338,7 @@ _LABELS = {"photo": "📷 rasm", "video": "🎥 video", "document": "📄 hujjat
            "location": "📍 lokatsiya"}
 
 
-async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
+async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None, filename=None):
     """Bitta kontentni (media yoki matn) yuboradi, Message qaytaradi.
     send_raw cross-bot (operator boti mijoz file_id'sini) avtomatik hal qiladi."""
     if content_type == "sticker" and caption:
@@ -348,7 +348,8 @@ async def _send_one(bot, chat_id, content_type, file_id, caption, markup=None):
         except (TelegramBadRequest, TelegramForbiddenError):
             pass
         return await send_raw(bot, chat_id, "sticker", file_id, None, markup=markup)
-    return await send_raw(bot, chat_id, content_type, file_id, caption, markup=markup)
+    return await send_raw(bot, chat_id, content_type, file_id, caption, markup=markup,
+                          filename=filename)
 
 
 def _assign_text(order_id: int) -> str:
@@ -413,7 +414,8 @@ async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
     [mijoz yozgan matn/izoh] + murojaat kartasi + [extra_text] + inline tugmalar.
     Mijozning asl xabarini 'Reply' uchun bog'laydi."""
     caption, ct, fid, main, client_msgs = await _order_single_payload(order_id, extra_text)
-    sent = await _send_one(bot, chat_id, ct, fid, caption, markup)
+    sent = await _send_one(bot, chat_id, ct, fid, caption, markup,
+                           filename=main["file_name"] if main else None)
     if sent:
         _op_order_cards[(chat_id, order_id)] = {
             "message_id": sent.message_id,
@@ -431,7 +433,8 @@ async def _send_order_single(bot, chat_id, order_id, extra_text, markup):
             cap = f"👤 Mijoz {_LABELS[m['content_type']]} yubordi:"
         else:
             cap = "👤 Mijoz:"
-        s2 = await _send_one(bot, chat_id, m["content_type"], m["file_id"], cap)
+        s2 = await _send_one(bot, chat_id, m["content_type"], m["file_id"], cap,
+                             filename=m["file_name"])
         if s2 and m["tg_msg_id"]:
             await q.add_link(order_id, m["tg_msg_id"], s2.message_id, chat_id)
     return sent

@@ -404,12 +404,13 @@ async def log_status(order_id, old, new, changed_by):
 
 # ============================ MESSAGES (proxy-chat) ============================
 async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None,
-                      client_msg_id=None):
+                      client_msg_id=None, file_name=None, mime_type=None):
     db = await get_db()
     cur = await db.execute(
         "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, "
-        "client_msg_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id, now()),
+        "client_msg_id, file_name, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id,
+         file_name, mime_type, now()),
     )
     await db.commit()
     return cur.lastrowid
@@ -418,6 +419,17 @@ async def add_message(order_id, sender, content_type, text=None, file_id=None, t
 async def get_message(mid):
     db = await get_db()
     cur = await db.execute("SELECT * FROM messages WHERE id = ?", (mid,))
+    return await cur.fetchone()
+
+
+async def file_meta(file_id):
+    """Telegram file_id uchun saqlangan asl fayl nomi va MIME turini qaytaradi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT file_name, mime_type FROM messages WHERE file_id = ? "
+        "AND (file_name IS NOT NULL OR mime_type IS NOT NULL) ORDER BY id DESC LIMIT 1",
+        (file_id,),
+    )
     return await cur.fetchone()
 
 
@@ -1560,7 +1572,9 @@ async def channel_feed():
         "SELECT o.id, o.created_at, o.content_type, u.full_name, u.phone, u.username, b.name AS branch, "
         "(SELECT text FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_text, "
         "(SELECT content_type FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_ct, "
-        "(SELECT file_id FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_file "
+        "(SELECT file_id FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_file, "
+        "(SELECT file_name FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_name, "
+        "(SELECT mime_type FROM messages m WHERE m.order_id=o.id AND m.sender='client' ORDER BY m.id LIMIT 1) AS first_mime "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         "LEFT JOIN branches b ON b.id=o.branch_id "
         "WHERE o.status='new' ORDER BY o.created_at DESC LIMIT 50")

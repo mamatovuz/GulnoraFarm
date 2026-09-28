@@ -12,7 +12,8 @@ import base64
 import hashlib
 import asyncio
 import logging
-from urllib.parse import parse_qsl
+import mimetypes
+from urllib.parse import parse_qsl, quote
 
 from aiohttp import web
 from aiogram.types import BufferedInputFile
@@ -210,6 +211,8 @@ async def api_messages(request):
             "type": m["content_type"] or "text",
             "text": m["text"] or "",
             "file_id": m["file_id"] or "",
+            "file_name": m["file_name"] or "",
+            "mime_type": m["mime_type"] or "",
             "tgid": m["tg_msg_id"] or 0,   # reply (iqtibos) uchun — mijoz xabari IDsi
             "cmid": m["client_msg_id"] or 0,   # mijoz chatidagi ID — o'chirish/tahrirlash mumkin
             "time": (m["created_at"] or "")[11:16],
@@ -223,7 +226,66 @@ async def api_messages(request):
                   "messages": out})
 
 
-# ---------------- API: media (rasm/ovoz) ko'rsatish ----------------
+# ---------------- API: media (rasm/ovoz/hujjat) ko'rsatish ----------------
+def _safe_file_name(value):
+    """Content-Disposition uchun yo'l va boshqaruv belgilarisiz fayl nomi."""
+    name = os.path.basename(str(value or "").replace("\\", "/")).strip()
+    name = "".join(ch for ch in name if ch >= " " and ch not in "\r\n")
+    return name[:180]
+
+
+def _file_response_meta(kind, raw, file_name="", mime_type="", remote_path=""):
+    """Fayl baytlari/nomidan brauzerga to'g'ri MIME va yuklash nomini beradi."""
+    name = _safe_file_name(file_name) or _safe_file_name(remote_path)
+    supplied = str(mime_type or "").split(";", 1)[0].strip().lower()
+    if ("/" not in supplied
+            or any(not (ch.isascii() and (ch.isalnum() or ch in "!#$&^_.+-/"))
+                   for ch in supplied)):
+        supplied = ""
+
+    # Telegram eski yozuvlarda MIME/nomni saqlamagan bo'lishi mumkin. Muhim
+    # formatlarni magic bytes orqali aniqlaymiz, shunda eski PDF ham ochiladi.
+    if raw.startswith(b"%PDF-"):
+        ctype = "application/pdf"
+        if not name.lower().endswith(".pdf"):
+            name = (name or "document") + ".pdf"
+    elif raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        ctype = "image/png"
+    elif raw.startswith(b"\xff\xd8\xff"):
+        ctype = "image/jpeg"
+    elif raw[:6] in (b"GIF87a", b"GIF89a"):
+        ctype = "image/gif"
+    elif raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        ctype = "image/webp"
+    elif supplied and supplied != "application/octet-stream":
+        ctype = supplied
+    else:
+        guessed = mimetypes.guess_type(name)[0] if name else None
+        ctype = guessed or {
+            "voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
+            "sticker": "image/webp", "photo": "image/jpeg",
+        }.get(kind, "application/octet-stream")
+
+    if not name:
+        ext = mimetypes.guess_extension(ctype) or ""
+        name = "document" + (".pdf" if ctype == "application/pdf" else ext)
+    return ctype, name
+
+
+def _media_response(raw, kind, file_name="", mime_type="", remote_path=""):
+    ctype, name = _file_response_meta(kind, raw, file_name, mime_type, remote_path)
+    headers = {"Cache-Control": "public, max-age=604800", "X-Content-Type-Options": "nosniff"}
+    if kind == "document":
+        # PDF brauzer/WebView ichida ochiladi; qolgan hujjatlar o'z nomi bilan yuklanadi.
+        disposition = "inline" if ctype == "application/pdf" else "attachment"
+        fallback = "".join(ch if ch.isascii() and (ch.isalnum() or ch in "._- ") else "_"
+                           for ch in name) or "document"
+        headers["Content-Disposition"] = (
+            f'{disposition}; filename="{fallback}"; filename*=UTF-8\'\'{quote(name, safe="")}'
+        )
+    return web.Response(body=raw, content_type=ctype, headers=headers)
+
+
 async def api_file(request):
     op, _ = await _auth_op(request, request.query)
     if not op and not await _auth_admin(request, request.query):
@@ -232,15 +294,22 @@ async def api_file(request):
     kind = request.query.get("kind", "")
     if not fid:
         return web.Response(status=400)
-    ctype = {"voice": "audio/ogg", "audio": "audio/ogg", "video": "video/mp4",
-             "sticker": "image/webp", "document": "application/octet-stream"}.get(kind, "image/jpeg")
+    file_name = request.query.get("name", "")
+    mime_type = request.query.get("mime", "")
+    if kind == "document" and (not file_name or not mime_type):
+        try:
+            meta = await q.file_meta(fid)
+            if meta:
+                file_name = file_name or (meta["file_name"] or "")
+                mime_type = mime_type or (meta["mime_type"] or "")
+        except Exception:
+            pass
     cache_path = os.path.join(MEDIA_CACHE, hashlib.sha256(fid.encode()).hexdigest())
     # 1) Keshdan (Telegram'ga qayta so'rov yubormaymiz — egress tejaladi)
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "rb") as fh:
-                return web.Response(body=fh.read(), content_type=ctype,
-                                    headers={"Cache-Control": "public, max-age=604800"})
+                return _media_response(fh.read(), kind, file_name, mime_type)
         except Exception:
             pass
     # 2) Telegram'dan bir marta yuklab, keshga saqlaymiz.
@@ -251,11 +320,13 @@ async def api_file(request):
     if not candidates:
         return web.Response(status=503)
     raw = None
+    remote_path = ""
     for b in candidates:
         try:
             f = await b.get_file(fid)
             buf = await b.download_file(f.file_path)
             raw = buf.read()
+            remote_path = f.file_path or ""
             break
         except Exception:
             continue
@@ -267,8 +338,7 @@ async def api_file(request):
             fh.write(raw)
     except Exception:
         pass
-    return web.Response(body=raw, content_type=ctype,
-                        headers={"Cache-Control": "public, max-age=604800"})
+    return _media_response(raw, kind, file_name, mime_type, remote_path)
 
 
 # ---------------- API: yuborish ----------------
@@ -323,7 +393,9 @@ async def api_send(request):
                                                   caption=cap, **rkw)
                 fid = sent.document.file_id
                 await q.add_message(order_id, "operator", "document",
-                                    text or fname, fid, None, client_msg_id=sent.message_id)
+                                    text or fname, fid, None, client_msg_id=sent.message_id,
+                                    file_name=fname,
+                                    mime_type=sent.document.mime_type or body.get("media_mime"))
                 await post_operator_to_channel(client, order, op["name"], content_type="document",
                                                file_id=fid, src_bot=client, text=text or fname)
             elif media_kind == "photo":
@@ -546,7 +618,8 @@ async def api_channel(request):
             "uname": r["username"] or "", "branch": r["branch"] or "",
             "time": (r["created_at"] or "")[11:16],
             "text": r["first_text"] or "", "file_id": r["first_file"] or "",
-            "ftype": r["first_ct"] or ""})
+            "ftype": r["first_ct"] or "", "file_name": r["first_name"] or "",
+            "mime_type": r["first_mime"] or ""})
     return _json({"ok": True, "count": len(items), "items": items})
 
 
@@ -1377,6 +1450,7 @@ async def api_admin_msgs(request):
     msgs = await q.order_messages(order_id)
     out = [{"own": m["sender"] == "operator", "type": m["content_type"] or "text",
             "text": m["text"] or "", "file_id": m["file_id"] or "",
+            "file_name": m["file_name"] or "", "mime_type": m["mime_type"] or "",
             # Hisob-kitob xabari — admin uni alohida rangda ko'rsatadi
             "bill": (m["text"] or "").startswith(BILL_TAG),
             "time": (m["created_at"] or "")[11:16]} for m in msgs]
