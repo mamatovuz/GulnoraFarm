@@ -222,7 +222,7 @@ async def op_login(message: Message, state: FSMContext):
 async def op_password(message: Message, state: FSMContext):
     data = await state.get_data()
     op = await q.get_operator_by_login(data["login"])
-    if not op or op["password_hash"] != q.hash_password(message.text.strip()):
+    if not op or not q.verify_password(message.text.strip(), op["password_hash"]):
         await state.clear()
         await message.answer(t.OP_LOGIN_BAD)
         return
@@ -485,6 +485,52 @@ async def do_accept(bot: Bot, op, order_id: int, op_chat: int):
     clang = await q.get_lang(order["user_id"])
     await notify_client(bot, order["user_id"], loc.t("accept_notify", clang, name=op_client_name(op)))
     return True, None
+
+
+async def try_auto_assign(order_id: int):
+    """Avto-taqsimlash: yangi murojaatni avtomatik operatorga biriktiradi.
+    rr    — navbat bilan (faqat 🟢 bo'sh operatorlar orasida aylanib);
+    least — eng kam ochiq murojaati bor operatorga (band bo'lsa ham)."""
+    mode = (await q.get_setting("auto_assign", "off") or "off").strip()
+    if mode not in ("rr", "least"):
+        return False
+    order = await q.get_order(order_id)
+    if not order or order["status"] != "new":
+        return False
+    from utils import operator_in_hours
+    cands = []
+    for op in await q.list_operators():
+        if op["status"] != "active" or not op["telegram_id"]:
+            continue
+        try:
+            if not operator_in_hours(op)[0]:
+                continue
+        except Exception:
+            pass
+        if mode == "rr" and op["availability"] != "free":
+            continue
+        cands.append(op)
+    if not cands:
+        return False
+    if mode == "least":
+        load = await q.operator_open_load()
+        cands.sort(key=lambda o: (load.get(o["id"], 0), o["id"]))
+        chosen = cands[0]
+    else:
+        try:
+            last = int(await q.get_setting("rr_last", "0") or 0)
+        except ValueError:
+            last = 0
+        cands.sort(key=lambda o: o["id"])
+        chosen = next((o for o in cands if o["id"] > last), cands[0])
+        await q.set_setting("rr_last", str(chosen["id"]))
+    obot = (botreg.get_operator_bot(chosen["bot_id"]) if chosen["bot_id"] else None) or cbot()
+    if not obot:
+        return False
+    ok, _err = await do_accept(obot, chosen, order_id, chosen["telegram_id"])
+    if ok:
+        await q.audit("system", "auto_assign", order_id, {"operator": chosen["name"], "mode": mode})
+    return ok
 
 
 @router.callback_query(F.data.startswith("op_accept:"))

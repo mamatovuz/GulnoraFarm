@@ -1,6 +1,9 @@
 """Barcha ma'lumotlar bazasi amallari."""
+import asyncio
 import hashlib
+import hmac
 import json
+import os
 from datetime import timedelta
 from config import now_local
 from database.db import get_db
@@ -10,8 +13,66 @@ def now() -> str:
     return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def hash_password(password: str) -> str:
+# ============================ O'ZGARISH SIGNALI (mini app long-poll) ============================
+# Bot va mini app bitta jarayonda ishlaydi: har bir yozuv o'zgarishi versiyani oshiradi,
+# /api/sync kutib turgan so'rovlar darhol uyg'onadi (har soniyada bazani so'rash shart emas).
+_CHG = {"v": 1, "ev": None}
+
+
+def bump():
+    _CHG["v"] += 1
+    ev = _CHG["ev"]
+    _CHG["ev"] = None
+    if ev is not None:
+        ev.set()
+
+
+def change_ver() -> int:
+    return _CHG["v"]
+
+
+async def wait_change(since_v: int, timeout: float):
+    if _CHG["v"] != since_v:
+        return
+    if _CHG["ev"] is None:
+        _CHG["ev"] = asyncio.Event()
+    ev = _CHG["ev"]
+    try:
+        await asyncio.wait_for(ev.wait(), timeout)
+    except asyncio.TimeoutError:
+        pass
+
+
+# ============================ PAROL ============================
+_PBKDF2_ITER = 120_000
+
+
+def _legacy_hash(password: str) -> str:
     return hashlib.sha256(("gulnorafarm_salt_" + password).encode()).hexdigest()
+
+
+def hash_password(password: str) -> str:
+    """PBKDF2-SHA256 + har bir parol uchun alohida tuz."""
+    salt = os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), _PBKDF2_ITER)
+    return f"pbkdf2${_PBKDF2_ITER}${salt}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """Yangi (pbkdf2) va eski (sha256) xeshlarni tekshiradi."""
+    stored = stored or ""
+    if stored.startswith("pbkdf2$"):
+        try:
+            _, it, salt, hx = stored.split("$", 3)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(it))
+            return hmac.compare_digest(dk.hex(), hx)
+        except (ValueError, TypeError):
+            return False
+    return bool(stored) and hmac.compare_digest(_legacy_hash(password), stored)
+
+
+def password_needs_upgrade(stored: str) -> bool:
+    return not (stored or "").startswith("pbkdf2$")
 
 
 def _median(vals) -> float:
@@ -205,6 +266,7 @@ async def create_order(user_id, branch_id, content_type):
     await db.commit()
     oid = cur.lastrowid
     await log_status(oid, None, "new", f"client:{user_id}")
+    bump()
     return oid
 
 
@@ -219,6 +281,7 @@ async def set_fulfillment(order_id, kind):
     db = await get_db()
     await db.execute("UPDATE orders SET fulfillment = ? WHERE id = ?", (kind, order_id))
     await db.commit()
+    bump()
 
 
 async def set_order_status(order_id, status, changed_by):
@@ -249,6 +312,7 @@ async def assign_order(order_id, operator_id):
     db = await get_db()
     await db.execute("UPDATE orders SET operator_id = ? WHERE id = ?", (operator_id, order_id))
     await db.commit()
+    bump()
 
 
 async def reopen_order(order_id, operator_id):
@@ -400,20 +464,45 @@ async def log_status(order_id, old, new, changed_by):
         (order_id, old, new, changed_by, now()),
     )
     await db.commit()
+    bump()
 
 
 # ============================ MESSAGES (proxy-chat) ============================
 async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None,
-                      client_msg_id=None, file_name=None, mime_type=None):
+                      client_msg_id=None, file_name=None, mime_type=None,
+                      html=None, reply_to_mid=None, file_size=None):
+    """html — Telegram-HTML ko'rinishidagi formatlangan matn (qalin/kursiv...), text esa oddiy matn."""
     db = await get_db()
     cur = await db.execute(
         "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, "
-        "client_msg_id, file_name, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "client_msg_id, file_name, mime_type, created_at, html, reply_to_mid, file_size) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id,
-         file_name, mime_type, now()),
+         file_name, mime_type, now(), html, reply_to_mid, file_size),
     )
     await db.commit()
+    bump()
     return cur.lastrowid
+
+
+async def find_order_message(order_id, tg_msg_id=None, client_msg_id=None):
+    """Mijoz chatidagi Telegram message_id bo'yicha bazadagi xabarni topadi (reply uchun)."""
+    db = await get_db()
+    if tg_msg_id:
+        cur = await db.execute(
+            "SELECT id FROM messages WHERE order_id=? AND sender='client' AND tg_msg_id=? "
+            "ORDER BY id DESC LIMIT 1", (order_id, tg_msg_id))
+        r = await cur.fetchone()
+        if r:
+            return r["id"]
+    if client_msg_id:
+        cur = await db.execute(
+            "SELECT id FROM messages WHERE order_id=? AND client_msg_id=? ORDER BY id DESC LIMIT 1",
+            (order_id, client_msg_id))
+        r = await cur.fetchone()
+        if r:
+            return r["id"]
+    return None
 
 
 async def get_message(mid):
@@ -439,16 +528,19 @@ async def set_message_client_id(mid, client_msg_id):
     await db.commit()
 
 
-async def update_message_text(mid, text):
+async def update_message_text(mid, text, html=None):
     db = await get_db()
-    await db.execute("UPDATE messages SET text = ? WHERE id = ?", (text, mid))
+    await db.execute("UPDATE messages SET text = ?, html = ?, edited_at = ? WHERE id = ?",
+                     (text, html, now(), mid))
     await db.commit()
+    bump()
 
 
 async def delete_message_row(mid):
     db = await get_db()
     await db.execute("DELETE FROM messages WHERE id = ?", (mid,))
     await db.commit()
+    bump()
 
 
 # ============================ ESLATMALAR ============================
@@ -687,6 +779,38 @@ async def my_daily_done(operator_id, days=7):
 async def order_messages(order_id):
     db = await get_db()
     cur = await db.execute("SELECT * FROM messages WHERE order_id = ? ORDER BY id", (order_id,))
+    return await cur.fetchall()
+
+
+async def order_messages_page(order_id, before=None, limit=60):
+    """Yozishmani sahifalab: eng oxirgi `limit` ta (yoki `before` dan oldingi). O'sish tartibida."""
+    db = await get_db()
+    if before:
+        cur = await db.execute(
+            "SELECT * FROM messages WHERE order_id=? AND id<? ORDER BY id DESC LIMIT ?",
+            (order_id, before, limit))
+    else:
+        cur = await db.execute(
+            "SELECT * FROM messages WHERE order_id=? ORDER BY id DESC LIMIT ?", (order_id, limit))
+    rows = await cur.fetchall()
+    return list(reversed(rows))
+
+
+async def order_messages_delta(order_id, after_mid, edited_since):
+    """Sinxronlash: yangi (id > after_mid) yoki keyin tahrirlangan xabarlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM messages WHERE order_id=? AND (id>? OR (edited_at IS NOT NULL AND edited_at>=?)) "
+        "ORDER BY id", (order_id, after_mid or 0, edited_since or "9999"))
+    return await cur.fetchall()
+
+
+async def messages_by_ids(ids):
+    if not ids:
+        return []
+    db = await get_db()
+    ph = ",".join("?" * len(ids))
+    cur = await db.execute(f"SELECT * FROM messages WHERE id IN ({ph})", tuple(ids))
     return await cur.fetchall()
 
 
@@ -966,8 +1090,16 @@ async def delete_operator(operator_id):
 
 async def update_operator_password(operator_id, password):
     db = await get_db()
-    await db.execute("UPDATE operators SET password_hash = ? WHERE id = ?",
-                     (hash_password(password), operator_id))
+    # Parol o'zgarsa barcha eski mini app sessiyalari ham bekor bo'ladi (sess_epoch +1)
+    await db.execute("UPDATE operators SET password_hash = ?, sess_epoch = COALESCE(sess_epoch,0)+1 "
+                     "WHERE id = ?", (hash_password(password), operator_id))
+    await db.commit()
+
+
+async def set_password_hash_raw(operator_id, pw_hash):
+    """Eski sha256 xeshni pbkdf2 ga jimgina yangilash (sessiyalar saqlanadi)."""
+    db = await get_db()
+    await db.execute("UPDATE operators SET password_hash = ? WHERE id = ?", (pw_hash, operator_id))
     await db.commit()
 
 
@@ -985,6 +1117,7 @@ async def set_operator_availability(operator_id, availability):
     db = await get_db()
     await db.execute("UPDATE operators SET availability = ? WHERE id = ?", (availability, operator_id))
     await db.commit()
+    bump()
 
 
 async def save_login(telegram_id, operator_id):
@@ -1521,24 +1654,26 @@ async def live_stats():
 
 # ============================ MINI APP (CRM) ============================
 async def op_chats(operator_id):
-    """Operator chatlari: o'ziga biriktirilgan jarayondagilar + yangi (kelayotgan) murojaatlar.
-    Yashirilganlar chiqmaydi. Har birida oxirgi xabar ko'rinadi."""
+    """Operator chatlari: o'ziga biriktirilgan jarayondagilar. Yashirilganlar chiqmaydi.
+    Har birida oxirgi xabar, o'qilmaganlar soni, qadash/arxiv/qoralama holati."""
     db = await get_db()
     cur = await db.execute(
-        "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, "
+        "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
         "u.full_name, u.phone, u.username, "
-        "(SELECT text FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_text, "
-        "(SELECT content_type FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_ct, "
-        "(SELECT created_at FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_at, "
-        "(SELECT sender FROM messages m WHERE m.order_id=o.id ORDER BY m.id DESC LIMIT 1) AS last_sender, "
+        "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
+        "lm.created_at AS last_at, lm.sender AS last_sender, "
+        "cs.pinned AS pinned, cs.archived AS archived, cs.marked_unread AS marked_unread, "
+        "cs.draft AS draft, cs.last_read_mid AS last_read_mid, "
         "(SELECT COUNT(*) FROM messages m2 WHERE m2.order_id=o.id AND m2.sender='client' "
-        " AND m2.id > COALESCE((SELECT MAX(m3.id) FROM messages m3 WHERE m3.order_id=o.id "
-        " AND m3.sender='operator'), 0)) AS unread "
+        " AND m2.id > COALESCE(cs.last_read_mid, (SELECT MAX(m3.id) FROM messages m3 "
+        "   WHERE m3.order_id=o.id AND m3.sender='operator'), 0)) AS unread "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
+        "LEFT JOIN op_chat_state cs ON cs.operator_id=? AND cs.order_id=o.id "
         "WHERE o.status='in_progress' AND o.operator_id=? "
         "AND o.id NOT IN (SELECT order_id FROM hidden_chats WHERE operator_id=?) "
-        "ORDER BY COALESCE(last_at, o.created_at) DESC LIMIT 100",
-        (operator_id, operator_id))
+        "ORDER BY COALESCE(lm.created_at, o.created_at) DESC LIMIT 200",
+        (operator_id, operator_id, operator_id))
     return await cur.fetchall()
 
 
@@ -1604,6 +1739,12 @@ async def last_order_of(tg):
     return r["id"] if r else None
 
 
+async def unhide_chat(operator_id, order_id):
+    db = await get_db()
+    await db.execute("DELETE FROM hidden_chats WHERE operator_id=? AND order_id=?", (operator_id, order_id))
+    await db.commit()
+
+
 async def hide_chat(operator_id, order_id):
     db = await get_db()
     await db.execute("INSERT OR IGNORE INTO hidden_chats (operator_id, order_id) VALUES (?, ?)",
@@ -1612,7 +1753,7 @@ async def hide_chat(operator_id, order_id):
 
 
 # ============================ HISOBOTLAR (admin) ============================
-async def orders_page(limit, offset, search=None, status=None, since=None):
+async def orders_page(limit, offset, search=None, status=None, since=None, tag=None):
     """Murojaatlar ro'yxati (sahifalab) + umumiy soni. search: ism/telefon/#id;
     status: new/in_progress/done/canceled; since: sana filtri."""
     db = await get_db()
@@ -1631,9 +1772,12 @@ async def orders_page(limit, offset, search=None, status=None, since=None):
     if since:
         conds.append("o.created_at >= ?")
         params.append(since)
+    if tag:
+        conds.append("(',' || COALESCE(o.tags,'') || ',') LIKE ?")
+        params.append(f"%,{tag},%")
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     cur = await db.execute(
-        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, o.bill, "
+        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, o.bill, o.tags, "
         f"u.full_name, u.phone, op.name AS operator "
         f"FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         f"LEFT JOIN operators op ON op.id=o.operator_id {where} "
@@ -1888,3 +2032,202 @@ async def all_orders_full(since=None):
         "LEFT JOIN operators op ON op.id = o.operator_id "
         f"{where} ORDER BY o.id", params)
     return await cur.fetchall()
+
+
+
+# ============================ MINI APP: CHAT HOLATI (qadash/arxiv/qoralama/o'qilgan) ============================
+async def chat_state(operator_id, order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM op_chat_state WHERE operator_id=? AND order_id=?",
+                           (operator_id, order_id))
+    return await cur.fetchone()
+
+
+async def set_chat_state(operator_id, order_id, **fields):
+    allowed = {"pinned", "archived", "marked_unread", "draft", "last_read_mid"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if not fields:
+        return
+    db = await get_db()
+    await db.execute("INSERT OR IGNORE INTO op_chat_state (operator_id, order_id) VALUES (?, ?)",
+                     (operator_id, order_id))
+    sets = ", ".join(f"{k}=?" for k in fields)
+    await db.execute(f"UPDATE op_chat_state SET {sets} WHERE operator_id=? AND order_id=?",
+                     (*fields.values(), operator_id, order_id))
+    await db.commit()
+
+
+async def mark_read(operator_id, order_id):
+    """Yozishma ko'rildi: oxirgi xabar ID sigacha o'qilgan deb belgilaydi."""
+    db = await get_db()
+    cur = await db.execute("SELECT MAX(id) FROM messages WHERE order_id=?", (order_id,))
+    mx = (await cur.fetchone())[0] or 0
+    st = await chat_state(operator_id, order_id)
+    if st and (st["last_read_mid"] or 0) >= mx and not st["marked_unread"]:
+        return mx
+    await set_chat_state(operator_id, order_id, last_read_mid=mx, marked_unread=0)
+    return mx
+
+
+async def set_order_pinned(order_id, mid):
+    db = await get_db()
+    await db.execute("UPDATE orders SET pinned_mid=? WHERE id=?", (mid or None, order_id))
+    await db.commit()
+    bump()
+
+
+async def set_order_tags(order_id, tags):
+    db = await get_db()
+    await db.execute("UPDATE orders SET tags=? WHERE id=?", (",".join(tags) or None, order_id))
+    await db.commit()
+    bump()
+
+
+async def tag_counts(since, until=None):
+    db = await get_db()
+    U = " AND created_at < ?" if until else ""
+    cur = await db.execute(
+        f"SELECT tags FROM orders WHERE tags IS NOT NULL AND tags<>'' AND created_at>=?{U}",
+        (since, until) if until else (since,))
+    out = {}
+    for r in await cur.fetchall():
+        for t in (r["tags"] or "").split(","):
+            t = t.strip()
+            if t:
+                out[t] = out.get(t, 0) + 1
+    return sorted(out.items(), key=lambda x: -x[1])
+
+
+async def op_done_chats(operator_id, limit=80):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.status, o.closed_at, o.created_at, o.rating, o.tags, u.full_name, u.phone, "
+        "lm.text AS last_text, lm.content_type AS last_ct, lm.sender AS last_sender "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
+        "WHERE o.operator_id=? AND o.status IN ('done','canceled') "
+        "ORDER BY COALESCE(o.closed_at, o.created_at) DESC LIMIT ?", (operator_id, limit))
+    return await cur.fetchall()
+
+
+# ============================ ICHKI IZOHLAR (mijoz ko'rmaydi) ============================
+async def add_internal_note(order_id, author_kind, author_name, text):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO internal_notes (order_id, author_kind, author_name, text, created_at) "
+        "VALUES (?, ?, ?, ?, ?)", (order_id, author_kind, author_name, text, now()))
+    await db.commit()
+    bump()
+    return cur.lastrowid
+
+
+async def internal_notes(order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM internal_notes WHERE order_id=? ORDER BY id", (order_id,))
+    return await cur.fetchall()
+
+
+# ============================ AUDIT JURNALI ============================
+async def audit(actor, action, order_id=None, details=None):
+    """Kim, qachon, nima qildi. details — dict (JSON bo'lib saqlanadi)."""
+    try:
+        db = await get_db()
+        await db.execute(
+            "INSERT INTO audit_log (at, actor, action, order_id, details) VALUES (?, ?, ?, ?, ?)",
+            (now(), actor, action, order_id,
+             json.dumps(details, ensure_ascii=False) if details is not None else None))
+        await db.commit()
+    except Exception:
+        pass
+
+
+async def audit_page(limit=50, offset=0, order_id=None, search=None):
+    db = await get_db()
+    conds, params = [], []
+    if order_id:
+        conds.append("order_id=?")
+        params.append(order_id)
+    if search:
+        conds.append("(actor LIKE ? OR action LIKE ? OR details LIKE ?)")
+        params += [f"%{search}%"] * 3
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    cur = await db.execute(f"SELECT COUNT(*) FROM audit_log {where}", tuple(params))
+    total = (await cur.fetchone())[0]
+    cur = await db.execute(f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+                           (*params, limit, offset))
+    return await cur.fetchall(), total
+
+
+async def deleted_messages(order_id):
+    """Admin uchun: shu murojaatda o'chirilgan xabarlarning asl nusxalari."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT at, actor, details FROM audit_log WHERE order_id=? AND action='msg_delete' ORDER BY id",
+        (order_id,))
+    return await cur.fetchall()
+
+
+# ============================ OPERATOR SHABLONLARI ============================
+async def templates_for_operator(operator_id):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM templates WHERE operator_id IS NULL OR operator_id=? "
+        "ORDER BY (operator_id IS NULL), id", (operator_id,))
+    return await cur.fetchall()
+
+
+async def add_operator_template(operator_id, text):
+    db = await get_db()
+    cur = await db.execute("INSERT INTO templates (text, operator_id) VALUES (?, ?)", (text, operator_id))
+    await db.commit()
+    return cur.lastrowid
+
+
+async def delete_operator_template(operator_id, tid):
+    db = await get_db()
+    cur = await db.execute("DELETE FROM templates WHERE id=? AND operator_id=?", (tid, operator_id))
+    await db.commit()
+    return cur.rowcount > 0
+
+
+# ============================ SLA / AVTO-TAQSIMLASH ============================
+async def sla_rows(since, until=None):
+    """Har bir murojaat: operator, yaratilgan, birinchi operator javobi, yopilgan vaqt."""
+    db = await get_db()
+    U = " AND o.created_at < ?" if until else ""
+    cur = await db.execute(
+        "SELECT o.id, o.operator_id, o.status, o.created_at, o.accepted_at, o.closed_at, o.rating, "
+        "op.name AS operator, "
+        "(SELECT MIN(m.created_at) FROM messages m WHERE m.order_id=o.id AND m.sender='operator') AS first_reply "
+        f"FROM orders o LEFT JOIN operators op ON op.id=o.operator_id WHERE o.created_at>=?{U}",
+        (since, until) if until else (since,))
+    return await cur.fetchall()
+
+
+async def operator_open_load():
+    """operator_id -> hozir jarayondagi murojaatlar soni."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT operator_id, COUNT(*) AS c FROM orders WHERE status='in_progress' "
+        "AND operator_id IS NOT NULL GROUP BY operator_id")
+    return {r["operator_id"]: r["c"] for r in await cur.fetchall()}
+
+
+async def admin_role(telegram_id):
+    db = await get_db()
+    cur = await db.execute("SELECT role FROM admins WHERE telegram_id=?", (telegram_id,))
+    r = await cur.fetchone()
+    return (r["role"] if r and r["role"] else "admin")
+
+
+async def set_admin_role(telegram_id, role):
+    db = await get_db()
+    await db.execute("UPDATE admins SET role=? WHERE telegram_id=?", (role, telegram_id))
+    await db.commit()
+
+
+async def bump_operator_epoch(operator_id):
+    db = await get_db()
+    await db.execute("UPDATE operators SET sess_epoch = COALESCE(sess_epoch,0)+1 WHERE id=?",
+                     (operator_id,))
+    await db.commit()

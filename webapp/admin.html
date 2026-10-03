@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Gulnora Farm — Boshqaruv</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="/fmt.js"></script>
 <style>
   :root{
     --bg: var(--tg-theme-bg-color, #fff);
@@ -194,6 +195,34 @@
   .billcard .h{font-size:11.5px;font-weight:700;color:#b97800;margin-bottom:3px}
   .billcard img{max-width:150px;border-radius:9px;margin-top:6px;display:block;cursor:zoom-in}
   .transfoot{padding:10px 12px;background:var(--bg);border-top:1px solid var(--sep)}
+  /* Ichki izoh / o'chirilgan xabar / iqtibos / formatlangan matn */
+  .b2note{align-self:center;max-width:88%;background:#fff4cc;color:#5c4400;border-radius:14px;padding:8px 12px;font-size:14px;
+    margin:6px 0;box-shadow:0 1px 2px rgba(0,0,0,.08);white-space:pre-wrap}
+  html[data-theme="dark"] .b2note{background:#3d3418;color:#f0dc9a}
+  .b2note .nh{font-size:11.5px;font-weight:700;opacity:.85;margin-bottom:2px}
+  .b2.del{opacity:.75;border:1.5px dashed #e5484d;background:rgba(229,72,77,.08)!important;color:var(--text)!important}
+  .b2 .delh{font-size:11px;font-weight:700;color:#e5484d;margin-bottom:3px}
+  .b2 .rq2{border-left:3px solid currentColor;padding:2px 8px;margin-bottom:4px;border-radius:4px;background:rgba(0,0,0,.08);font-size:13px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .b2.o .tgf-a{color:#fff;text-decoration:underline}
+  .b2 .edt{font-size:10px;opacity:.6;font-style:italic}
+  .tagchip{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:8px;margin-left:4px;
+    background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+  .modeseg{display:flex;gap:4px;background:var(--sec);border-radius:10px;padding:3px;margin-bottom:8px}
+  .modeseg button{flex:1;border:none;background:none;color:var(--text);padding:7px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+  .modeseg button.on{background:var(--bg);color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .modeseg button.on.nt{color:#b97800}
+  #tr-ed{flex:1;min-width:0;max-height:140px;padding:11px 13px;border:1px solid var(--sep);border-radius:11px;background:var(--sec);color:var(--text);font-size:14.5px;line-height:1.35}
+  .viewer-banner{margin:10px 12px 0;padding:10px 12px;border-radius:12px;background:rgba(51,144,236,.12);color:var(--accent);font-size:13px;font-weight:600}
+  .audrow{padding:10px 12px;border-bottom:1px solid var(--sep);font-size:13.5px}
+  .audrow .a1{display:flex;gap:8px;align-items:center}
+  .audrow .a1 b{flex:1}
+  .audrow .a2{color:var(--hint);font-size:12px;margin-top:2px}
+  .audrow .a3{margin-top:4px;font-size:12.5px;white-space:pre-wrap;background:var(--sec);border-radius:8px;padding:6px 8px}
+  .slat{width:100%;border-collapse:collapse;font-size:13px}
+  .slat th{text-align:left;color:var(--hint);font-weight:600;font-size:11.5px;padding:6px 4px;border-bottom:1px solid var(--sep)}
+  .slat td{padding:8px 4px;border-bottom:1px solid var(--sep)}
+  .slat .bar{height:6px;border-radius:3px;background:var(--sec);overflow:hidden;margin-top:3px}
+  .slat .bar div{height:100%}
   .dbtn{width:100%;padding:12px;border:none;border-radius:11px;background:var(--accent);color:#fff;
     font-size:15px;font-weight:600;cursor:pointer}
 
@@ -332,6 +361,7 @@
     <div id="upd" style="text-align:center;color:var(--hint);font-size:11px;margin:-6px 0 8px"></div>
 
     <div id="waitcard"></div>
+    <div id="tagcard"></div>
     <div class="kpi" id="kpigrid"></div>
 
     <div class="cardgrid">
@@ -403,6 +433,7 @@
       <button data-p="week" onclick="setOrdPeriod('week')">Hafta</button>
       <button data-p="month" onclick="setOrdPeriod('month')">Oy</button>
     </div>
+    <div class="chips" id="ord-tags"></div>
     <div id="ord-rows" class="lrows"></div>
     <div id="ord-pager" class="pager hide"></div>
   </div>
@@ -447,6 +478,10 @@
       <div class="item" onclick="openSet('ops')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><div class="lbl">Operatorlar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('opbots')"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 13h.01M16 13h.01M9 17h6"/></svg><div class="lbl">Operator botlari</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('reviews')"><svg class="ic" viewBox="0 0 24 24" style="color:#d97706"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Otzivlar<div style="font-size:12px;color:var(--hint)">Barcha baholar · tahrirlash / o'chirish</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('sla')"><svg class="ic" viewBox="0 0 24 24" style="color:#14b8a6"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><div class="lbl">SLA — javob tezligi<div style="font-size:12px;color:var(--hint)">Operatorlar bo'yicha birinchi javob va hal qilish vaqti</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('assign')"><svg class="ic" viewBox="0 0 24 24" style="color:#8b5cf6"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg><div class="lbl">Avto-taqsimlash<div style="font-size:12px;color:var(--hint)">Yangi murojaat avtomatik operatorga</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('tags')"><svg class="ic" viewBox="0 0 24 24" style="color:#ec4899"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg><div class="lbl">Teglar<div style="font-size:12px;color:var(--hint)">Murojaat mavzulari ro'yxati</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('audit')"><svg class="ic" viewBox="0 0 24 24" style="color:#64748b"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg><div class="lbl">Audit jurnali<div style="font-size:12px;color:var(--hint)">Kim nima qildi · o'chirilgan xabarlar</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
@@ -554,12 +589,15 @@
   <div id="tr-review"></div>
   <div id="tr-msgs" class="msgs2"></div>
   <div id="tr-foot" class="transfoot hide">
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <input id="tr-msg" placeholder="Mijozga yozish (Admin nomidan)..."
-        style="flex:1;padding:11px 13px;border:1px solid var(--sep);border-radius:11px;background:var(--sec);color:var(--text);font-size:14.5px;outline:none">
-      <button class="dbtn" style="width:52px;padding:0" onclick="adminSend()"><svg class="ic" viewBox="0 0 24 24" style="margin:0 auto"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+    <div class="modeseg" id="tr-mode">
+      <button data-m="client" class="on" onclick="setTrMode('client')">💬 Mijozga yozish</button>
+      <button data-m="note" class="nt" onclick="setTrMode('note')">🔒 Ichki izoh (operatorga)</button>
     </div>
-    <div style="display:flex;gap:8px">
+    <div id="tr-sendrow" style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-end">
+      <div id="tr-ed"></div>
+      <button class="dbtn" style="width:52px;height:44px;padding:0;flex-shrink:0" onclick="adminSend()"><svg class="ic" viewBox="0 0 24 24" style="margin:0 auto"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+    </div>
+    <div id="tr-actrow" style="display:flex;gap:8px">
       <button class="dbtn" style="background:var(--sec);color:var(--text)" onclick="adminTransfer()">O'tkazish</button>
       <button class="dbtn" onclick="adminClose()">Yakunlash</button>
     </div>
@@ -644,7 +682,9 @@ window.addEventListener("resize", ()=>{ clearTimeout(window._rz); window._rz=set
 const C = { done:"#2f9e44", nw:"#d97706", canceled:"#e5484d", prog:"#3390ec", accent:"#3390ec" };
 
 function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
-function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// onclick='f(${ja(obj)})' — ismda apostrof (Ra'no) bo'lsa ham buzilmaydi va kod kiritib bo'lmaydi
+function ja(v){ return esc(JSON.stringify(v)); }
 function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
 function fmtDur(m){ m=m||0; if(m<=0) return "—"; if(m<1) return Math.round(m*60)+" soniya";
   if(m<60) return Math.round(m)+" daqiqa"; return Math.floor(m/60)+" soat "+Math.round(m%60)+" daq"; }
@@ -733,7 +773,11 @@ async function gate(){
   const r = await q("/api/admin/login","POST",{});
   const sp = document.getElementById("gate-spin"), er = document.getElementById("gate-err");
   if(!r.ok){ sp.classList.add("hide"); er.textContent = r.error||"Xatolik"; er.classList.remove("hide"); return; }
-  ADM = { id: r.admin_id, token: r.token };
+  ADM = { id: r.admin_id, token: r.token, role: r.role||"admin", mk: r.mk||"" };
+  if(ADM.role==="viewer"){
+    document.getElementById("tab-set").insertAdjacentHTML("afterbegin",
+      '<div class="viewer-banner">👁 Sizda faqat ko\'rish huquqi bor (supervayzer). O\'zgartirishlar bloklangan.</div>');
+  }
   localStorage.setItem("adm_id", ADM.id); localStorage.setItem("adm_token", ADM.token);
   document.getElementById("gate").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
@@ -864,7 +908,7 @@ async function loadDash(){
   if(PERIOD==="custom"){ params.from=CFROM; params.to=CTO; }
   const r = await q("/api/admin/dash","GET",params);
   if(!r.ok){ if(r.error==="auth"){ localStorage.clear(); location.reload(); } return; }
-  DASH = r; renderAll();
+  DASH = r; if(r.mk) ADM.mk = r.mk; renderAll();
   const u=document.getElementById("upd");
   if(u) u.textContent = "Yangilandi: " + new Date().toTimeString().slice(0,8);
 }
@@ -898,6 +942,17 @@ function renderAll(){
   renderTopClients(DASH.topclients||[]);
   renderBranches(DASH.branches||[]);
   renderHeatmap(DASH.heatmap||[]);
+  renderTagStats(DASH.tags||[]);
+}
+function renderTagStats(items){
+  const box=document.getElementById("tagcard"); if(!box) return;
+  if(!items.length){ box.innerHTML=""; return; }
+  const mx=Math.max(...items.map(t=>t.cnt),1);
+  box.innerHTML=`<div class="card" style="margin-bottom:12px"><h3>Murojaat mavzulari (teglar)</h3>${items.map(t=>`
+    <div class="tcrow" style="cursor:pointer" onclick='showTab("orders");setOrdTag(${ja(t.name)})'>
+      <div class="tcname" style="width:130px">#${esc(t.name)}</div>
+      <div class="tcbarwrap"><div class="tcbar" style="width:${Math.max(4,(t.cnt/mx)*100).toFixed(1)}%"></div></div>
+      <div class="tcval">${t.cnt}</div></div>`).join("")}</div>`;
 }
 
 // ---- Issiqlik xaritasi: kun x soat (sekvensial to'q sariq shkala) ----
@@ -1008,7 +1063,7 @@ function renderWaiting(w){
     <h3 style="color:#e5484d">Javob kutmoqda — ${w.length} ta</h3>
     ${w.map(x=>`<div class="lrow" style="padding:7px 0" onclick='openTrans(${x.id},"dash")'>
       <div class="mid"><div class="nm"><span>#${x.id} · ${esc(x.name)}</span>
-        <span class="tm" style="color:${x.mins>=10?'#e5484d':'var(--hint)'}">${x.mins} daq</span></div></div>
+        <span class="tm" style="color:${x.mins>=((DASH&&DASH.escalate_min)||10)?'#e5484d':'var(--hint)'};font-weight:${x.mins>=((DASH&&DASH.escalate_min)||10)?700:400}">${x.mins>=60?Math.floor(x.mins/60)+" soat "+(x.mins%60):x.mins} daq</span></div></div>
     </div>`).join("")}</div>`;
 }
 
@@ -1337,7 +1392,8 @@ function goOrdPage(p){ ORD.page=p; scrollTabTop(); loadOrders(false); }
 function goCliPage(p){ CLI.page=p; scrollTabTop(); loadClients(false); }
 
 // ================= MUROJAATLAR =================
-const ORD={loaded:false,page:0,items:[],q:"",status:"",period:"all"};
+const ORD={loaded:false,page:0,items:[],q:"",status:"",period:"all",tag:""};
+function setOrdTag(t){ ORD.tag = (ORD.tag===t) ? "" : t; loadOrders(true); }
 const ST_COL={new:C.nw,in_progress:C.prog,done:C.done,canceled:C.canceled};
 const ST_LBL={new:"Yangi",in_progress:"Jarayonda",done:"Yakunlangan",canceled:"Bekor"};
 const MLBL={document:"📎 Hujjat",animation:"GIF",location:"📍 Lokatsiya",contact:"👤 Kontakt",video_note:"📹 Video-xabar"};
@@ -1352,18 +1408,20 @@ function setOrdPeriod(p){ ORD.period=p;
 async function loadOrders(reset){
   if(reset){ ORD.page=0; ORD.q=document.getElementById("ord-q").value.trim(); }
   const r=await q("/api/admin/orders","GET",Object.assign(auth(),
-    {page:ORD.page,q:ORD.q,status:ORD.status,period:ORD.period}));
+    {page:ORD.page,q:ORD.q,status:ORD.status,period:ORD.period,tag:ORD.tag}));
   if(!r.ok) return;
   ORD.loaded=true;
   // Oxirgi sahifa o'chib bo'sh qolsa — bir sahifa orqaga
   if(!r.items.length && ORD.page>0 && r.total>0){ ORD.page=Math.max(0,Math.ceil(r.total/PAGE_SIZE)-1); return loadOrders(false); }
+  const tb=document.getElementById("ord-tags");
+  if(tb) tb.innerHTML = (r.tag_preset||[]).map(t=>`<button class="${ORD.tag===t?"on":""}" onclick='setOrdTag(${ja(t)})'>#${esc(t)}</button>`).join("");
   const box=document.getElementById("ord-rows");
   box.innerHTML = r.items.length ? r.items.map(o=>`
     <div class="lrow" onclick='openTrans(${o.id},"orders")'>
       <div class="ava2" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
       <div class="mid">
         <div class="nm"><span>#${o.id} · ${esc(o.name)}${o.bill?' <span title="Hisob-kitob qilingan">🧾</span>':''}</span><span class="tm">${esc(o.time)}</span></div>
-        <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}</div>
+        <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}${(o.tags||[]).map(t=>`<span class="tagchip">#${esc(t)}</span>`).join("")}</div>
       </div>
     </div>`).join("") : '<div class="empty">Topilmadi</div>';
   buildPager(document.getElementById("ord-pager"), ORD.page, r.total, "goOrdPage");
@@ -1378,7 +1436,7 @@ function msgMedia(m, fu){
     tag = `<div class="bltag">🧾 HISOB-KITOB</div>`;
     cap = (i>=0) ? cap.slice(i+1).trim() : "";
   }
-  const capHtml = cap?`<div class="blcap">${esc(cap)}</div>`:"";
+  const capHtml = cap?`<div class="blcap">${(m.html&&!m.bill)?TGF.render(m.html,cap):TGF.linkify(cap)}</div>`:"";
   // Rasm ochilmasa — bo'sh pufakcha o'rniga yorliq
   const IE = `onerror="this.onerror=null;this.outerHTML='<div class=&quot;blcap&quot;>📎 Fayl ochilmadi</div>'"`;
   const fid=m.file_id, t=m.type;
@@ -1391,7 +1449,7 @@ function msgMedia(m, fu){
   else if(fid && t==="document") inner=`<a href="${fu(fid,'document',m.file_name||'',m.mime_type||'')}" target="_blank" class="doclink">📎 ${esc(m.file_name||cap||"Hujjat")}</a>`;
   else if(t==="location" && cap.includes(",")){ const [la,lo]=cap.split(","); inner=`<a href="https://maps.google.com/?q=${encodeURIComponent(la)},${encodeURIComponent(lo)}" target="_blank" class="doclink">📍 Lokatsiya (xaritada)</a>`; }
   else if(t && t!=="text") inner=(MLBL[t]||"📎 Fayl")+(cap?": "+esc(cap):"");
-  else inner=esc(cap);
+  else inner=(m.html && !m.bill) ? TGF.render(m.html, cap) : TGF.linkify(cap);
   return tag+inner;
 }
 
@@ -1416,9 +1474,14 @@ async function openTrans(oid, back){
   const chip=document.getElementById("tr-chip");
   chip.textContent = ST_LBL[r.status]||r.status; chip.style.background = ST_COL[r.status]||"#999";
   const open = (r.status==="new"||r.status==="in_progress");
-  document.getElementById("tr-foot").classList.toggle("hide", !open);
+  document.getElementById("tr-foot").classList.toggle("hide", ADM.role==="viewer");
+  document.getElementById("tr-sendrow").classList.toggle("hide", !open && TRMODE==="client");
+  document.getElementById("tr-actrow").classList.toggle("hide", !open);
+  TROPEN = open; setTrMode(open ? TRMODE : "note", true);
+  if((r.tags||[]).length) document.getElementById("tr-sub").textContent += "  " + r.tags.map(t=>"#"+t).join(" ");
   renderReview(r.rating||0, r.feedback||"", open, TRBACK==="reviews");
-  const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,name,mime,_init:INIT}));
+  if(r.mk) ADM.mk = r.mk;
+  const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams({fid,kind,name,mime,mk:ADM.mk});
   // Yozishmani chizamiz. Eski hisob-kitob (faqat order.bill'da, xabari yo'q) bo'lsa — sun'iy pufakcha qo'shamiz
   const msgs = r.messages.slice();
   const bill = r.bill || {};
@@ -1426,9 +1489,16 @@ async function openTrans(oid, back){
     msgs.push({own:true, bill:true, type: bill.photo?"photo":"text",
                text:"🧾 Hisob-kitob: "+(bill.text||""), file_id:bill.photo||"", time:""});
   }
-  document.getElementById("tr-msgs").innerHTML = msgs.map(m=>
-    `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${msgMedia(m,fu)}<div class="tm">${m.time||""}</div></div>`
-  ).join("") || '<div class="empty">Yozishma yo\'q</div>';
+  const byMid = {}; msgs.forEach(m=>{ if(m.mid) byMid[m.mid]=m; });
+  document.getElementById("tr-msgs").innerHTML = msgs.map(m=>{
+    if(m.kind==="note")
+      return `<div class="b2note"><div class="nh">🔒 Ichki izoh · ${m.akind==="admin"?"Admin":"Operator"} ${esc(m.author||"")}</div>${esc(m.text)}<div class="tm" style="text-align:right;font-size:10px;opacity:.6">${esc(m.time||"")}</div></div>`;
+    if(m.kind==="deleted")
+      return `<div class="b2 o del"><div class="delh">🗑 O'chirilgan · ${esc((m.deleted_at||"").slice(5,16))} · ${esc(m.by||"")}</div>${msgMedia(m,fu)}<div class="tm">${esc(m.time||"")}</div></div>`;
+    const rf = m.reply_to ? (byMid[m.reply_to] || m.reply) : null;
+    const rq = rf ? `<div class="rq2">↩ ${esc((rf.own?"Operator":"Mijoz")+": "+((rf.text||"").slice(0,80)||rf.type||""))}</div>` : "";
+    return `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${rq}${msgMedia(m,fu)}<div class="tm">${m.edited?'<span class="edt">tahrirlangan</span> ':''}${esc(m.time||"")}</div></div>`;
+  }).join("") || '<div class="empty">Yozishma yo\'q</div>';
   const bx=document.getElementById("tr-msgs"); bindVoice(bx); bx.scrollTop=bx.scrollHeight;
 }
 function closeTrans(){ document.getElementById("trans").classList.add("hide"); TRO=null; }
@@ -1485,15 +1555,27 @@ function rvDelete(){
     openTrans(TRO, TRBACK);
   });
 }
+// Yozish maydoni: matnni belgilab o'ng tugma — qalin/kursiv/...; Ctrl+B/I/U; <b>matn</b> ham ishlaydi
+let TRMODE="client", TROPEN=false;
+const TRED = TGF.Composer(document.getElementById("tr-ed"), { placeholder:"Mijozga yozish (Admin nomidan)...",
+  onEnter:()=>adminSend(), touchEnterNewline:true });
+function setTrMode(m, silent){
+  if(m==="client" && !TROPEN){ if(!silent) tg.showAlert("Murojaat yopilgan — faqat ichki izoh qoldirish mumkin"); m="note"; }
+  TRMODE=m;
+  document.querySelectorAll("#tr-mode button").forEach(b=>b.classList.toggle("on", b.dataset.m===m));
+  document.getElementById("tr-sendrow").classList.remove("hide");
+  TRED.setPlaceholder(m==="note" ? "Ichki izoh: operator ko'radi, mijozga yuborilmaydi" : "Mijozga yozish (Admin nomidan)...");
+}
 async function adminSend(){
-  const inp=document.getElementById("tr-msg"); const text=inp.value.trim();
-  if(!text||!TRO) return;
-  inp.value="";
-  const r=await q("/api/admin/send","POST",Object.assign(auth(),{order_id:TRO,text}));
+  if(!TRO || TRED.isEmpty()) return;
+  const html=TRED.getHTML(), text=TGF.toPlain(html).trim(); if(!text) return;
+  TRED.clear();
+  const r = TRMODE==="note"
+    ? await q("/api/admin/inote","POST",Object.assign(auth(),{order_id:TRO,text}))
+    : await q("/api/admin/send","POST",Object.assign(auth(),{order_id:TRO,html,text}));
   if(!r.ok){ tg.showAlert(r.error||"Yuborilmadi"); return; }
   openTrans(TRO, TRBACK);
 }
-document.getElementById("tr-msg").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); adminSend(); } });
 async function adminTransfer(){
   const r=await q("/api/admin/ops","GET",auth());
   if(!r.ok) return;
@@ -1634,14 +1716,14 @@ const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy x
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
             opbots:"Operator botlari",low:"Sifat nazorati",reviews:"Otzivlar",excel:"Excel hisobot",
             stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar",
-            notify:"Bildirishnomalar"};
+            notify:"Bildirishnomalar",sla:"SLA — javob tezligi",assign:"Avto-taqsimlash",tags:"Teglar",audit:"Audit jurnali"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
     ops:svOps,opbots:svOpbots,low:svLow,reviews:svReviews,excel:svExcel,stale:svStale,stats:svStats,
-    admins:svAdmins,notify:svNotify})[kind]();
+    admins:svAdmins,notify:svNotify,sla:svSla,assign:svAssign,tags:svTags,audit:svAudit})[kind]();
 }
 
 // ---- Statistika (umumiy + filiallar kesimi) ----
@@ -1759,7 +1841,7 @@ async function svOps(){
   const r=await q("/api/admin/ops","GET",auth()); if(!r.ok) return;
   document.getElementById("sv-body").innerHTML = `
     <div class="lrows">${r.items.map(o=>`
-      <div class="lrow" onclick='opForm(${JSON.stringify(o)})'>
+      <div class="lrow" onclick='opForm(${ja(o)})'>
         <div class="ava2" style="width:40px;height:40px;font-size:16px;background:${avaBg(o.name)}">${ini(o.name)}</div>
         <div class="mid"><div class="nm"><span>${esc(o.name)} ${o.active?"":"⛔"}${o.display_name?` <span style="color:var(--hint);font-weight:400">→ 👤 ${esc(o.display_name)}</span>`:""}</span></div>
           <div class="sub">@${esc(o.login)} · ${esc(o.bot)} · ${o.online?"🟢 online":"⚪ oflayn"} · ${o.ws}–${o.we}</div></div>
@@ -1781,6 +1863,7 @@ function opForm(o){
       <div style="display:flex;gap:8px">
         <input id="op-ws" value="${o?o.ws:'08:00'}"><input id="op-we" value="${o?o.we:'23:00'}"></div>
       <button class="sbtn" onclick="opSave(${o?o.id:'null'})">Saqlash</button>
+      ${o?'<button class="morebtn" style="margin-top:0" onclick="opLogout('+o.id+')">🔐 Barcha qurilmalardan chiqarish</button>':''}
       ${o?'<button class="morebtn" style="color:#e5484d;margin-top:0" onclick="opDel('+o.id+')">Operatorni o\'chirish</button>':''}
     </div></div>`;
 }
@@ -1794,6 +1877,8 @@ async function opSave(id){
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
   tg.showAlert("Saqlandi"); svOps();
 }
+function opLogout(id){ tg.showConfirm("Operator mini app'dagi barcha sessiyalardan chiqariladi (qayta login/parol bilan kiradi). Davom etasizmi?", async ok=>{ if(!ok) return;
+  const r=await q("/api/admin/op_logout","POST",Object.assign(auth(),{id})); tg.showAlert(r.ok?"Chiqarildi ✅":(r.error||"Xatolik")); }); }
 async function opToggle(id){
   await q("/api/admin/op_toggle","POST",Object.assign(auth(),{id})); svOps();
 }
@@ -1860,12 +1945,16 @@ async function svAdmins(){
            onclick='admSetMgr(${a.telegram_id},${a.manager?0:1},"${esc(label)}")'>${a.manager?"Olib tashlash":"Asosiy qilish"}</button>`
       : '';
     const nm = esc(a.name||"Admin");
+    const isViewer = a.role==="viewer";
+    const roleBtn = (canManage && !a.super && !a.you && !a.pending && a.telegram_id!=null && a.role)
+      ? `<button class="sbtn" style="padding:6px 10px;font-size:12px;margin-left:8px;flex-shrink:0;background:${isViewer?'#3390ec':'var(--sec)'};color:${isViewer?'#fff':'var(--text)'}"
+           onclick='admRole(${a.telegram_id},${ja(isViewer?"admin":"viewer")})'>${isViewer?"👁 Faqat ko'rish":"To'liq huquq"}</button>` : "";
     return `<div class="lrow">
       <div style="width:40px;height:40px;border-radius:12px;background:${avaBg(nm)};color:#fff;
         display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:600">${esc((nm[0]||"A").toUpperCase())}</div>
       <div class="mid" style="min-width:0"><div class="nm"><span>${nm}${badge}${you}</span></div>
         <div class="sub">${sub||"—"}</div></div>
-      ${mgrBtn}${del}</div>`;
+      ${roleBtn}${mgrBtn}${del}</div>`;
   }).join("");
   const addCard = canManage ? `
     <div class="card" style="margin-top:12px"><h3>Yangi admin qo'shish</h3>
@@ -1881,7 +1970,108 @@ async function svAdmins(){
     <div style="font-size:13px;color:var(--hint);margin-bottom:10px;line-height:1.5">
       Siz — <b style="color:#e5484d">bosh admin</b>siz. Bitta adminni «<b style="color:#2f9e44">Asosiy qilish</b>» orqali tayinlang —
       shu admingina boshqa adminlarni qo'sha/o'chira oladi.</div>` : "";
-  document.getElementById("sv-body").innerHTML = hint + `<div class="lrows">${rows}</div>` + addCard;
+  const sec = canManage ? `<div class="card" style="margin-top:12px"><h3>Xavfsizlik</h3>
+      <div style="font-size:13px;color:var(--hint);margin-bottom:8px;line-height:1.5">«Faqat ko'rish» tugmasi — adminni supervayzerga aylantiradi: hamma narsani ko'radi, lekin hech narsani o'zgartira olmaydi.</div>
+      <button class="sbtn" style="background:#e5484d" onclick="admRevoke()">Barcha admin sessiyalarini bekor qilish</button></div>` : "";
+  document.getElementById("sv-body").innerHTML = hint + `<div class="lrows">${rows}</div>` + addCard + sec;
+}
+async function admRole(tid, role){
+  const r=await q("/api/admin/admin_role","POST",Object.assign(auth(),{telegram_id:tid,role}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; } svAdmins();
+}
+function admRevoke(){ tg.showConfirm("Barcha adminlar (siz ham) qayta kirishi kerak bo'ladi. Davom etasizmi?", async ok=>{ if(!ok) return;
+  const r=await q("/api/admin/revoke_sessions","POST",auth());
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+  ADM.token=r.token; localStorage.setItem("adm_token", ADM.token); tg.showAlert("Bekor qilindi ✅"); }); }
+
+// ---- SLA (javob tezligi) ----
+let SLAP="week";
+async function svSla(p){
+  if(p) SLAP=p;
+  const body=document.getElementById("sv-body");
+  const r=await q("/api/admin/sla","GET",Object.assign(auth(),{period:SLAP}));
+  if(!r.ok){ body.innerHTML='<div class="empty">Xatolik</div>'; return; }
+  const per=[["today","Bugun"],["week","Hafta"],["month","Oy"],["3months","3 oy"]];
+  const col=v=>v==null?"var(--hint)":v>=80?"#2f9e44":v>=50?"#d97706":"#e5484d";
+  body.innerHTML = `<div class="seg" style="margin:0 0 12px">${per.map(([k,l])=>`<button class="${SLAP===k?"on":""}" onclick="svSla('${k}')" style="padding:7px 12px;font-size:13px">${l}</button>`).join("")}</div>
+    <div class="kpi" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="tile"><div class="v" style="color:${col(r.overall)}">${r.overall==null?"—":r.overall+"%"}</div><div class="l">Maqsadda (≤ ${r.target} daq)</div></div>
+      <div class="tile"><div class="v">${_durTxt(r.first_med)}</div><div class="l">Birinchi javob (median)</div></div>
+      <div class="tile"><div class="v">${r.items.length}</div><div class="l">Operator</div></div>
+    </div>
+    <div class="card"><h3>Operatorlar kesimi</h3>
+      ${r.items.length?`<table class="slat"><tr><th>Operator</th><th>Murojaat</th><th>1-javob</th><th>Hal qilish</th><th>Maqsadda</th></tr>
+      ${r.items.map(o=>`<tr><td><b>${esc(o.name)}</b>${o.rating?`<div style="font-size:11px;color:#d97706">${o.rating}★</div>`:""}</td><td>${o.orders}<div style="font-size:11px;color:var(--hint)">${o.done} yakun</div></td>
+        <td>${_durTxt(o.first_med)}</td><td>${_durTxt(o.resol_med)}</td>
+        <td style="min-width:70px"><b style="color:${col(o.in_target)}">${o.in_target==null?"—":o.in_target+"%"}</b><div class="bar"><div style="width:${o.in_target||0}%;background:${col(o.in_target)}"></div></div></td></tr>`).join("")}</table>`
+      :'<div class="empty">Bu davrda ma\'lumot yo\'q</div>'}
+      <div style="font-size:12px;color:var(--hint);margin-top:10px;line-height:1.5">Birinchi javob — murojaat kelganidan operatorning birinchi xabarigacha. Maqsad vaqtini «Avto-taqsimlash» bo'limida o'zgartirasiz.</div>
+    </div>`;
+}
+
+// ---- Avto-taqsimlash + SLA maqsadi ----
+async function svAssign(){
+  const r=await q("/api/admin/settings","GET",auth()); if(!r.ok) return;
+  const opt=(v,t,d)=>`<label class="lrow" style="cursor:pointer;align-items:flex-start"><input type="radio" name="aa" value="${v}" ${r.auto_assign===v?"checked":""} style="margin-top:4px;accent-color:var(--accent)">
+    <div class="mid"><div class="nm"><span>${t}</span></div><div class="sub" style="white-space:normal">${d}</div></div></label>`;
+  document.getElementById("sv-body").innerHTML=`<div class="lrows">
+      ${opt("off","O'chiq","Murojaat hamma bo'sh operatorlarga boradi, birinchi «Qabul qilish»ni bosgan oladi (hozirgi tartib).")}
+      ${opt("rr","Navbat bilan","Faqat 🟢 bo'sh va onlayn operatorlar orasida navbat bilan avtomatik biriktiriladi.")}
+      ${opt("least","Eng kam yuklangan","Ochiq suhbati eng kam bo'lgan onlayn operatorga biriktiriladi (band bo'lsa ham).")}
+    </div>
+    <div class="card" style="margin-top:12px"><div class="frm">
+      <label>SLA maqsadi: birinchi javob (daqiqa)</label><input id="sla-t" type="number" min="1" max="240" value="${esc(r.sla_target_min||5)}">
+      <button class="sbtn" onclick="saveAssign()">Saqlash</button></div></div>`;
+}
+async function saveAssign(){
+  const v=(document.querySelector('input[name="aa"]:checked')||{}).value||"off";
+  const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{auto_assign:v,sla_target_min:document.getElementById("sla-t").value}));
+  tg.showAlert(r.ok?"Saqlandi ✅":(r.error||"Xatolik"));
+}
+
+// ---- Teglar ro'yxati ----
+async function svTags(){
+  const [s,t]=await Promise.all([q("/api/admin/settings","GET",auth()), q("/api/admin/tags","GET",Object.assign(auth(),{period:"month"}))]);
+  if(!s.ok) return;
+  const cnt={}; (t.ok?t.counts:[]).forEach(x=>cnt[x.name]=x.cnt);
+  document.getElementById("sv-body").innerHTML=`<div class="card"><div class="frm">
+      <label>Teglar (har biri yangi qatorda) — operatorlar chatda tanlaydi</label>
+      <textarea id="tg-pre" rows="8">${esc(s.tags_preset||"")}</textarea>
+      <button class="sbtn" onclick="saveTags()">Saqlash</button></div></div>
+    <div class="card"><h3>Shu oy</h3>${Object.keys(cnt).length?Object.entries(cnt).map(([n,c])=>`<div class="lrow" style="cursor:pointer" onclick='closeSet();showTab("orders");setOrdTag(${ja(n)})'><div class="mid"><div class="nm"><span>#${esc(n)}</span><span class="tm">${c} ta</span></div></div></div>`).join(""):'<div class="empty">Hali teg qo\'yilmagan</div>'}</div>`;
+}
+async function saveTags(){
+  const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{tags_preset:document.getElementById("tg-pre").value}));
+  tg.showAlert(r.ok?"Saqlandi ✅":(r.error||"Xatolik"));
+}
+
+// ---- Audit jurnali ----
+let AUD={page:0,q:""}, audT=null;
+function audDeb(){ clearTimeout(audT); audT=setTimeout(()=>{ AUD.page=0; AUD.q=document.getElementById("aud-q").value.trim(); loadAudit(); },350); }
+async function svAudit(){
+  AUD={page:0,q:""};
+  document.getElementById("sv-body").innerHTML=`<div class="searchbar" style="margin:0 0 10px"><input id="aud-q" placeholder="Qidiruv: #murojaat, operator ismi, amal..." oninput="audDeb()"></div>
+    <div class="lrows" id="aud-rows"></div><div id="aud-pager" class="pager hide"></div>`;
+  loadAudit();
+}
+function goAudPage(p){ AUD.page=p; loadAudit(); }
+async function loadAudit(){
+  const r=await q("/api/admin/audit","GET",Object.assign(auth(),{page:AUD.page,q:AUD.q}));
+  if(!r.ok) return;
+  const det=a=>{ const d=a.details||{};
+    if(a.action==="msg_delete") return "Asl matn: "+(d.text||("["+(d.type||"fayl")+"]"));
+    if(a.action==="msg_edit") return "Oldin: "+(d.old||"")+"\nKeyin: "+(d.new||"");
+    if(a.action==="transfer") return "→ "+(d.to||"");
+    const ks=Object.keys(d); return ks.length? ks.map(k=>k+": "+(typeof d[k]==="object"?JSON.stringify(d[k]):d[k])).join(" · ") : ""; };
+  const danger={msg_delete:1,client_delete:1,op_delete:1,review_delete:1,login_fail:1,admin_sessions_revoked:1};
+  document.getElementById("aud-rows").innerHTML = r.items.map(a=>{ const d=det(a);
+    return `<div class="audrow"${a.order_id?` style="cursor:pointer" onclick='openTrans(${a.order_id},"audit")'`:""}>
+      <div class="a1"><b style="color:${danger[a.action]?"#e5484d":"var(--text)"}">${esc(a.label)}</b>${a.order_id?`<span class="tagchip">#${a.order_id}</span>`:""}</div>
+      <div class="a2">${esc(a.at)} · ${esc(a.actor)}</div>${d?`<div class="a3">${esc(d)}</div>`:""}</div>`; }).join("") || '<div class="empty">Yozuv yo\'q</div>';
+  const pg=document.getElementById("aud-pager");
+  const pages=Math.ceil(r.total/50);
+  if(pages>1){ pg.classList.remove("hide"); pg.innerHTML=`<button class="pg-b" ${AUD.page<=0?"disabled":""} onclick="goAudPage(${AUD.page-1})">‹</button><span class="pg-gap" style="min-width:70px">${AUD.page+1} / ${pages}</span><button class="pg-b" ${AUD.page>=pages-1?"disabled":""} onclick="goAudPage(${AUD.page+1})">›</button>`; }
+  else pg.classList.add("hide");
 }
 async function admSetMgr(tid,on,label){
   const msg = on ? (label+" — asosiy admin qilinsinmi? U admin qo'sha/o'chira oladi.")
@@ -2142,7 +2332,7 @@ async function svFaqs(){
   const r=await q("/api/admin/faqs","GET",auth()); if(!r.ok) return;
   document.getElementById("sv-body").innerHTML = `
     <div class="lrows">${r.items.map(f=>`
-      <div class="lrow" onclick='faqForm(${JSON.stringify(f)})'>
+      <div class="lrow" onclick='faqForm(${ja(f)})'>
         <div class="mid"><div class="nm"><span>${esc(f.title)}</span></div>
           <div class="sub">${esc(f.answer)}</div></div>
         <button class="delbtn" onclick="event.stopPropagation();faqDel(${f.id})">${DELSVG}</button>

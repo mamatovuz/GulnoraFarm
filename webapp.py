@@ -77,12 +77,96 @@ async def _auth_user(request, body=None):
     return None
 
 
-def _sign(operator_id, password_hash="") -> str:
-    """Operator sessiya tokeni. Parol hash'iga bog'langan — parol o'zgartirilsa
-    BARCHA eski sessiyalar avtomatik bekor bo'ladi (xavfsizlik)."""
-    return hmac.new(BOT_TOKEN.encode(),
-                    f"op-session:{operator_id}:{password_hash}".encode(),
-                    hashlib.sha256).hexdigest()
+def _hm(msg: str) -> str:
+    return hmac.new(BOT_TOKEN.encode(), msg.encode(), hashlib.sha256).hexdigest()
+
+
+_OP_TTL = 14 * 86400          # operator sessiyasi: 14 kun (faol bo'lsa avtomatik yangilanadi)
+_ADM_TTL = 7 * 86400          # admin sessiyasi: 7 kun (har ochilishda initData bilan yangilanadi)
+
+
+def _op_epoch(op) -> int:
+    try:
+        return int(op["sess_epoch"] or 0)
+    except (IndexError, KeyError, TypeError, ValueError):
+        return 0
+
+
+def _sign(operator_id, password_hash="", epoch=0, exp=None) -> str:
+    """Operator sessiya tokeni: muddati bor (exp), parol xeshi va sessiya davriga (epoch) bog'langan.
+    Parol o'zgarsa yoki admin «sessiyalarni bekor qilish»ni bossa — eski tokenlar ishlamaydi."""
+    exp = int(exp or (time.time() + _OP_TTL))
+    return f"v2.{exp}.{_hm(f'op2:{operator_id}:{password_hash}:{epoch}:{exp}')}"
+
+
+def _op_token_exp(op, token: str):
+    """Token to'g'ri bo'lsa uning tugash vaqtini (exp), aks holda None qaytaradi."""
+    try:
+        ver, exp_s, sig = str(token).split(".", 2)
+        exp = int(exp_s)
+    except (ValueError, AttributeError):
+        return None
+    if ver != "v2" or exp < time.time():
+        return None
+    good = _sign(op["id"], op["password_hash"] or "", _op_epoch(op), exp)
+    return exp if hmac.compare_digest(good, str(token)) else None
+
+
+def _fresh_op_token(op, token):
+    """Sessiya tugashiga 7 kundan kam qolsa — yangi token beradi (sliding session)."""
+    exp = _op_token_exp(op, token)
+    if exp and exp - time.time() < 7 * 86400:
+        return _sign(op["id"], op["password_hash"] or "", _op_epoch(op))
+    return None
+
+
+# ---- Media kaliti: rasm/ovoz URL'larida sessiya tokeni o'rniga qisqa muddatli imzo ----
+def _media_key() -> str:
+    exp = (int(time.time()) // 3600 + 25) * 3600   # ~1 kun, soat boshiga yaxlitlangan (kesh uchun)
+    return f"{exp}.{_hm(f'media:{exp}')[:40]}"
+
+
+def _check_media_key(mk: str) -> bool:
+    try:
+        exp_s, sig = str(mk).split(".", 1)
+        exp = int(exp_s)
+    except (ValueError, AttributeError):
+        return False
+    return exp > time.time() and hmac.compare_digest(_hm(f"media:{exp}")[:40], sig)
+
+
+# ---- Login urinishlarini cheklash (parolni tanlab topishdan himoya) ----
+_RL: dict = {}
+_RL_WINDOW = 600      # 10 daqiqa
+_RL_BLOCK = 600
+
+
+def _client_ip(request) -> str:
+    xff = request.headers.get("X-Forwarded-For", "")
+    return (xff.split(",")[0].strip() if xff else "") or (request.remote or "?")
+
+
+def _rl_left(key) -> int:
+    rec = _RL.get(key)
+    if rec and rec[2] > time.time():
+        return int(rec[2] - time.time())
+    return 0
+
+
+def _rl_fail(key, limit):
+    t = time.time()
+    rec = _RL.get(key)
+    if not rec or t - rec[1] > _RL_WINDOW:
+        rec = [0, t, 0]
+    rec[0] += 1
+    if rec[0] >= limit:
+        rec[2] = t + _RL_BLOCK
+        rec[0] = 0
+        rec[1] = t
+    _RL[key] = rec
+    if len(_RL) > 5000:          # xotira to'lib ketmasin
+        for k in [k for k, v in _RL.items() if v[2] < t and t - v[1] > _RL_WINDOW][:2500]:
+            _RL.pop(k, None)
 
 
 async def _auth_op(request, data):
@@ -97,7 +181,7 @@ async def _auth_op(request, data):
     op = await q.get_operator(operator_id)
     if not op or op["status"] != "active":
         return None, None
-    if not hmac.compare_digest(_sign(operator_id, op["password_hash"] or ""), token):
+    if not _op_token_exp(op, token):
         return None, None
     # Ish vaqti tekshiruvi: vaqt tugagach mini app sessiyasi ham yopiladi
     try:
@@ -136,11 +220,24 @@ async def api_login(request):
         body = {}
     login = str(body.get("login", "")).strip()
     password = str(body.get("password", "")).strip()
+    ip_key, lg_key = "ip:" + _client_ip(request), "login:" + login.lower()
+    left = max(_rl_left(ip_key), _rl_left(lg_key))
+    if left:
+        return _json({"ok": False, "error": f"Juda ko'p noto'g'ri urinish. "
+                                            f"{max(1, left // 60)} daqiqadan keyin qayta urining."}, 200)
     op = await q.get_operator_by_login(login)
-    if not op or op["password_hash"] != q.hash_password(password):
+    if not op or not q.verify_password(password, op["password_hash"]):
+        _rl_fail(ip_key, 15)
+        _rl_fail(lg_key, 5)
+        await q.audit(f"ip:{_client_ip(request)}", "login_fail", None, {"login": login[:40]})
         return _json({"ok": False, "error": "Login yoki parol xato"}, 200)
+    _RL.pop(lg_key, None)
     if op["status"] != "active":
         return _json({"ok": False, "error": "Hisob bloklangan"}, 200)
+    # Eski sha256 xeshni pbkdf2 ga jimgina yangilaymiz
+    if q.password_needs_upgrade(op["password_hash"]):
+        await q.set_password_hash_raw(op["id"], q.hash_password(password))
+        op = await q.get_operator(op["id"])
     # Ish vaqtidan tashqarida mini appga kirib bo'lmaydi
     from utils import operator_in_hours
     within, ws, we = operator_in_hours(op)
@@ -156,7 +253,8 @@ async def api_login(request):
         except Exception:
             pass
     return _json({"ok": True, "operator_id": op["id"], "name": op["name"],
-                  "token": _sign(op["id"], op["password_hash"] or "")})
+                  "token": _sign(op["id"], op["password_hash"] or "", _op_epoch(op)),
+                  "mk": _media_key()})
 
 
 # ---------------- API: chatlar ----------------
@@ -165,30 +263,143 @@ def _ct_label(ct):
             "sticker": "🎭 stiker", "animation": "🎞 GIF", "location": "📍 lokatsiya"}.get(ct, "📎 media")
 
 
+def _short_time(ts: str) -> str:
+    """Chat ro'yxati uchun Telegramdek vaqt: bugun -> 14:05, shu hafta -> Du, eski -> 12.09.24."""
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime as _dt
+        from config import now_local
+        d = _dt.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+        n = now_local().replace(tzinfo=None)
+        if d.date() == n.date():
+            return ts[11:16]
+        days = (n.date() - d.date()).days
+        if 0 < days < 7:
+            return ["Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"][d.weekday()]
+        return d.strftime("%d.%m.%y")
+    except Exception:
+        return ts[11:16]
+
+
+def _chat_json(r, op_id):
+    preview = r["last_text"] or (_ct_label(r["last_ct"]) if r["last_ct"] else "")
+    keys = r.keys()
+    return {
+        "order_id": r["id"],
+        "name": r["full_name"] or "—",
+        "phone": r["phone"] or "",
+        "status": r["status"],
+        "mine": r["operator_id"] == op_id,
+        "reply": r["last_sender"] == "client",   # javob kutyapti
+        "last_sender": r["last_sender"] or "",
+        "last_mid": r["last_mid"] or 0,
+        "unread": r["unread"] or 0,
+        "marked_unread": bool(r["marked_unread"]) if "marked_unread" in keys else False,
+        "pinned": bool(r["pinned"]) if "pinned" in keys else False,
+        "archived": bool(r["archived"]) if "archived" in keys else False,
+        "draft": (r["draft"] or "") if "draft" in keys else "",
+        "tags": [t for t in (r["tags"] or "").split(",") if t] if "tags" in keys else [],
+        "preview": (preview or "")[:90],
+        "time": _short_time(r["last_at"] or r["created_at"] or ""),
+        "ts": r["last_at"] or r["created_at"] or "",
+    }
+
+
+async def _chat_list(op):
+    return [_chat_json(r, op["id"]) for r in await q.op_chats(op["id"])]
+
+
 async def api_chats(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
-    rows = await q.op_chats(op["id"])
-    chats = []
-    for r in rows:
-        preview = r["last_text"] or (_ct_label(r["last_ct"]) if r["last_ct"] else "")
-        chats.append({
-            "order_id": r["id"],
-            "name": r["full_name"] or "—",
-            "phone": r["phone"] or "",
-            "status": r["status"],
-            "incoming": r["status"] == "new",
-            "mine": r["operator_id"] == op["id"],
-            "reply": r["last_sender"] == "client",   # javob kutyapti
-            "unread": r["unread"] or 0,
-            "preview": (preview or "")[:60],
-            "time": (r["last_at"] or r["created_at"] or "")[11:16],
-        })
-    return _json({"ok": True, "chats": chats})
+    return _json({"ok": True, "chats": await _chat_list(op)})
+
+
+async def api_done_chats(request):
+    """Yakunlangan / bekor qilingan suhbatlar (papka: «Yakunlangan»)."""
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    out = []
+    for r in await q.op_done_chats(op["id"]):
+        prev = r["last_text"] or (_ct_label(r["last_ct"]) if r["last_ct"] else "")
+        out.append({"order_id": r["id"], "name": r["full_name"] or r["phone"] or "Mijoz",
+                    "phone": r["phone"] or "", "status": r["status"], "rating": r["rating"] or 0,
+                    "last_sender": r["last_sender"] or "",
+                    "tags": [t for t in (r["tags"] or "").split(",") if t],
+                    "preview": prev[:90], "time": _short_time(r["closed_at"] or r["created_at"] or "")})
+    return _json({"ok": True, "chats": out})
 
 
 # ---------------- API: yozishma ----------------
+def _msg_json(m):
+    keys = m.keys()
+    g = (lambda k: m[k] if k in keys else None)
+    return {
+        "mid": m["id"],
+        "sender": m["sender"],
+        "own": m["sender"] == "operator",
+        "type": m["content_type"] or "text",
+        "text": m["text"] or "",
+        "html": g("html") or "",
+        "file_id": m["file_id"] or "",
+        "file_name": m["file_name"] or "",
+        "mime_type": m["mime_type"] or "",
+        "size": g("file_size") or 0,
+        "tgid": m["tg_msg_id"] or 0,         # reply (iqtibos) uchun — mijoz xabari IDsi
+        "cmid": m["client_msg_id"] or 0,     # mijoz chatidagi ID — o'chirish/tahrirlash mumkin
+        "reply_to": g("reply_to_mid") or 0,
+        "edited": bool(g("edited_at")),
+        "ts": m["created_at"] or "",
+        "time": (m["created_at"] or "")[11:16],
+    }
+
+
+async def _msgs_with_replies(rows):
+    """Xabarlar + ular javob bergan (iqtibos) xabarlarning qisqa ko'rinishi."""
+    out = [_msg_json(m) for m in rows]
+    ids = {o["reply_to"] for o in out if o["reply_to"]}
+    have = {o["mid"] for o in out}
+    need = [i for i in ids if i not in have]
+    refs = {r["id"]: r for r in await q.messages_by_ids(need)} if need else {}
+    for o in out:
+        rid = o["reply_to"]
+        if rid and rid in refs:
+            r = refs[rid]
+            o["reply"] = {"mid": rid, "own": r["sender"] == "operator",
+                          "type": r["content_type"] or "text", "text": (r["text"] or "")[:120]}
+    return out
+
+
+def _note_json(n):
+    return {"id": n["id"], "kind": n["author_kind"], "author": n["author_name"] or "",
+            "text": n["text"] or "", "ts": n["created_at"] or "",
+            "time": (n["created_at"] or "")[11:16]}
+
+
+async def _chat_meta(order, user):
+    pinned = None
+    pm = order["pinned_mid"] if "pinned_mid" in order.keys() else None
+    if pm:
+        r = await q.get_message(pm)
+        if r:
+            pinned = _msg_json(r)
+    uname = user["username"] if user and "username" in user.keys() else ""
+    return {
+        "order_id": order["id"], "status": order["status"],
+        "operator_id": order["operator_id"] or 0,
+        "fulfillment": order["fulfillment"] or "",
+        "tags": [t for t in ((order["tags"] if "tags" in order.keys() else "") or "").split(",") if t],
+        "pinned": pinned,
+        "notes": [_note_json(n) for n in await q.internal_notes(order["id"])],
+        "client": {"name": user["full_name"] if user else "—",
+                   "phone": user["phone"] if user else "",
+                   "username": uname or ""},
+    }
+
+
 async def api_messages(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
@@ -201,29 +412,73 @@ async def api_messages(request):
     if not order:
         return _json({"ok": False, "error": "not found"}, 404)
     user = await q.get_user(order["user_id"])
-    msgs = await q.order_messages(order_id)
-    out = []
-    for m in msgs:
-        out.append({
-            "mid": m["id"],
-            "sender": m["sender"],
-            "own": m["sender"] == "operator",
-            "type": m["content_type"] or "text",
-            "text": m["text"] or "",
-            "file_id": m["file_id"] or "",
-            "file_name": m["file_name"] or "",
-            "mime_type": m["mime_type"] or "",
-            "tgid": m["tg_msg_id"] or 0,   # reply (iqtibos) uchun — mijoz xabari IDsi
-            "cmid": m["client_msg_id"] or 0,   # mijoz chatidagi ID — o'chirish/tahrirlash mumkin
-            "time": (m["created_at"] or "")[11:16],
-        })
-    uname = user["username"] if user and "username" in user.keys() else ""
-    return _json({"ok": True, "order_id": order_id, "status": order["status"],
-                  "fulfillment": order["fulfillment"] or "",
-                  "client": {"name": user["full_name"] if user else "—",
-                             "phone": user["phone"] if user else "",
-                             "username": uname or ""},
-                  "messages": out})
+    try:
+        before = int(request.query.get("before") or 0) or None
+    except ValueError:
+        before = None
+    limit = 5000 if request.query.get("all") else 60
+    rows = await q.order_messages_page(order_id, before, limit + 1)
+    has_more = len(rows) > limit
+    rows = rows[-limit:]
+    st = await q.chat_state(op["id"], order_id)
+    last_read = (st["last_read_mid"] if st else None)
+    if last_read is None:
+        # holat yozuvi yo'q — oxirgi operator xabarigacha o'qilgan deb hisoblaymiz
+        last_read = max([m["id"] for m in rows if m["sender"] == "operator"] or [0])
+    if request.query.get("mark") and order["operator_id"] == op["id"]:
+        await q.mark_read(op["id"], order_id)
+    meta = await _chat_meta(order, user)
+    meta.update({"ok": True, "messages": await _msgs_with_replies(rows), "has_more": has_more,
+                 "last_read_mid": last_read or 0, "draft": (st["draft"] if st else "") or "",
+                 "server_ts": q.now()})
+    return _json(meta)
+
+
+async def api_sync(request):
+    """Long-poll: o'zgarish bo'lmasa 20 soniyagacha kutadi, bo'lsa darhol javob beradi.
+    Bitta so'rov: chatlar ro'yxati + yangi murojaatlar soni + ochiq chatdagi yangi/tahrirlangan xabarlar."""
+    qd = request.query
+    op, _ = await _auth_op(request, qd)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        v = int(qd.get("v") or 0)
+    except ValueError:
+        v = 0
+    if v and v == q.change_ver():
+        await q.wait_change(v, 20)
+    ver = q.change_ver()
+    res = {"ok": True, "v": ver, "server_ts": q.now(), "newcount": await q.new_count(),
+           "chats": await _chat_list(op), "mk": _media_key()}
+    tok = _fresh_op_token(op, qd.get("token", ""))
+    if tok:
+        res["token"] = tok
+    try:
+        oid = int(qd.get("order_id") or 0)
+    except ValueError:
+        oid = 0
+    if oid:
+        order = await q.get_order(oid)
+        if order:
+            try:
+                after = int(qd.get("after") or 0)
+            except ValueError:
+                after = 0
+            rows = await q.order_messages_delta(oid, after, qd.get("since") or "")
+            if qd.get("mark") and order["operator_id"] == op["id"]:
+                await q.mark_read(op["id"], oid)
+            user = await q.get_user(order["user_id"])
+            chat = await _chat_meta(order, user)
+            chat["messages"] = await _msgs_with_replies(rows)
+            res["chat"] = chat
+    return _json(res)
+
+
+async def api_media_key(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op and not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    return _json({"ok": True, "mk": _media_key()})
 
 
 # ---------------- API: media (rasm/ovoz/hujjat) ko'rsatish ----------------
@@ -287,9 +542,11 @@ def _media_response(raw, kind, file_name="", mime_type="", remote_path=""):
 
 
 async def api_file(request):
-    op, _ = await _auth_op(request, request.query)
-    if not op and not await _auth_admin(request, request.query):
-        return web.Response(status=401, text="auth")
+    # URL'da sessiya tokeni emas, qisqa muddatli media kaliti (mk) bo'ladi
+    if not _check_media_key(request.query.get("mk", "")):
+        op, _ = await _auth_op(request, request.query)
+        if not op and not await _auth_admin(request, request.query):
+            return web.Response(status=401, text="auth")
     fid = request.query.get("fid", "")
     kind = request.query.get("kind", "")
     if not fid:
@@ -342,6 +599,72 @@ async def api_file(request):
 
 
 # ---------------- API: yuborish ----------------
+async def _template_vars(order, op):
+    """Shablon o'zgaruvchilari: {ism} {telefon} {filial} {operator}."""
+    user = await q.get_user(order["user_id"])
+    branch = ""
+    try:
+        bid = order["branch_id"] or (user["branch_id"] if user else None)
+        if bid:
+            b = await q.get_branch(bid)
+            branch = b["name"] if b else ""
+    except Exception:
+        pass
+    return {"{ism}": (user["full_name"] if user else "") or "",
+            "{telefon}": (user["phone"] if user else "") or "",
+            "{filial}": branch, "{operator}": op_client_name(op)}
+
+
+async def _prepare_text(body, order, op):
+    """Kiruvchi matn/HTML -> (oddiy matn, xavfsiz Telegram-HTML yoki None)."""
+    import tghtml
+    raw_html = str(body.get("html") or "").strip()
+    text = str(body.get("text") or "").strip()
+    markup = bool(raw_html) or "<" in text
+    src = raw_html or (text if markup else _htm.escape(text, quote=False))
+    if "{" in src:
+        for k, v in (await _template_vars(order, op)).items():
+            src = src.replace(k, _htm.escape(v, quote=False))
+    clean = tghtml.sanitize(src) if markup else src
+    plain = tghtml.to_plain(clean).strip()
+    return plain, (clean if tghtml.has_markup(clean) else None)
+
+
+async def _send_html(coro_html, coro_plain):
+    """Avval HTML bilan yuboradi; Telegram formatlashni qabul qilmasa — oddiy matn bilan."""
+    from aiogram.exceptions import TelegramBadRequest
+    try:
+        return await coro_html()
+    except TelegramBadRequest as e:
+        if "parse" in str(e).lower() or "entit" in str(e).lower() or "tag" in str(e).lower():
+            return await coro_plain()
+        raise
+
+
+async def _reply_kwargs(body, order_id):
+    """Reply (iqtibos): bazadagi xabar ID si (reply_mid) yoki mijoz xabarining Telegram ID si."""
+    rtg = 0
+    reply_mid = None
+    try:
+        rm = int(body.get("reply_mid") or 0)
+    except (TypeError, ValueError):
+        rm = 0
+    if rm:
+        row = await q.get_message(rm)
+        if row and row["order_id"] == order_id:
+            reply_mid = rm
+            rtg = (row["tg_msg_id"] if row["sender"] == "client" else row["client_msg_id"]) or 0
+    if not rtg:
+        try:
+            rtg = int(body.get("reply_tgid") or 0)
+        except (TypeError, ValueError):
+            rtg = 0
+        if rtg and not reply_mid:
+            reply_mid = await q.find_order_message(order_id, tg_msg_id=rtg)
+    kw = {"reply_to_message_id": rtg, "allow_sending_without_reply": True} if rtg else {}
+    return kw, reply_mid
+
+
 async def api_send(request):
     try:
         body = await request.json()
@@ -354,14 +677,14 @@ async def api_send(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    text = str(body.get("text", "")).strip()
-    media_kind = body.get("media_kind")          # 'photo' | 'voice' | None
+    media_kind = body.get("media_kind")          # 'photo' | 'voice' | 'document' | None
     media_data = body.get("media_data")          # base64 (dataURL bo'lishi mumkin)
-    if not text and not (media_kind and media_data):
-        return _json({"ok": False, "error": "empty"}, 400)
     order = await q.get_order(order_id)
     if not order or order["status"] not in ("new", "in_progress"):
-        return _json({"ok": False, "error": "yopilgan"}, 200)
+        return _json({"ok": False, "error": "Murojaat yopilgan"}, 200)
+    text, html_text = await _prepare_text(body, order, op)
+    if not text and not (media_kind and media_data):
+        return _json({"ok": False, "error": "empty"}, 400)
 
     # yangi bo'lsa — avval qabul qilamiz (o'zimizga biriktiramiz)
     if order["status"] == "new" and not order["operator_id"]:
@@ -375,42 +698,42 @@ async def api_send(request):
         return _json({"ok": False, "error": "bot tayyor emas"}, 200)
     uid = order["user_id"]
     clang = await q.get_lang(uid)
-    # Reply (iqtibos): operator mijozning aniq xabariga javob bersa — Telegramda o'sha xabarga tirkaladi
-    rkw = {}
-    try:
-        rtg = int(body.get("reply_tgid") or 0)
-        if rtg:
-            rkw = {"reply_to_message_id": rtg, "allow_sending_without_reply": True}
-    except (TypeError, ValueError):
-        pass
+    rkw, reply_mid = await _reply_kwargs(body, order_id)
+    body_html = html_text or _htm.escape(text, quote=False)
+    mid = None
     try:
         if media_kind and media_data:
             raw = base64.b64decode(str(media_data).split(",")[-1])
-            cap = f"👨‍⚕️ {op['name']}" + (f": {_htm.escape(text)}" if text else "")
+            cap_h = f"👨‍⚕️ {_htm.escape(op['name'])}" + (f": {body_html}" if text else "")
+            cap_p = f"👨‍⚕️ {_htm.escape(op['name'])}" + (f": {_htm.escape(text)}" if text else "")
             if media_kind == "document":
                 fname = str(body.get("media_name") or "hujjat")[:64] or "hujjat"
-                sent = await client.send_document(uid, BufferedInputFile(raw, fname),
-                                                  caption=cap, **rkw)
+                sent = await _send_html(
+                    lambda: client.send_document(uid, BufferedInputFile(raw, fname), caption=cap_h, **rkw),
+                    lambda: client.send_document(uid, BufferedInputFile(raw, fname), caption=cap_p, **rkw))
                 fid = sent.document.file_id
-                await q.add_message(order_id, "operator", "document",
-                                    text or fname, fid, None, client_msg_id=sent.message_id,
-                                    file_name=fname,
-                                    mime_type=sent.document.mime_type or body.get("media_mime"))
+                mid = await q.add_message(order_id, "operator", "document",
+                                          text or fname, fid, None, client_msg_id=sent.message_id,
+                                          file_name=fname,
+                                          mime_type=sent.document.mime_type or body.get("media_mime"),
+                                          html=html_text, reply_to_mid=reply_mid, file_size=len(raw))
                 await post_operator_to_channel(client, order, op["name"], content_type="document",
                                                file_id=fid, src_bot=client, text=text or fname)
             elif media_kind == "photo":
-                sent = await client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"),
-                                               caption=cap, **rkw)
+                sent = await _send_html(
+                    lambda: client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"), caption=cap_h, **rkw),
+                    lambda: client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"), caption=cap_p, **rkw))
                 fid = sent.photo[-1].file_id
-                await q.add_message(order_id, "operator", "photo", text or None, fid, None,
-                                    client_msg_id=sent.message_id)
+                mid = await q.add_message(order_id, "operator", "photo", text or None, fid, None,
+                                          client_msg_id=sent.message_id, html=html_text,
+                                          reply_to_mid=reply_mid, file_size=len(raw))
                 await post_operator_to_channel(client, order, op["name"], content_type="photo",
                                                file_id=fid, src_bot=client, text=text or "")
             else:  # voice — voice -> audio -> document zanjiri (Telegram formatga qarab)
                 mime = str(body.get("media_mime", "")).lower()
                 ext = "ogg" if "ogg" in mime else ("webm" if "webm" in mime else
                                                    ("mp4" if "mp4" in mime else "audio"))
-                fid, ctype = None, "voice"
+                fid, ctype, snt = None, "voice", None
                 for kind in ("voice", "audio", "document"):
                     try:
                         if kind == "voice":
@@ -428,19 +751,257 @@ async def api_send(request):
                         continue
                 if not fid:
                     return _json({"ok": False, "error": "ovoz yuborilmadi (format qo'llanmadi)"}, 200)
-                await q.add_message(order_id, "operator", ctype, None, fid, None,
-                                    client_msg_id=snt.message_id)
+                mid = await q.add_message(order_id, "operator", ctype, None, fid, None,
+                                          client_msg_id=snt.message_id, reply_to_mid=reply_mid,
+                                          file_size=len(raw))
                 await post_operator_to_channel(client, order, op["name"], content_type=ctype,
                                                file_id=fid, src_bot=client, text="🎤 ovozli xabar")
         else:
-            snt = await client.send_message(uid, loc.t("operator_reply", clang, name=op_client_name(op),
-                                                       text=_htm.escape(text)), **rkw)
-            await q.add_message(order_id, "operator", "text", text, None, None,
-                                client_msg_id=snt.message_id)
+            name = op_client_name(op)
+            snt = await _send_html(
+                lambda: client.send_message(uid, loc.t("operator_reply", clang, name=_htm.escape(name),
+                                                       text=body_html), **rkw),
+                lambda: client.send_message(uid, loc.t("operator_reply", clang, name=_htm.escape(name),
+                                                       text=_htm.escape(text)), **rkw))
+            mid = await q.add_message(order_id, "operator", "text", text, None, None,
+                                      client_msg_id=snt.message_id, html=html_text,
+                                      reply_to_mid=reply_mid)
             await post_operator_to_channel(client, order, op["name"], text=text)
     except Exception:
+        logger.exception("api_send #%s", order_id)
         return _json({"ok": False, "error": "mijozga yuborilmadi (bloklagan bo'lishi mumkin)"}, 200)
+    await q.set_chat_state(op["id"], order_id, draft=None)
+    await q.mark_read(op["id"], order_id)
+    row = await q.get_message(mid) if mid else None
+    out = (await _msgs_with_replies([row]))[0] if row else None
+    return _json({"ok": True, "mid": mid, "message": out})
+
+
+# ---------------- API: "yozmoqda..." (mijozga Telegramda ko'rinadi) ----------------
+_TYPING: dict = {}
+
+
+async def api_typing(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    t = time.time()
+    if t - _TYPING.get(order_id, 0) < 4:
+        return _json({"ok": True})
+    _TYPING[order_id] = t
+    order = await q.get_order(order_id)
+    if not order or order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False})
+    from utils import cbot
+    client = cbot()
+    if client:
+        try:
+            await client.send_chat_action(order["user_id"], "typing")
+        except Exception:
+            pass
     return _json({"ok": True})
+
+
+# ---------------- API: chat holati (qadash / arxiv / o'qilmagan / qoralama) ----------------
+async def api_chat_state(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    f = {}
+    for k in ("pinned", "archived", "marked_unread"):
+        if k in body:
+            f[k] = 1 if body.get(k) else 0
+    if "draft" in body:
+        f["draft"] = str(body.get("draft") or "")[:4000] or None
+    if body.get("read"):
+        await q.mark_read(op["id"], order_id)
+    if f:
+        await q.set_chat_state(op["id"], order_id, **f)
+    if "draft" not in body:
+        q.bump()
+    return _json({"ok": True})
+
+
+# ---------------- API: xabarni qadash ----------------
+async def api_pin(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+        mid = int(body.get("mid") or 0)
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    if mid:
+        row = await q.get_message(mid)
+        if not row or row["order_id"] != order_id:
+            return _json({"ok": False, "error": "xabar topilmadi"})
+    await q.set_order_pinned(order_id, mid)
+    await q.audit(f"op:{op['name']}", "pin" if mid else "unpin", order_id, {"mid": mid})
+    return _json({"ok": True})
+
+
+# ---------------- API: teglar ----------------
+async def _tag_preset():
+    raw = await q.get_setting("tags_preset", "") or ""
+    return [t.strip()[:40] for t in raw.replace(",", "\n").split("\n") if t.strip()]
+
+
+async def api_tags(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    return _json({"ok": True, "tags": await _tag_preset()})
+
+
+async def api_order_tags(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    tags = []
+    for t in body.get("tags") or []:
+        t = str(t).replace(",", " ").strip()[:40]
+        if t and t not in tags:
+            tags.append(t)
+    await q.set_order_tags(order_id, tags[:10])
+    await q.audit(f"op:{op['name']}", "tags", order_id, {"tags": tags})
+    return _json({"ok": True, "tags": tags})
+
+
+# ---------------- API: ichki izoh (mijoz ko'rmaydi) ----------------
+async def api_inote(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    text = str(body.get("text", "")).strip()[:2000]
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
+    await q.add_internal_note(order_id, "operator", op["name"], text)
+    return _json({"ok": True})
+
+
+# ---------------- API: murojaatni boshqa operatorga o'tkazish ----------------
+async def _transfer(order, new_op, actor: str, actor_label: str):
+    """Murojaatni boshqa operatorga o'tkazadi; ikkala operatorni ham bot orqali xabardor qiladi."""
+    order_id = order["id"]
+    prev_id = order["operator_id"]
+    newop_id = new_op["id"]
+    if order["status"] == "new":
+        await q.claim_order(order_id, newop_id)
+    else:
+        await q.assign_order(order_id, newop_id)
+    await q.set_operator_active_order(newop_id, order_id)
+    await q.set_operator_availability(newop_id, "busy")
+    await q.unhide_chat(newop_id, order_id)
+    import botreg
+    from utils import cbot, update_group_card
+    client = cbot()
+    if prev_id and prev_id != newop_id:
+        prev = await q.get_operator(prev_id)
+        await q.set_operator_active_order(prev_id, None)
+        await q.set_operator_availability(prev_id, "free")
+        if prev and prev["telegram_id"]:
+            pb = (botreg.get_operator_bot(prev["bot_id"]) if prev["bot_id"] else client) or client
+            try:
+                await pb.send_message(prev["telegram_id"],
+                                      f"ℹ️ Murojaat #{order_id} {actor_label} tomonidan "
+                                      f"{_htm.escape(new_op['name'])} ga o'tkazildi.")
+            except Exception:
+                pass
+    if new_op["telegram_id"]:
+        nb = (botreg.get_operator_bot(new_op["bot_id"]) if new_op["bot_id"] else client) or client
+        try:
+            await nb.send_message(new_op["telegram_id"],
+                                  f"🔄 {actor_label} sizga murojaat #{order_id} ni biriktirdi. "
+                                  f"CRM yoki botda oching.")
+        except Exception:
+            pass
+    if client:
+        try:
+            await update_group_card(client, order_id)
+        except Exception:
+            pass
+    await q.audit(actor, "transfer", order_id, {"from": prev_id, "to": new_op["name"]})
+
+
+async def api_ops_list(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    load = await q.operator_open_load()
+    items = []
+    for o in await q.list_operators():
+        if o["status"] != "active" or o["id"] == op["id"]:
+            continue
+        st = "offline" if not o["telegram_id"] else ("busy" if o["availability"] == "busy" else "free")
+        items.append({"id": o["id"], "name": o["name"], "state": st, "load": load.get(o["id"], 0)})
+    items.sort(key=lambda x: ({"free": 0, "busy": 1, "offline": 2}[x["state"]], x["load"]))
+    return _json({"ok": True, "items": items})
+
+
+async def api_transfer(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+        newop_id = int(body.get("operator_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    order = await q.get_order(order_id)
+    new_op = await q.get_operator(newop_id)
+    if not order or not new_op or new_op["status"] != "active":
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    if order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Murojaat yopilgan"})
+    if order["operator_id"] and order["operator_id"] != op["id"]:
+        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
+    note = str(body.get("note", "")).strip()[:500]
+    if note:
+        await q.add_internal_note(order_id, "operator", op["name"], f"↪️ O'tkazish izohi: {note}")
+    await _transfer(order, new_op, f"op:{op['name']}", f"Operator {_htm.escape(op['name'])}")
+    await q.hide_chat(op["id"], order_id)
+    return _json({"ok": True, "info": f"#{order_id} → {new_op['name']} ga o'tkazildi"})
 
 
 # ---------------- API: qabul qilish ----------------
@@ -475,9 +1036,21 @@ async def api_close(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "Murojaat topilmadi"})
+    if order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Bu murojaat allaqachon yopilgan"})
+    if order["operator_id"] and order["operator_id"] != op["id"]:
+        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
     from utils import cbot
     from handlers.operator import _finish_with_rating
-    await _finish_with_rating(cbot(), order_id, f"operator:{op['id']}")
+    try:
+        await _finish_with_rating(cbot(), order_id, f"operator:{op['id']}")
+    except Exception:
+        logger.exception("api_close #%s", order_id)
+        return _json({"ok": False, "error": "Yakunlab bo'lmadi, qayta urinib ko'ring"})
+    await q.audit(f"op:{op['name']}", "close", order_id)
     return _json({"ok": True})
 
 
@@ -495,6 +1068,8 @@ async def api_hide(request):
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
     await q.hide_chat(op["id"], order_id)
+    await q.audit(f"op:{op['name']}", "hide_chat", order_id)
+    q.bump()
     return _json({"ok": True})
 
 
@@ -507,6 +1082,8 @@ async def api_profile(request):
     incoming = await q.new_count()
     return _json({"ok": True, "name": op["name"], "login": op["login"],
                   "availability": op["availability"], "incoming": incoming,
+                  "token": _fresh_op_token(op, request.query.get("token", "")),
+                  "mk": _media_key(), "ws": op["work_start"], "we": op["work_end"],
                   "has_avatar": os.path.exists(os.path.join(AVATAR_DIR, f"{op['id']}.jpg")),
                   "stats": {"accepted": s["accepted"], "done": s["done"],
                             "today_done": s["today_done"], "rating": s["avg_rating"],
@@ -952,7 +1529,12 @@ async def api_msg_del(request):
             await client.delete_message(order["user_id"], row["client_msg_id"])
         except Exception:
             return _json({"ok": False, "error": "Mijozda o'chirib bo'lmadi (48 soatdan oshgan)"})
+    await q.audit(f"op:{op['name']}", "msg_delete", row["order_id"],
+                  {"mid": mid, "type": row["content_type"], "text": row["text"] or "",
+                   "file_id": row["file_id"] or "", "sent_at": row["created_at"]})
     await q.delete_message_row(mid)
+    if (order["pinned_mid"] if "pinned_mid" in order.keys() else None) == mid:
+        await q.set_order_pinned(order["id"], None)
     return _json({"ok": True})
 
 
@@ -968,10 +1550,13 @@ async def api_msg_edit(request):
         mid = int(body.get("mid"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    new_text = str(body.get("text", "")).strip()
+    row = await q.get_message(mid)
+    if not row:
+        return _json({"ok": False, "error": "Xabar topilmadi"})
+    order0 = await q.get_order(row["order_id"])
+    new_text, new_html = await _prepare_text(body, order0, op) if order0 else ("", None)
     if not new_text:
         return _json({"ok": False, "error": "Matn bo'sh"})
-    row = await q.get_message(mid)
     if (not row or row["sender"] != "operator" or not row["client_msg_id"]
             or (row["content_type"] or "text") != "text"):
         return _json({"ok": False, "error": "Faqat o'z matnli xabaringizni tahrirlash mumkin"})
@@ -983,13 +1568,22 @@ async def api_msg_edit(request):
     if not client:
         return _json({"ok": False, "error": "bot tayyor emas"})
     clang = await q.get_lang(order["user_id"])
+    name = _htm.escape(op_client_name(op))
     try:
-        await client.edit_message_text(
-            loc.t("operator_reply", clang, name=op_client_name(op), text=_htm.escape(new_text)),
-            chat_id=order["user_id"], message_id=row["client_msg_id"])
-    except Exception:
+        await _send_html(
+            lambda: client.edit_message_text(
+                loc.t("operator_reply", clang, name=name, text=new_html or _htm.escape(new_text)),
+                chat_id=order["user_id"], message_id=row["client_msg_id"]),
+            lambda: client.edit_message_text(
+                loc.t("operator_reply", clang, name=name, text=_htm.escape(new_text)),
+                chat_id=order["user_id"], message_id=row["client_msg_id"]))
+    except Exception as e:
+        if "not modified" in str(e).lower():
+            return _json({"ok": True})
         return _json({"ok": False, "error": "Tahrirlab bo'lmadi (48 soatdan oshgan)"})
-    await q.update_message_text(mid, new_text)
+    await q.audit(f"op:{op['name']}", "msg_edit", row["order_id"],
+                  {"mid": mid, "old": row["text"] or "", "new": new_text})
+    await q.update_message_text(mid, new_text, new_html)
     return _json({"ok": True})
 
 
@@ -1086,6 +1680,7 @@ async def api_reopen(request):
     await q.set_user_active_order(order["user_id"], order_id)
     # CRM yozishmasida ko'rinsin + operator kanaliga qaytsin
     await q.add_message(order_id, "operator", "text", "🔄 Suhbat qayta ochildi (davom ettirildi)", None, None)
+    await q.audit(f"op:{op['name']}", "reopen", order_id)
     return _json({"ok": True, "info": "Suhbat davom ettirildi"})
 
 
@@ -1094,9 +1689,41 @@ async def api_templates(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False}, 401)
-    tpls = await q.list_templates()
-    items = [{"id": t["id"], "text": t["text"]} for t in tpls if t["text"]]
+    tpls = await q.templates_for_operator(op["id"])
+    items = [{"id": t["id"], "text": t["text"], "own": bool(t["operator_id"])}
+             for t in tpls if t["text"]]
     return _json({"ok": True, "items": items})
+
+
+async def api_tpl_add(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    text = str(body.get("text", "")).strip()[:2000]
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
+    tid = await q.add_operator_template(op["id"], text)
+    return _json({"ok": True, "id": tid})
+
+
+async def api_tpl_del(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        tid = int(body.get("id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    ok = await q.delete_operator_template(op["id"], tid)
+    return _json({"ok": ok, "error": None if ok else "Faqat o'zingizning shabloningizni o'chira olasiz"})
 
 
 # ---------------- API: mijoz izohi ----------------
@@ -1130,15 +1757,29 @@ async def api_note_save(request):
     if not order:
         return _json({"ok": False, "error": "topilmadi"}, 404)
     await q.set_client_note(order["user_id"], str(body.get("note", "")).strip())
+    await q.audit(f"op:{op['name']}", "client_note", order_id)
     return _json({"ok": True})
 
 
 # ================================================================
 #                        ADMIN MINI APP
 # ================================================================
-def _admin_sign(tg_id) -> str:
-    return hmac.new(BOT_TOKEN.encode(), f"admin-session:{tg_id}".encode(),
-                    hashlib.sha256).hexdigest()
+async def _admin_epoch() -> int:
+    try:
+        return int(await q.get_setting("admin_epoch", "0") or 0)
+    except ValueError:
+        return 0
+
+
+async def _admin_sign(tg_id, exp=None) -> str:
+    """Admin sessiya tokeni: 7 kunlik, «barcha sessiyalarni bekor qilish» bilan o'chiriladi."""
+    exp = int(exp or (time.time() + _ADM_TTL))
+    ep = await _admin_epoch()
+    return f"v2.{exp}.{_hm(f'adm2:{tg_id}:{ep}:{exp}')}"
+
+
+# Faqat ko'rish (supervayzer) rolida ham ruxsat etilgan POST so'rovlar (hech narsani o'zgartirmaydi)
+_VIEWER_POST_OK = {"/api/admin/login", "/api/admin/excel", "/api/admin/excel_clients"}
 
 
 async def _is_admin(tg_id) -> bool:
@@ -1174,8 +1815,18 @@ async def _auth_admin(request, data):
     token = str(data.get("token", ""))
     if not await _is_admin(tg):
         return None
-    if not token or not hmac.compare_digest(_admin_sign(tg), token):
+    try:
+        ver, exp_s, _sig = token.split(".", 2)
+        exp = int(exp_s)
+    except ValueError:
         return None
+    if ver != "v2" or exp < time.time() or not hmac.compare_digest(await _admin_sign(tg, exp), token):
+        return None
+    # Supervayzer (faqat ko'rish) — hech narsani o'zgartira olmaydi
+    if request.method == "POST" and request.path not in _VIEWER_POST_OK:
+        if tg not in ADMIN_IDS and await q.admin_role(tg) == "viewer":
+            raise web.HTTPForbidden(text=json.dumps({"ok": False, "error": "Sizda faqat ko'rish huquqi bor"}),
+                                    content_type="application/json")
     return tg
 
 
@@ -1213,9 +1864,11 @@ async def api_admin_login(request):
             await refresh_admins()
     if not await _is_admin(user["id"]):
         return _json({"ok": False, "error": "Siz admin emassiz."})
+    role = "admin" if user["id"] in ADMIN_IDS else await q.admin_role(user["id"])
     return _json({"ok": True, "admin_id": user["id"],
                   "name": user.get("first_name") or "Admin",
-                  "token": _admin_sign(user["id"])})
+                  "role": role, "mk": _media_key(),
+                  "token": await _admin_sign(user["id"])})
 
 
 def _period_start_str(period: str) -> str:
@@ -1403,7 +2056,13 @@ async def api_admin_dash(request):
                      key=lambda x: x["done"], reverse=True)[:8]
     branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since, until)]
     heat = await q.heatmap_data(since, until or q.now())
+    tagc = [{"name": n, "cnt": c} for n, c in await q.tag_counts(since, until)][:10]
+    try:
+        esc_min = int(await q.get_setting("escalate_min", "5") or 5)
+    except ValueError:
+        esc_min = 5
     return _json({"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
+                  "tags": tagc, "escalate_min": esc_min, "mk": _media_key(),
                   "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
@@ -1427,12 +2086,15 @@ async def api_admin_orders(request):
     status = request.query.get("status") or None
     period = request.query.get("period") or None
     since = _period_start_str(period) if period and period != "all" else None
-    rows, total = await q.orders_page(20, page * 20, search, status, since)
+    tag = (request.query.get("tag") or "").strip() or None
+    rows, total = await q.orders_page(20, page * 20, search, status, since, tag)
     items = [{"id": r["id"], "name": r["full_name"] or "—", "phone": r["phone"] or "",
               "status": r["status"], "operator": r["operator"] or "",
               "bill": bool((r["bill"] or "").strip()),   # hisob-kitob qilinganmi
+              "tags": [t for t in (r["tags"] or "").split(",") if t],
               "time": (r["created_at"] or "")[5:16], "rating": r["rating"] or 0} for r in rows]
-    return _json({"ok": True, "total": total, "page": page, "items": items})
+    return _json({"ok": True, "total": total, "page": page, "items": items,
+                  "tag_preset": await _tag_preset()})
 
 
 async def api_admin_msgs(request):
@@ -1448,17 +2110,32 @@ async def api_admin_msgs(request):
     user = await q.get_user(order["user_id"])
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
     msgs = await q.order_messages(order_id)
-    out = [{"own": m["sender"] == "operator", "type": m["content_type"] or "text",
-            "text": m["text"] or "", "file_id": m["file_id"] or "",
-            "file_name": m["file_name"] or "", "mime_type": m["mime_type"] or "",
-            # Hisob-kitob xabari — admin uni alohida rangda ko'rsatadi
-            "bill": (m["text"] or "").startswith(BILL_TAG),
-            "time": (m["created_at"] or "")[11:16]} for m in msgs]
+    out = []
+    for m in await _msgs_with_replies(msgs):
+        m["bill"] = (m["text"] or "").startswith(BILL_TAG)   # hisob-kitob alohida rangda
+        out.append(m)
+    # Ichki izohlar va o'chirilgan xabarlar (asl nusxasi) — vaqt bo'yicha yozishmaga qo'shiladi
+    for n in await q.internal_notes(order_id):
+        nj = _note_json(n)
+        out.append({"kind": "note", "own": False, "type": "note", "text": nj["text"],
+                    "author": nj["author"], "akind": nj["kind"], "ts": nj["ts"], "time": nj["time"]})
+    for d in await q.deleted_messages(order_id):
+        try:
+            det = json.loads(d["details"] or "{}")
+        except Exception:
+            det = {}
+        out.append({"kind": "deleted", "own": True, "type": det.get("type") or "text",
+                    "text": det.get("text") or "", "file_id": det.get("file_id") or "",
+                    "by": d["actor"], "deleted_at": d["at"],
+                    "ts": det.get("sent_at") or d["at"], "time": (det.get("sent_at") or d["at"] or "")[11:16]})
+    out.sort(key=lambda x: x.get("ts") or "")
     # Yozishmada xabar bo'lmasa ham (bot orqali «saqlangan» hisob-kitob) ko'rinib tursin
     bill_text = (order["bill"] or "") if "bill" in order.keys() else ""
     bill_photo = (order["bill_photo"] or "") if "bill_photo" in order.keys() else ""
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
                   "operator": op["name"] if op else "",
+                  "tags": [t for t in (order["tags"] or "").split(",") if t],
+                  "mk": _media_key(),
                   "rating": order["rating"] or 0,
                   "feedback": (order["feedback"] or "") if "feedback" in order.keys() else "",
                   "bill": {"text": bill_text, "photo": bill_photo},
@@ -1486,6 +2163,7 @@ async def api_admin_close(request):
     from utils import cbot
     from handlers.operator import _finish_with_rating
     await _finish_with_rating(cbot(), order_id, f"admin:{tg}")
+    await q.audit(f"admin:{tg}", "close", order_id)
     return _json({"ok": True})
 
 
@@ -1573,6 +2251,7 @@ async def api_admin_op_save(request):
         if password:
             await q.update_operator_password(oid, password)
             await q.clear_operator_session(oid)
+            await q.audit(f"admin:{body.get('admin_id')}", "op_password", None, {"operator": name})
     else:
         if not password:
             return _json({"ok": False, "error": "Parol kiriting"})
@@ -1595,6 +2274,7 @@ async def api_admin_op_toggle(request):
         return _json({"ok": False, "error": "topilmadi"}, 404)
     new = "inactive" if op["status"] == "active" else "active"
     await q.update_operator(oid, "status", new)
+    await q.audit(f"admin:{body.get('admin_id')}", "op_" + new, None, {"operator": op["name"]})
     if new == "inactive" and op["telegram_id"]:
         await q.logout_operator(op["telegram_id"], op["bot_id"])
     return _json({"ok": True, "active": new == "active"})
@@ -1607,7 +2287,28 @@ async def api_admin_op_del(request):
         body = {}
     if not await _auth_admin(request, body):
         return _json({"ok": False}, 401)
+    dop = await q.get_operator(int(body.get("id")))
     await q.delete_operator(int(body.get("id")))
+    await q.audit(f"admin:{body.get('admin_id')}", "op_delete", None,
+                  {"operator": dop["name"] if dop else body.get("id")})
+    return _json({"ok": True})
+
+
+async def api_admin_op_logout(request):
+    """Operatorning barcha mini app sessiyalarini bekor qiladi (telefon yo'qolsa va h.k.)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not await _auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    try:
+        oid = int(body.get("id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    await q.bump_operator_epoch(oid)
+    await q.clear_operator_session(oid)
+    await q.audit(f"admin:{body.get('admin_id')}", "op_sessions_revoked", None, {"operator_id": oid})
     return _json({"ok": True})
 
 
@@ -1762,23 +2463,32 @@ async def api_admin_send(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    text = str(body.get("text", "")).strip()
-    if not text:
-        return _json({"ok": False, "error": "Matn bo'sh"})
     order = await q.get_order(order_id)
     if not order or order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"})
+    import tghtml
+    raw = str(body.get("html") or "").strip()
+    text = str(body.get("text", "")).strip()
+    html_text = tghtml.sanitize(raw or text) if (raw or "<" in text) else None
+    if html_text:
+        text = tghtml.to_plain(html_text).strip()
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
     from utils import cbot, post_operator_to_channel
     client = cbot()
     if not client:
         return _json({"ok": False, "error": "bot tayyor emas"})
+    body_html = html_text if (html_text and tghtml.has_markup(html_text)) else _htm.escape(text)
     try:
-        snt = await client.send_message(order["user_id"],
-                                        f"👨‍💼 <b>Admin:</b>\n{_htm.escape(text)}")
+        snt = await _send_html(
+            lambda: client.send_message(order["user_id"], f"👨‍💼 <b>Admin:</b>\n{body_html}"),
+            lambda: client.send_message(order["user_id"], f"👨‍💼 <b>Admin:</b>\n{_htm.escape(text)}"))
     except Exception:
         return _json({"ok": False, "error": "Mijozga yuborilmadi"})
     await q.add_message(order_id, "operator", "text", f"👨‍💼 Admin: {text}", None, None,
-                        client_msg_id=snt.message_id)
+                        client_msg_id=snt.message_id,
+                        html=(f"👨‍💼 <b>Admin:</b> {body_html}" if tghtml.has_markup(body_html) else None))
+    await q.audit(f"admin:{tg}", "admin_send", order_id)
     try:
         await post_operator_to_channel(client, order, "Admin", text=text)
     except Exception:
@@ -1805,40 +2515,7 @@ async def api_admin_transfer(request):
         return _json({"ok": False, "error": "topilmadi"}, 404)
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"})
-    prev_id = order["operator_id"]
-    if order["status"] == "new":
-        await q.claim_order(order_id, newop_id)
-    else:
-        await q.assign_order(order_id, newop_id)
-    await q.set_operator_active_order(newop_id, order_id)
-    await q.set_operator_availability(newop_id, "busy")
-    import botreg
-    from utils import cbot, update_group_card
-    client = cbot()
-    if prev_id and prev_id != newop_id:
-        prev = await q.get_operator(prev_id)
-        await q.set_operator_active_order(prev_id, None)
-        await q.set_operator_availability(prev_id, "free")
-        if prev and prev["telegram_id"]:
-            pb = (botreg.get_operator_bot(prev["bot_id"]) if prev["bot_id"] else client) or client
-            try:
-                await pb.send_message(prev["telegram_id"],
-                                      f"ℹ️ Murojaat #{order_id} admin tomonidan boshqa operatorga o'tkazildi.")
-            except Exception:
-                pass
-    if new_op["telegram_id"]:
-        nb = (botreg.get_operator_bot(new_op["bot_id"]) if new_op["bot_id"] else client) or client
-        try:
-            await nb.send_message(new_op["telegram_id"],
-                                  f"🔄 Admin sizga murojaat #{order_id} ni biriktirdi. "
-                                  f"CRM yoki botda oching.")
-        except Exception:
-            pass
-    if client:
-        try:
-            await update_group_card(client, order_id)
-        except Exception:
-            pass
+    await _transfer(order, new_op, f"admin:{tg}", "Admin")
     return _json({"ok": True, "info": f"#{order_id} → {new_op['name']} ga o'tkazildi"})
 
 
@@ -1856,6 +2533,8 @@ async def api_admin_client_block(request):
         return _json({"ok": False}, 400)
     block = bool(body.get("block"))
     await q.set_user_status(tg_, "blocked" if block else "active")
+    await q.audit(f"admin:{body.get('admin_id')}", "client_block" if block else "client_unblock",
+                  None, {"client": tg_})
     return _json({"ok": True, "blocked": block})
 
 
@@ -1871,6 +2550,7 @@ async def api_admin_client_del(request):
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
     n = await q.delete_client_full(tg_)
+    await q.audit(f"admin:{body.get('admin_id')}", "client_delete", None, {"client": tg_, "orders": n})
     return _json({"ok": True, "orders_removed": n})
 
 
@@ -1911,6 +2591,8 @@ async def api_admin_review(request):
     if not order:
         return _json({"ok": False, "error": "topilmadi"}, 404)
 
+    await q.audit(f"admin:{body.get('admin_id')}", "review_delete" if body.get("delete") else "review_edit",
+                  order_id, {"old_rating": order["rating"], "old_feedback": order["feedback"] or ""})
     if body.get("delete"):
         await q.set_order_rating(order_id, None)
         await q.set_order_feedback(order_id, None)
@@ -1954,6 +2636,7 @@ async def api_admin_close_stale(request):
             await q.set_operator_active_order(r["operator_id"], None)
             await q.set_operator_availability(r["operator_id"], "free")
         await q.set_user_active_order(r["user_id"], None)
+    await q.audit(f"admin:{tg}", "close_stale", None, {"days": days, "closed": len(rows)})
     return _json({"ok": True, "closed": len(rows)})
 
 
@@ -2104,6 +2787,9 @@ async def api_admin_settings(request):
                   "op_work_start": await q.get_setting("op_work_start", "08:00"),
                   "op_work_end": await q.get_setting("op_work_end", "23:00"),
                   "escalate_min": await q.get_setting("escalate_min", "5"),
+                  "auto_assign": await q.get_setting("auto_assign", "off"),
+                  "sla_target_min": await q.get_setting("sla_target_min", "5"),
+                  "tags_preset": await q.get_setting("tags_preset", ""),
                   "contact_text": await q.get_setting("contact_text", "")})
 
 
@@ -2114,10 +2800,17 @@ async def api_admin_settings_save(request):
         body = {}
     if not await _auth_admin(request, body):
         return _json({"ok": False}, 401)
+    changed = {}
     for k in ("work_start", "work_end", "op_work_start", "op_work_end",
-              "escalate_min", "contact_text"):
+              "escalate_min", "contact_text", "auto_assign", "sla_target_min", "tags_preset"):
         if k in body and str(body[k]).strip() != "":
-            await q.set_setting(k, str(body[k]).strip())
+            v = str(body[k]).strip()
+            if k == "auto_assign" and v not in ("off", "rr", "least"):
+                continue
+            await q.set_setting(k, v)
+            changed[k] = v[:80]
+    if changed:
+        await q.audit(f"admin:{body.get('admin_id')}", "settings", None, changed)
     return _json({"ok": True})
 
 
@@ -2155,6 +2848,7 @@ async def api_admin_admins(request):
             "name": a["name"] or (("@" + a["username"]) if a["username"]
                                   else str(aid)),
             "pending": aid is None,
+            "role": (a["role"] if "role" in a.keys() and a["role"] else "admin"),
             "super": False, "manager": (mgr is not None and aid == mgr),
             "you": aid == tg})
     return _json({"ok": True, "items": items,
@@ -2402,6 +3096,7 @@ async def api_admin_broadcast(request):
             sent += 1
         except Exception:
             failed += 1
+    await q.audit(f"admin:{tg}", "broadcast", None, {"sent": sent, "failed": failed, "text": text[:200]})
     return _json({"ok": True, "sent": sent, "failed": failed, "total": len(users)})
 
 
@@ -2646,6 +3341,285 @@ async def api_admin_excel_clients(request):
     return _json({"ok": True})
 
 
+# ================= Admin: ICHKI IZOH / AUDIT / SLA / ROLLAR =================
+async def api_admin_inote(request):
+    """Admin yozishmaga ichki izoh qoldiradi — operator ko'radi, mijozga yuborilmaydi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    text = str(body.get("text", "")).strip()[:2000]
+    if not text:
+        return _json({"ok": False, "error": "Matn bo'sh"})
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "topilmadi"}, 404)
+    u = await q.get_user(tg)
+    author = (u["full_name"] if u and u["full_name"] else "Admin")
+    await q.add_internal_note(order_id, "admin", author, text)
+    await q.audit(f"admin:{tg}", "internal_note", order_id, {"text": text[:200]})
+    # Operatorga bot orqali xabar beramiz
+    if order["operator_id"]:
+        op = await q.get_operator(order["operator_id"])
+        if op and op["telegram_id"]:
+            import botreg
+            from utils import cbot
+            b = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else None) or cbot()
+            try:
+                await b.send_message(op["telegram_id"],
+                                     f"🔒 <b>Admin izohi</b> (#{order_id}):\n{_htm.escape(text)}")
+            except Exception:
+                pass
+    return _json({"ok": True})
+
+
+_AUDIT_LBL = {
+    "msg_delete": "Xabar o'chirildi", "msg_edit": "Xabar tahrirlandi", "close": "Yakunlandi",
+    "hide_chat": "Chat yashirildi", "reopen": "Qayta ochildi", "transfer": "O'tkazildi",
+    "client_block": "Mijoz bloklandi", "client_unblock": "Blokdan ochildi",
+    "client_delete": "Mijoz o'chirildi", "op_password": "Operator paroli o'zgardi",
+    "op_active": "Operator yoqildi", "op_inactive": "Operator o'chirildi (faolsiz)",
+    "op_delete": "Operator o'chirildi", "op_sessions_revoked": "Operator sessiyalari bekor qilindi",
+    "review_edit": "Otziv tahrirlandi", "review_delete": "Otziv o'chirildi",
+    "close_stale": "Eski murojaatlar yopildi", "broadcast": "Ommaviy xabar",
+    "settings": "Sozlamalar o'zgardi", "internal_note": "Ichki izoh", "admin_send": "Admin yozdi",
+    "auto_assign": "Avto-taqsimlandi", "pin": "Xabar qadaldi", "unpin": "Qadash olindi",
+    "tags": "Teglar", "client_note": "Mijoz izohi", "login_fail": "Noto'g'ri login urinishi",
+    "admin_role": "Admin roli", "admin_sessions_revoked": "Admin sessiyalari bekor qilindi",
+}
+
+
+async def _actor_label(actor: str, cache: dict) -> str:
+    if actor in cache:
+        return cache[actor]
+    lbl = actor or "—"
+    if actor.startswith("admin:"):
+        try:
+            aid = int(actor.split(":", 1)[1])
+            u = await q.get_user(aid)
+            lbl = "Admin · " + ((u["full_name"] if u and u["full_name"] else "") or str(aid))
+        except (ValueError, IndexError):
+            pass
+    elif actor.startswith("op:"):
+        lbl = "Operator · " + actor[3:]
+    elif actor == "system":
+        lbl = "Tizim"
+    elif actor.startswith("ip:"):
+        lbl = "IP " + actor[3:]
+    cache[actor] = lbl
+    return lbl
+
+
+async def api_admin_audit(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    try:
+        page = int(request.query.get("page", "0") or 0)
+    except ValueError:
+        page = 0
+    raw = (request.query.get("q") or "").strip()
+    oid = int(raw.lstrip("#")) if raw.lstrip("#").isdigit() else None
+    rows, total = await q.audit_page(50, page * 50, oid, None if oid else (raw or None))
+    cache, items = {}, []
+    for r in rows:
+        try:
+            det = json.loads(r["details"]) if r["details"] else {}
+        except Exception:
+            det = {}
+        items.append({"id": r["id"], "at": r["at"], "actor": await _actor_label(r["actor"] or "", cache),
+                      "action": r["action"], "label": _AUDIT_LBL.get(r["action"], r["action"]),
+                      "order_id": r["order_id"], "details": det})
+    return _json({"ok": True, "items": items, "total": total, "page": page})
+
+
+def _mins_between(a, b):
+    from datetime import datetime as _dt
+    try:
+        return (_dt.strptime(b[:19], "%Y-%m-%d %H:%M:%S") -
+                _dt.strptime(a[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 60
+    except Exception:
+        return None
+
+
+async def api_admin_sla(request):
+    """Operatorlar bo'yicha SLA: birinchi javob vaqti, hal qilish vaqti, maqsadga erishish %."""
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    period = request.query.get("period", "week")
+    since = _period_start_str(period)
+    try:
+        target = float(await q.get_setting("sla_target_min", "5") or 5)
+    except ValueError:
+        target = 5
+    per = {}
+    tot_first = []
+    for r in await q.sla_rows(since):
+        if not r["operator_id"]:
+            continue
+        d = per.setdefault(r["operator_id"], {"name": r["operator"] or "—", "orders": 0, "done": 0,
+                                              "first": [], "resol": [], "rated": []})
+        d["orders"] += 1
+        if r["status"] == "done":
+            d["done"] += 1
+        if r["first_reply"]:
+            m = _mins_between(r["created_at"], r["first_reply"])
+            if m is not None and m >= 0:
+                d["first"].append(m)
+                tot_first.append(m)
+        if r["closed_at"]:
+            m = _mins_between(r["created_at"], r["closed_at"])
+            if m is not None and m >= 0:
+                d["resol"].append(m)
+        if r["rating"]:
+            d["rated"].append(r["rating"])
+    items = []
+    for oid, d in per.items():
+        f = d["first"]
+        items.append({"id": oid, "name": d["name"], "orders": d["orders"], "done": d["done"],
+                      "first_med": q._median(f), "resol_med": q._median(d["resol"]),
+                      "in_target": round(100 * sum(1 for x in f if x <= target) / len(f)) if f else None,
+                      "rating": round(sum(d["rated"]) / len(d["rated"]), 1) if d["rated"] else None})
+    items.sort(key=lambda x: (x["in_target"] is None, -(x["in_target"] or 0)))
+    overall = (round(100 * sum(1 for x in tot_first if x <= target) / len(tot_first))
+               if tot_first else None)
+    return _json({"ok": True, "items": items, "target": target, "overall": overall,
+                  "first_med": q._median(tot_first), "period": period})
+
+
+async def api_admin_admin_role(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    if not await _can_manage_admins(tg):
+        return _json({"ok": False, "error": "Sizda bu huquq yo'q"}, 403)
+    try:
+        tid = int(body.get("telegram_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "telegram_id"}, 400)
+    role = "viewer" if body.get("role") == "viewer" else "admin"
+    if tid in ADMIN_IDS or _is_super(tid):
+        return _json({"ok": False, "error": ".env adminining rolini o'zgartirib bo'lmaydi"})
+    await q.set_admin_role(tid, role)
+    await q.audit(f"admin:{tg}", "admin_role", None, {"admin": tid, "role": role})
+    return _json({"ok": True, "role": role})
+
+
+async def api_admin_revoke_sessions(request):
+    """Barcha admin sessiyalarini bekor qiladi (keyingi ochilishda Telegram orqali qayta kiradi)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    if not await _can_manage_admins(tg):
+        return _json({"ok": False, "error": "Sizda bu huquq yo'q"}, 403)
+    await q.set_setting("admin_epoch", str(await _admin_epoch() + 1))
+    await q.audit(f"admin:{tg}", "admin_sessions_revoked", None)
+    return _json({"ok": True, "token": await _admin_sign(tg)})
+
+
+async def api_admin_tags(request):
+    if not await _auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    period = request.query.get("period", "month")
+    since = _period_start_str(period)
+    return _json({"ok": True, "preset": await _tag_preset(),
+                  "counts": [{"name": n, "cnt": c} for n, c in await q.tag_counts(since)]})
+
+
+# ================= Operator: chat foni (wallpaper) =================
+_WP_PRESETS = {"default", "mint", "ocean", "sunset", "lavender", "night", "sand", "plain"}
+
+
+async def api_wallpaper_get(request):
+    if request.query.get("img"):
+        # Rasm URL'ida sessiya tokeni emas — media kaliti (mk)
+        if not _check_media_key(request.query.get("mk", "")):
+            return web.Response(status=401)
+        try:
+            oid = int(request.query.get("oid"))
+        except (TypeError, ValueError):
+            return web.Response(status=400)
+        path = os.path.join(AVATAR_DIR, f"wp_{oid}.jpg")
+        if os.path.exists(path):
+            return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
+        return web.Response(status=404)
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    raw = await q.get_setting(f"wp_op_{op['id']}", "") or ""
+    try:
+        cfg = json.loads(raw) if raw else {}
+    except Exception:
+        cfg = {}
+    return _json({"ok": True, "preset": cfg.get("preset", "default"), "custom": bool(cfg.get("custom")),
+                  "dim": cfg.get("dim", 0), "blur": cfg.get("blur", 0), "ver": cfg.get("ver", 0)})
+
+
+async def api_wallpaper_set(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    raw = await q.get_setting(f"wp_op_{op['id']}", "") or ""
+    try:
+        cfg = json.loads(raw) if raw else {}
+    except Exception:
+        cfg = {}
+    data = body.get("data")
+    if data:
+        try:
+            img = base64.b64decode(str(data).split(",")[-1])
+        except Exception:
+            return _json({"ok": False, "error": "Rasm o'qilmadi"})
+        if len(img) > 3 * 1024 * 1024:
+            return _json({"ok": False, "error": "Rasm juda katta (maks 3 MB)"})
+        os.makedirs(AVATAR_DIR, exist_ok=True)
+        with open(os.path.join(AVATAR_DIR, f"wp_{op['id']}.jpg"), "wb") as fh:
+            fh.write(img)
+        cfg["custom"] = True
+        cfg["ver"] = int(time.time())
+    if body.get("preset") in _WP_PRESETS:
+        cfg["preset"] = body["preset"]
+        cfg["custom"] = False
+    for k in ("dim", "blur"):
+        if k in body:
+            try:
+                cfg[k] = max(0, min(int(body[k]), 80 if k == "dim" else 20))
+            except (TypeError, ValueError):
+                pass
+    await q.set_setting(f"wp_op_{op['id']}", json.dumps(cfg))
+    return _json({"ok": True, "preset": cfg.get("preset", "default"), "custom": bool(cfg.get("custom")),
+                  "dim": cfg.get("dim", 0), "blur": cfg.get("blur", 0), "ver": cfg.get("ver", 0)})
+
+
+# ---------------- Umumiy formatlash skripti (operator + admin panel) ----------------
+_FMT_JS = os.path.join(os.path.dirname(__file__), "webapp", "fmt.js")
+
+
+async def fmt_js(request):
+    if os.path.exists(_FMT_JS):
+        return web.FileResponse(_FMT_JS, headers={"Cache-Control": "no-cache",
+                                                  "Content-Type": "application/javascript; charset=utf-8"})
+    return web.Response(status=404)
+
+
 # ---------------- Kesh tozalash (disk to'lmasin) ----------------
 async def _cache_cleanup_loop():
     while True:
@@ -2704,6 +3678,20 @@ def build_app() -> web.Application:
     app.router.add_post("/api/remind", api_remind)
     app.router.add_get("/api/mystats", api_mystats)
     app.router.add_get("/api/client_info", api_client_info)
+    app.router.add_get("/api/sync", api_sync)
+    app.router.add_get("/api/done_chats", api_done_chats)
+    app.router.add_get("/api/media_key", api_media_key)
+    app.router.add_post("/api/typing", api_typing)
+    app.router.add_post("/api/chat_state", api_chat_state)
+    app.router.add_post("/api/pin", api_pin)
+    app.router.add_get("/api/tags", api_tags)
+    app.router.add_post("/api/order_tags", api_order_tags)
+    app.router.add_post("/api/inote", api_inote)
+    app.router.add_get("/api/ops_list", api_ops_list)
+    app.router.add_post("/api/transfer", api_transfer)
+    app.router.add_post("/api/tpl_add", api_tpl_add)
+    app.router.add_post("/api/tpl_del", api_tpl_del)
+    app.router.add_get("/fmt.js", fmt_js)
     # Admin mini app
     app.router.add_get("/admin", admin_index)
     app.router.add_get("/view", view_index)
@@ -2756,6 +3744,15 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/notify_toggle", api_admin_notify_toggle)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)
     app.router.add_post("/api/admin/excel", api_admin_excel)
+    app.router.add_post("/api/admin/inote", api_admin_inote)
+    app.router.add_get("/api/admin/audit", api_admin_audit)
+    app.router.add_get("/api/admin/sla", api_admin_sla)
+    app.router.add_post("/api/admin/admin_role", api_admin_admin_role)
+    app.router.add_post("/api/admin/revoke_sessions", api_admin_revoke_sessions)
+    app.router.add_post("/api/admin/op_logout", api_admin_op_logout)
+    app.router.add_get("/api/admin/tags", api_admin_tags)
+    app.router.add_get("/api/wallpaper", api_wallpaper_get)
+    app.router.add_post("/api/wallpaper", api_wallpaper_set)
     return app
 
 

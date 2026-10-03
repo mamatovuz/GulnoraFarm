@@ -207,6 +207,38 @@ CREATE TABLE IF NOT EXISTS admins (
     added_by    INTEGER,
     added_at    TEXT
 );
+
+-- Mini app: operatorning har bir chat bo'yicha shaxsiy holati (Telegramdek)
+CREATE TABLE IF NOT EXISTS op_chat_state (
+    operator_id   INTEGER,
+    order_id      INTEGER,
+    pinned        INTEGER DEFAULT 0,   -- ro'yxat tepasiga qadalgan
+    archived      INTEGER DEFAULT 0,   -- arxivda
+    marked_unread INTEGER DEFAULT 0,   -- "o'qilmagan" deb belgilangan
+    draft         TEXT,                -- yozib qo'yilgan qoralama
+    last_read_mid INTEGER,             -- qaysi xabargacha o'qilgan
+    UNIQUE(operator_id, order_id)
+);
+
+-- Ichki izohlar: operator/admin ko'radi, mijozga yuborilmaydi
+CREATE TABLE IF NOT EXISTS internal_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER,
+    author_kind TEXT,      -- admin | operator
+    author_name TEXT,
+    text        TEXT,
+    created_at  TEXT
+);
+
+-- Audit jurnali: kim nima qildi (o'chirilgan xabarning asl nusxasi ham shu yerda)
+CREATE TABLE IF NOT EXISTS audit_log (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    at       TEXT,
+    actor    TEXT,
+    action   TEXT,
+    order_id INTEGER,
+    details  TEXT
+);
 """
 
 DEFAULT_FAQS = [
@@ -240,6 +272,9 @@ DEFAULT_SETTINGS = {
     "op_work_start": "08:00",
     "op_work_end": "23:00",
     "escalate_min": "5",   # necha daqiqada javobsiz murojaat admin'ga eslatilsin (0 = o'chiq)
+    "auto_assign": "off",  # avto-taqsimlash: off | rr (navbat bilan) | least (eng kam yuklangan)
+    "sla_target_min": "5", # SLA: birinchi javob uchun maqsad (daqiqa)
+    "tags_preset": "Narx so'rovi\nRetsept\nMavjud emas\nYetkazib berish\nShikoyat\nMaslahat",
 }
 
 
@@ -252,7 +287,19 @@ CREATE INDEX IF NOT EXISTS idx_messages_order  ON messages(order_id);
 CREATE INDEX IF NOT EXISTS idx_statuslog_order ON status_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_msglinks_op     ON msg_links(operator_msg_id, operator_tg);
 CREATE INDEX IF NOT EXISTS idx_reminders_due   ON reminders(done, remind_at);
+CREATE INDEX IF NOT EXISTS idx_notes_order     ON internal_notes(order_id);
+CREATE INDEX IF NOT EXISTS idx_audit_order     ON audit_log(order_id);
 """
+
+
+async def _add_cols(db, table, cols):
+    """Yo'q ustunlarni qo'shadi: cols = [(nom, tur_va_default), ...]."""
+    cur = await db.execute(f"PRAGMA table_info({table})")
+    have = {row[1] for row in await cur.fetchall()}
+    for name, decl in cols:
+        if name not in have:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    await db.commit()
 
 
 async def init_db():
@@ -381,6 +428,16 @@ async def init_db():
     if "pending_branch_order" not in ucols:
         await db.execute("ALTER TABLE users ADD COLUMN pending_branch_order INTEGER")
         await db.commit()
+
+    # Mini app 2.0: formatlangan matn, reply, tahrir vaqti, fayl hajmi, teglar, qadalgan xabar,
+    # sessiya davri (eski tokenlarni bekor qilish), operatorning shaxsiy shablonlari, admin roli
+    await _add_cols(db, "messages", [("html", "TEXT"), ("reply_to_mid", "INTEGER"),
+                                     ("edited_at", "TEXT"), ("file_size", "INTEGER")])
+    await _add_cols(db, "orders", [("tags", "TEXT"), ("pinned_mid", "INTEGER")])
+    await _add_cols(db, "operators", [("sess_epoch", "INTEGER DEFAULT 0")])
+    await _add_cols(db, "templates", [("operator_id", "INTEGER")])
+    await _add_cols(db, "admins", [("role", "TEXT DEFAULT 'admin'")])
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_edited ON messages(order_id, edited_at)")
 
     # Boshlang'ich FAQ
     cur = await db.execute("SELECT COUNT(*) FROM faqs")

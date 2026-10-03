@@ -113,7 +113,7 @@ const _QP = new URLSearchParams(location.search);
 const OID = parseInt(_QP.get("order")||"", 10);
 let ADM = { id:null, token:null };
 
-function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function ini(n){ return (n||"?").trim().charAt(0).toUpperCase(); }
 const _AVA=[["#ff885e","#ff516a"],["#ffcd6a","#ffa85c"],["#82b1ff","#665fff"],["#a0de7e","#54cb68"],
             ["#53edd6","#28c9b7"],["#72d5fd","#2a9ef1"],["#e0a2f3","#d669ed"]];
@@ -127,7 +127,8 @@ function q(path, method, body){
   o.body = JSON.stringify(b); return fetch(path, o).then(r=>r.json());
 }
 function auth(){ return { admin_id: ADM.id, token: ADM.token }; }
-const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams(Object.assign(auth(),{fid,kind,name,mime,_init:INIT}));
+let MK = "";
+const fu = (fid,kind,name="",mime="")=>"/api/file?"+new URLSearchParams({fid,kind,name,mime,mk:MK});
 
 // ---- Ovozli xabar (Ogg/Opus) fallback — iOS WebView uchun ----
 let _actx=null;
@@ -230,9 +231,12 @@ async function load(){
                text:"🧾 Hisob-kitob: "+(bill.text||""), file_id:bill.photo||"", time:""});
   }
   const box=document.getElementById("msgs");
-  box.innerHTML = msgs.map(m=>
-    `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${msgMedia(m)}<div class="tm">${m.time||""}</div></div>`
-  ).join("") || '<div class="empty">Yozishma yo\'q</div>';
+  if(r.mk) MK = r.mk;
+  box.innerHTML = msgs.map(m=>{
+    if(m.kind==="note") return `<div class="b2 c" style="align-self:center;background:#fff4cc;color:#5c4400"><b style="font-size:11px">🔒 Ichki izoh · ${esc(m.author||"")}</b>\n${esc(m.text)}<div class="tm">${esc(m.time||"")}</div></div>`;
+    if(m.kind==="deleted") return `<div class="b2 o" style="opacity:.7;border:1.5px dashed #e5484d"><b style="font-size:11px">🗑 O'chirilgan</b>\n${msgMedia(m)}<div class="tm">${esc(m.time||"")}</div></div>`;
+    return `<div class="b2 ${m.own?'o':'c'}${m.bill?' bill':''}">${msgMedia(m)}<div class="tm">${esc(m.time||"")}</div></div>`;
+  }).join("") || '<div class="empty">Yozishma yo\'q</div>';
   bindVoice(box); box.scrollTop=box.scrollHeight;
 }
 function showErr(msg){
@@ -267,7 +271,7 @@ function closeProfile(){ document.getElementById("prof").classList.add("hide"); 
 async function gate(){
   const r = await q("/api/admin/login","POST",{});
   if(!r.ok){ showErr(r.error||"Kirish rad etildi."); return; }
-  ADM = { id: r.admin_id, token: r.token };
+  ADM = { id: r.admin_id, token: r.token }; MK = r.mk || "";
   load();
 }
 gate();

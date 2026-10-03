@@ -888,7 +888,7 @@ async def op_edit_value(message: Message, state: FSMContext):
         await q.update_operator(op_id, "login", value)
         msg = "✅ Login yangilandi."
     elif field == "password":
-        await q.update_operator(op_id, "password_hash", q.hash_password(value))
+        await q.update_operator_password(op_id, value)
         msg = f"✅ Parol yangilandi. Yangi parol: <code>{value}</code>"
     elif field == "hours":
         hours = parse_hours(value)

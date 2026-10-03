@@ -1,5 +1,6 @@
 """Umumiy yordamchi funksiyalar."""
 import asyncio
+import logging
 from aiogram import Bot
 from aiogram.types import BufferedInputFile
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -378,6 +379,12 @@ async def deliver_order_to_operators(bot: Bot, order_id, content_type, file_id, 
     await push_to_operator_bots(order_id, content_type, file_id, caption, filename=filename)
     # 3) Eskalatsiya: belgilangan vaqtda qabul qilinmasa — admin'ga eslatma
     schedule_escalation(order_id)
+    # 4) Avto-taqsimlash (Admin > Sozlamalar > Avto-taqsimlash yoqilgan bo'lsa)
+    try:
+        from handlers.operator import try_auto_assign
+        await try_auto_assign(order_id)
+    except Exception:
+        logging.getLogger("bot").exception("auto-assign #%s", order_id)
 
 
 # ---------------- Eskalatsiya: javobsiz murojaatni admin'ga eslatish ----------------
@@ -650,13 +657,35 @@ async def post_canceled_to_channel(order_id, op_name: str = None, by_client: boo
             pass
 
 
+def _file_size_of(message):
+    for obj in (message.document, message.video, message.voice, message.audio):
+        if obj is not None:
+            return getattr(obj, "file_size", None)
+    if message.photo:
+        return message.photo[-1].file_size
+    return None
+
+
 async def save_message_from_message(order_id, sender, message):
     ct, fid, txt = extract_content(message)
     doc = message.document if ct == "document" else None
+    # Mini app'da Telegramdek ko'rinsin: formatlash (qalin/kursiv), reply va fayl hajmi
+    import tghtml
+    reply_mid = None
+    try:
+        if message.reply_to_message:
+            rid = message.reply_to_message.message_id
+            if sender == "client":
+                reply_mid = await q.find_order_message(order_id, tg_msg_id=rid, client_msg_id=rid)
+    except Exception:
+        reply_mid = None
     return await q.add_message(
         order_id, sender, ct, txt, fid, message.message_id,
         file_name=doc.file_name if doc else None,
         mime_type=doc.mime_type if doc else None,
+        html=tghtml.from_message(message) if ct in ("text", "photo", "video", "document") else None,
+        reply_to_mid=reply_mid,
+        file_size=_file_size_of(message),
     )
 
 
