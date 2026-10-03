@@ -230,6 +230,41 @@ CREATE TABLE IF NOT EXISTS internal_notes (
     created_at  TEXT
 );
 
+-- Pauzalar: operator suhbatni vaqtincha to'xtatadi (mijoz ertaga yozadi va h.k.)
+CREATE TABLE IF NOT EXISTS order_pauses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER,
+    operator_id INTEGER,
+    reason      TEXT,
+    started_at  TEXT,
+    until_at    TEXT,
+    ended_at    TEXT,
+    ended_by    TEXT,       -- client | operator | close | time
+    minutes     REAL
+);
+
+-- Dori katalogi (admin Excel'dan yuklaydi, operator chatda qidiradi)
+CREATE TABLE IF NOT EXISTS products (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    price      INTEGER DEFAULT 0,          -- so'm
+    unit       TEXT,                       -- dona / quti / ml ...
+    note       TEXT,                       -- qisqa izoh (ishlab chiqaruvchi, dozasi)
+    in_stock   INTEGER DEFAULT 1,
+    updated_at TEXT
+);
+
+-- «Dori kelganda xabar bering» navbati
+CREATE TABLE IF NOT EXISTS stock_waits (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id  INTEGER,
+    user_id     INTEGER,
+    order_id    INTEGER,
+    operator_id INTEGER,
+    created_at  TEXT,
+    UNIQUE(product_id, user_id)
+);
+
 -- Audit jurnali: kim nima qildi (o'chirilgan xabarning asl nusxasi ham shu yerda)
 CREATE TABLE IF NOT EXISTS audit_log (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,6 +309,8 @@ DEFAULT_SETTINGS = {
     "escalate_min": "5",   # necha daqiqada javobsiz murojaat admin'ga eslatilsin (0 = o'chiq)
     "auto_assign": "off",  # avto-taqsimlash: off | rr (navbat bilan) | least (eng kam yuklangan)
     "sla_target_min": "5", # SLA: birinchi javob uchun maqsad (daqiqa)
+    "daily_report": "21:00",  # adminlarga kunlik hisobot vaqti ("" = o'chiq)
+    "op_daily_goal": "0",     # operator kunlik maqsadi (yakunlangan murojaat, 0 = o'chiq)
     "tags_preset": "Narx so'rovi\nRetsept\nMavjud emas\nYetkazib berish\nShikoyat\nMaslahat",
 }
 
@@ -289,6 +326,7 @@ CREATE INDEX IF NOT EXISTS idx_msglinks_op     ON msg_links(operator_msg_id, ope
 CREATE INDEX IF NOT EXISTS idx_reminders_due   ON reminders(done, remind_at);
 CREATE INDEX IF NOT EXISTS idx_notes_order     ON internal_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_audit_order     ON audit_log(order_id);
+CREATE INDEX IF NOT EXISTS idx_products_name   ON products(name);
 """
 
 
@@ -432,12 +470,27 @@ async def init_db():
     # Mini app 2.0: formatlangan matn, reply, tahrir vaqti, fayl hajmi, teglar, qadalgan xabar,
     # sessiya davri (eski tokenlarni bekor qilish), operatorning shaxsiy shablonlari, admin roli
     await _add_cols(db, "messages", [("html", "TEXT"), ("reply_to_mid", "INTEGER"),
-                                     ("edited_at", "TEXT"), ("file_size", "INTEGER")])
-    await _add_cols(db, "orders", [("tags", "TEXT"), ("pinned_mid", "INTEGER")])
+                                     ("edited_at", "TEXT"), ("file_size", "INTEGER"),
+                                     ("extra_cmids", "TEXT")])   # bir nechta xabardan iborat javob (filial: rasm+matn+xarita)
+    await _add_cols(db, "orders", [("tags", "TEXT"), ("pinned_mid", "INTEGER"), ("paused_at", "TEXT"),
+                                   ("paused_until", "TEXT"), ("paused_total_min", "REAL DEFAULT 0"),
+                                   ("pause_remind_min", "INTEGER"), ("pause_next_remind", "TEXT"),
+                                   ("rejected_at", "TEXT"), ("rejected_by", "INTEGER")])   # «Отказ» belgisi
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_pauses_order ON order_pauses(order_id)")
     await _add_cols(db, "operators", [("sess_epoch", "INTEGER DEFAULT 0")])
     await _add_cols(db, "templates", [("operator_id", "INTEGER")])
     await _add_cols(db, "admins", [("role", "TEXT DEFAULT 'admin'")])
     await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_edited ON messages(order_id, edited_at)")
+    # Eski yozuvlar: bot yasagan xabarlar matnida qolib ketgan <b> teglarini HTML ustuniga ko'chiramiz
+    import tghtml
+    cur = await db.execute(
+        "SELECT id, text FROM messages WHERE sender='operator' AND html IS NULL "
+        "AND text LIKE '%<%' AND text LIKE '%>%'")
+    for row in await cur.fetchall():
+        if tghtml.has_markup(row[1]):
+            h = tghtml.sanitize(row[1])
+            await db.execute("UPDATE messages SET html=?, text=? WHERE id=?", (h, tghtml.to_plain(h), row[0]))
+    await db.commit()
 
     # Boshlang'ich FAQ
     cur = await db.execute("SELECT COUNT(*) FROM faqs")

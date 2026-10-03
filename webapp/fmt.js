@@ -110,6 +110,7 @@ function menu(x, y, items){
     d.addEventListener("click", e=>{ e.stopPropagation(); closeMenu(); try{ it.onClick && it.onClick(); }catch(err){ console.error(err); } });
     m.appendChild(d);
   });
+  if(window.I18N) window.I18N.translate(m);
   document.body.appendChild(m); _menu = m;
   const r = m.getBoundingClientRect(), W = innerWidth, H = innerHeight;
   let L = x, T = y;
@@ -131,6 +132,7 @@ function prompt2(title, fields, onOk){
   d.innerHTML = `<div class="box"><h4>${escT(title)}</h4>${fields.map((f,i)=>
       `<input data-i="${i}" placeholder="${esc(f.ph||"")}" value="${esc(f.value||"")}">`).join("")}
     <div class="row"><button data-x>Bekor</button><button class="p" data-ok>Tayyor</button></div></div>`;
+  if(window.I18N) window.I18N.translate(d);
   document.body.appendChild(d);
   const ins = [...d.querySelectorAll("input")];
   const done = ok=>{ d.remove(); if(ok) onOk(ins.map(i=>i.value.trim())); };

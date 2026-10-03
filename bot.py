@@ -186,11 +186,16 @@ async def reminders_loop(bot):
     while True:
         await asyncio.sleep(60)
         try:
+            from utils import operator_in_hours
             for r in await q.due_reminders(q.now()):
-                await q.mark_reminder_done(r["id"])
                 op = await q.get_operator(r["operator_id"])
                 if not op or not op["telegram_id"]:
+                    await q.mark_reminder_done(r["id"])
                     continue
+                # Ish vaqtidan tashqarida eslatma yubormaymiz — ish vaqti boshlanganda yuboriladi
+                if not operator_in_hours(op)[0]:
+                    continue
+                await q.mark_reminder_done(r["id"])
                 ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
                 text = (f"⏰ <b>Eslatma</b> — murojaat #{r['order_id']}"
                         f" ({r['full_name'] or 'mijoz'})"

@@ -480,6 +480,8 @@
       <div class="item" onclick="openSet('reviews')"><svg class="ic" viewBox="0 0 24 24" style="color:#d97706"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Otzivlar<div style="font-size:12px;color:var(--hint)">Barcha baholar · tahrirlash / o'chirish</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('sla')"><svg class="ic" viewBox="0 0 24 24" style="color:#14b8a6"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><div class="lbl">SLA — javob tezligi<div style="font-size:12px;color:var(--hint)">Operatorlar bo'yicha birinchi javob va hal qilish vaqti</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('assign')"><svg class="ic" viewBox="0 0 24 24" style="color:#8b5cf6"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg><div class="lbl">Avto-taqsimlash<div style="font-size:12px;color:var(--hint)">Yangi murojaat avtomatik operatorga</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('products')"><svg class="ic" viewBox="0 0 24 24" style="color:#22a35a"><path d="M10.5 20.5l10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7zM8.5 8.5l7 7"/></svg><div class="lbl">Dori katalogi<div style="font-size:12px;color:var(--hint)">Narxlar, mavjudlik · Excel yuklash · «kelganda xabar»</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('daily')"><svg class="ic" viewBox="0 0 24 24" style="color:#f59e0b"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><div class="lbl">Kunlik hisobot va maqsad<div style="font-size:12px;color:var(--hint)">Har kuni Telegramga xulosa · operator kunlik maqsadi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('tags')"><svg class="ic" viewBox="0 0 24 24" style="color:#ec4899"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg><div class="lbl">Teglar<div style="font-size:12px;color:var(--hint)">Murojaat mavzulari ro'yxati</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('audit')"><svg class="ic" viewBox="0 0 24 24" style="color:#64748b"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg><div class="lbl">Audit jurnali<div style="font-size:12px;color:var(--hint)">Kim nima qildi · o'chirilgan xabarlar</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -946,9 +948,14 @@ function renderAll(){
 }
 function renderTagStats(items){
   const box=document.getElementById("tagcard"); if(!box) return;
-  if(!items.length){ box.innerHTML=""; return; }
+  const ps=(DASH&&DASH.pauses)||{};
+  const pz = ps.count ? `<div class="card" style="margin-bottom:12px;border-left:4px solid #f59e0b"><h3>⏸ Pauzalar</h3>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:14px"><div><b style="font-size:20px">${ps.count}</b><div style="color:var(--hint);font-size:12px">pauza</div></div>
+    <div><b style="font-size:20px">${_durTxt(ps.minutes)}</b><div style="color:var(--hint);font-size:12px">jami (statistikaga kirmaydi)</div></div>
+    <div><b style="font-size:20px;color:${ps.now?"#b45309":"inherit"}">${ps.now}</b><div style="color:var(--hint);font-size:12px">hozir pauzada</div></div></div></div>` : "";
+  if(!items.length){ box.innerHTML=pz; return; }
   const mx=Math.max(...items.map(t=>t.cnt),1);
-  box.innerHTML=`<div class="card" style="margin-bottom:12px"><h3>Murojaat mavzulari (teglar)</h3>${items.map(t=>`
+  box.innerHTML=pz+`<div class="card" style="margin-bottom:12px"><h3>Murojaat mavzulari (teglar)</h3>${items.map(t=>`
     <div class="tcrow" style="cursor:pointer" onclick='showTab("orders");setOrdTag(${ja(t.name)})'>
       <div class="tcname" style="width:130px">#${esc(t.name)}</div>
       <div class="tcbarwrap"><div class="tcbar" style="width:${Math.max(4,(t.cnt/mx)*100).toFixed(1)}%"></div></div>
@@ -1421,7 +1428,7 @@ async function loadOrders(reset){
       <div class="ava2" style="background:${avaBg(o.name)}">${ini(o.name)}</div>
       <div class="mid">
         <div class="nm"><span>#${o.id} · ${esc(o.name)}${o.bill?' <span title="Hisob-kitob qilingan">🧾</span>':''}</span><span class="tm">${esc(o.time)}</span></div>
-        <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}${(o.tags||[]).map(t=>`<span class="tagchip">#${esc(t)}</span>`).join("")}</div>
+        <div class="sub"><span class="sdot" style="background:${ST_COL[o.status]||'#999'}"></span>${ST_LBL[o.status]||o.status}${o.operator?" · "+esc(o.operator):""}${o.rating?" · "+o.rating+"★":""}${o.paused?'<span class="tagchip" style="background:rgba(245,158,11,.18);color:#b45309">⏸ pauza</span>':""}${(o.tags||[]).map(t=>`<span class="tagchip">#${esc(t)}</span>`).join("")}</div>
       </div>
     </div>`).join("") : '<div class="empty">Topilmadi</div>';
   buildPager(document.getElementById("ord-pager"), ORD.page, r.total, "goOrdPage");
@@ -1493,6 +1500,8 @@ async function openTrans(oid, back){
   document.getElementById("tr-msgs").innerHTML = msgs.map(m=>{
     if(m.kind==="note")
       return `<div class="b2note"><div class="nh">🔒 Ichki izoh · ${m.akind==="admin"?"Admin":"Operator"} ${esc(m.author||"")}</div>${esc(m.text)}<div class="tm" style="text-align:right;font-size:10px;opacity:.6">${esc(m.time||"")}</div></div>`;
+    if(m.kind==="pause")
+      return `<div class="b2note" style="background:#fff1dc;color:#7c4a03"><div class="nh">⏸ Pauza: ${esc(m.text||"")}</div>${esc((m.start||"").slice(5,16))} → ${m.end?esc(m.end.slice(5,16))+" · "+_durTxt(m.minutes)+" (statistikaga kirmadi)":"davom etmoqda"}${m.by?` · ${esc({client:"mijoz yozdi",operator:"operator davom ettirdi",time:"vaqt tugadi",close:"yakunlandi"}[m.by]||m.by)}`:""}</div>`;
     if(m.kind==="deleted")
       return `<div class="b2 o del"><div class="delh">🗑 O'chirilgan · ${esc((m.deleted_at||"").slice(5,16))} · ${esc(m.by||"")}</div>${msgMedia(m,fu)}<div class="tm">${esc(m.time||"")}</div></div>`;
     const rf = m.reply_to ? (byMid[m.reply_to] || m.reply) : null;
@@ -1716,14 +1725,14 @@ const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy x
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
             opbots:"Operator botlari",low:"Sifat nazorati",reviews:"Otzivlar",excel:"Excel hisobot",
             stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar",
-            notify:"Bildirishnomalar",sla:"SLA — javob tezligi",assign:"Avto-taqsimlash",tags:"Teglar",audit:"Audit jurnali"};
+            notify:"Bildirishnomalar",sla:"SLA — javob tezligi",assign:"Avto-taqsimlash",tags:"Teglar",audit:"Audit jurnali",products:"Dori katalogi",daily:"Kunlik hisobot va maqsad"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
     ops:svOps,opbots:svOpbots,low:svLow,reviews:svReviews,excel:svExcel,stale:svStale,stats:svStats,
-    admins:svAdmins,notify:svNotify,sla:svSla,assign:svAssign,tags:svTags,audit:svAudit})[kind]();
+    admins:svAdmins,notify:svNotify,sla:svSla,assign:svAssign,tags:svTags,audit:svAudit,products:svProducts,daily:svDaily})[kind]();
 }
 
 // ---- Statistika (umumiy + filiallar kesimi) ----
@@ -2027,6 +2036,101 @@ async function saveAssign(){
   const v=(document.querySelector('input[name="aa"]:checked')||{}).value||"off";
   const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{auto_assign:v,sla_target_min:document.getElementById("sla-t").value}));
   tg.showAlert(r.ok?"Saqlandi ✅":(r.error||"Xatolik"));
+}
+
+// ---- Kunlik hisobot + operator maqsadi ----
+async function svDaily(){
+  const r=await q("/api/admin/settings","GET",auth()); if(!r.ok) return;
+  const on = !!(r.daily_report||"").trim();
+  document.getElementById("sv-body").innerHTML=`<div class="card"><div class="frm">
+      <label>Kunlik hisobot (bildirishnoma yoqilgan adminlarga, Telegramda)</label>
+      <div style="display:flex;gap:8px;align-items:center"><select id="dr-on" style="flex:1"><option value="1" ${on?"selected":""}>Yoqilgan</option><option value="0" ${on?"":"selected"}>O'chirilgan</option></select>
+        <input id="dr-t" type="time" value="${esc(r.daily_report||"21:00")}" style="flex:1"></div>
+      <label>Operator kunlik maqsadi (yakunlangan murojaat, 0 = o'chiq)</label>
+      <input id="dg" type="number" min="0" max="500" value="${esc(r.op_daily_goal||0)}">
+      <button class="sbtn" onclick="saveDaily()">Saqlash</button></div></div>
+    <div class="card"><h3>Bugungi hisobot (ko'rinishi)</h3><div id="dr-prev" style="white-space:pre-wrap;font-size:14px;line-height:1.5">Yuklanmoqda...</div></div>`;
+  const p=await q("/api/admin/daily_preview","GET",auth());
+  document.getElementById("dr-prev").innerHTML = p.ok ? TGF.render(p.text.replace(/\n/g,"\n"), "") : "—";
+}
+async function saveDaily(){
+  const on=document.getElementById("dr-on").value==="1";
+  const r=await q("/api/admin/settings_save","POST",Object.assign(auth(),{daily_report:on?document.getElementById("dr-t").value:"off",op_daily_goal:document.getElementById("dg").value}));
+  tg.showAlert(r.ok?"Saqlandi ✅":(r.error||"Xatolik"));
+}
+
+// ---- Dori katalogi ----
+let PRD={page:0,q:""}, prdT=null;
+function prdDeb(){ clearTimeout(prdT); prdT=setTimeout(()=>{ PRD.page=0; PRD.q=document.getElementById("prd-q").value.trim(); loadProducts(); },300); }
+async function svProducts(){
+  PRD={page:0,q:""};
+  document.getElementById("sv-body").innerHTML=`
+    <div class="card"><h3>Excel'dan yuklash</h3>
+      <div style="font-size:13px;color:var(--hint);line-height:1.5;margin-bottom:8px">Ustunlar: <b>Nomi</b>, <b>Narxi</b>, Birlik, Izoh, Mavjud (1/0 yoki bor/yo'q). Bir xil nomli dori yangilanadi.
+        «Mavjud» bo'lib qolgan dorilarni kutayotgan mijozlarga avtomatik xabar boradi.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="sbtn" style="flex:1;min-width:140px" onclick="document.getElementById('prd-file').click()">📥 Excel yuklash</button>
+        <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdTemplate()">📄 Namuna fayl</button></div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="prd-repl"> Eski katalogni to'liq almashtirish</label>
+      <input type="file" id="prd-file" accept=".xlsx" class="hide" onchange="prdImport(this)"></div>
+    <div class="searchbar" style="margin:0 0 10px"><input id="prd-q" placeholder="Dori qidirish (lotin yoki kirill)" oninput="prdDeb()"></div>
+    <div id="prd-sum" style="font-size:13px;color:var(--hint);margin:0 4px 8px"></div>
+    <div class="lrows" id="prd-rows"></div><div id="prd-pager" class="pager hide"></div>
+    <button class="morebtn" onclick="prdForm(null)">＋ Dori qo'shish</button><div id="prd-form"></div>`;
+  loadProducts();
+}
+function goPrdPage(p){ PRD.page=p; loadProducts(); }
+async function loadProducts(){
+  const r=await q("/api/admin/products","GET",Object.assign(auth(),{q:PRD.q,page:PRD.page})); if(!r.ok) return;
+  document.getElementById("prd-sum").textContent=`Jami: ${r.total} ta dori`+(r.waiting?` · 🔔 ${r.waiting} ta mijoz kelishini kutyapti`:"");
+  document.getElementById("prd-rows").innerHTML=r.items.map(p=>`
+    <div class="lrow" onclick='prdForm(${ja(p)})'>
+      <div class="mid"><div class="nm"><span>${esc(p.name)}</span><span class="tm" style="font-weight:700;color:var(--text)">${p.price?String(p.price).replace(/\B(?=(\d{3})+(?!\d))/g," ")+" so'm":"—"}</span></div>
+        <div class="sub">${p.unit?esc(p.unit)+" · ":""}${p.note?esc(p.note)+" · ":""}${p.waits?`🔔 ${p.waits} kutyapti · `:""}<span style="color:${p.in_stock?"#2f9e44":"#e5484d"};font-weight:600">${p.in_stock?"bor":"yo'q"}</span></div></div>
+      <button class="delbtn" style="font-size:12px;padding:5px 9px;color:${p.in_stock?"#e5484d":"#2f9e44"}" onclick="event.stopPropagation();prdStock(${p.id},${p.in_stock?0:1})">${p.in_stock?"Tugadi":"Keldi ✓"}</button>
+    </div>`).join("")||'<div class="empty">Katalog bo\'sh — Excel yuklang yoki qo\'shing</div>';
+  const pg=document.getElementById("prd-pager"), pages=Math.ceil(r.total/50);
+  if(pages>1){ pg.classList.remove("hide"); pg.innerHTML=`<button class="pg-b" ${PRD.page<=0?"disabled":""} onclick="goPrdPage(${PRD.page-1})">‹</button><span class="pg-gap" style="min-width:70px">${PRD.page+1} / ${pages}</span><button class="pg-b" ${PRD.page>=pages-1?"disabled":""} onclick="goPrdPage(${PRD.page+1})">›</button>`; }
+  else pg.classList.add("hide");
+}
+function prdForm(p){
+  document.getElementById("prd-form").innerHTML=`<div class="card" style="margin-top:12px"><h3>${p?"Tahrirlash":"Yangi dori"}</h3><div class="frm">
+    <input id="pf-n" placeholder="Nomi" value="${p?esc(p.name):""}">
+    <div style="display:flex;gap:8px"><input id="pf-p" inputmode="numeric" placeholder="Narxi (so'm)" value="${p&&p.price?p.price:""}" style="flex:1"><input id="pf-u" placeholder="Birlik (quti)" value="${p?esc(p.unit):""}" style="flex:1"></div>
+    <input id="pf-note" placeholder="Izoh (ishlab chiqaruvchi, dozasi)" value="${p?esc(p.note):""}">
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="pf-s" ${!p||p.in_stock?"checked":""}> Mavjud</label>
+    <button class="sbtn" onclick="prdSave(${p?p.id:0})">Saqlash</button>
+    ${p?`<button class="morebtn" style="color:#e5484d;margin-top:0" onclick="prdDel(${p.id})">O'chirish</button>`:""}</div></div>`;
+  document.getElementById("prd-form").scrollIntoView({behavior:"smooth"});
+}
+async function prdSave(id){
+  const r=await q("/api/admin/product_save","POST",Object.assign(auth(),{id,name:document.getElementById("pf-n").value,
+    price:document.getElementById("pf-p").value,unit:document.getElementById("pf-u").value,note:document.getElementById("pf-note").value,
+    in_stock:document.getElementById("pf-s").checked}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+  if(r.notified) tg.showAlert(`Saqlandi. ${r.notified} ta mijozga «dori keldi» xabari yuborildi ✅`);
+  document.getElementById("prd-form").innerHTML=""; loadProducts();
+}
+async function prdStock(id,on){
+  const r=await q("/api/admin/product_stock","POST",Object.assign(auth(),{id,in_stock:!!on}));
+  if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+  if(r.notified) tg.showAlert(`${r.notified} ta kutayotgan mijozga «dori keldi» xabari yuborildi ✅`);
+  loadProducts();
+}
+function prdDel(id){ tg.showConfirm("Dori katalogdan o'chirilsinmi?", async ok=>{ if(!ok) return;
+  await q("/api/admin/product_del","POST",Object.assign(auth(),{id})); document.getElementById("prd-form").innerHTML=""; loadProducts(); }); }
+function prdTemplate(){ const u=new URL("/api/admin/products_template", location.href).href; try{ tg.openLink(u); }catch(e){ window.open(u); } }
+function prdImport(inp){
+  const f=inp.files[0]; inp.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=async()=>{
+    tg.showAlert && 0;
+    const r=await q("/api/admin/products_import","POST",Object.assign(auth(),{data:rd.result,replace:document.getElementById("prd-repl").checked}));
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    tg.showAlert(`Yuklandi ✅\nYangi: ${r.added}\nYangilangan: ${r.updated}`+(r.notified?`\n🔔 «Dori keldi» xabari: ${r.notified} ta mijozga`:""));
+    loadProducts();
+  };
+  rd.readAsDataURL(f);
 }
 
 // ---- Teglar ro'yxati ----

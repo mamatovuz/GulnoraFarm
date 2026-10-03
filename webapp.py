@@ -199,13 +199,45 @@ def _json(data, status=200):
 
 
 # ---------------- Sahifa ----------------
+_STATIC = os.path.join(os.path.dirname(__file__), "webapp", "static")
+_NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+
+def _assets_version() -> str:
+    """CSS/JS fayllar o'zgarganda yangilanadigan versiya — Telegram eski keshni ishlatmasin."""
+    mt = 0
+    for root in (_STATIC, os.path.dirname(_HTML)):
+        try:
+            for n in os.listdir(root):
+                mt = max(mt, int(os.path.getmtime(os.path.join(root, n))))
+        except OSError:
+            pass
+    return str(mt)
+
+
+def _page(path):
+    if not os.path.exists(path):
+        return web.Response(text="Mini app fayli topilmadi.", status=404)
+    with open(path, encoding="utf-8") as fh:
+        html = fh.read().replace("{{V}}", _assets_version())
+    return web.Response(text=html, content_type="text/html", headers=_NOCACHE)
+
+
 async def index(request):
-    if os.path.exists(_HTML):
-        # Kesh o'chirilgan: har ochilganda eng yangi dizayn yuklanadi
-        return web.FileResponse(_HTML, headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache", "Expires": "0"})
-    return web.Response(text="Mini app fayli topilmadi.", status=404)
+    # Kesh o'chirilgan: har ochilganda eng yangi dizayn yuklanadi
+    return _page(_HTML)
+
+
+async def static_file(request):
+    name = os.path.basename(request.match_info.get("name", ""))
+    path = os.path.join(_STATIC, name)
+    if not name or not os.path.isfile(path):
+        return web.Response(status=404)
+    ctype = {"js": "application/javascript", "css": "text/css"}.get(name.rsplit(".", 1)[-1],
+                                                                   mimetypes.guess_type(name)[0] or "application/octet-stream")
+    return web.FileResponse(path, headers={"Content-Type": ctype + "; charset=utf-8" if "/" in ctype and ctype.startswith(("application/javascript", "text/")) else ctype,
+                                           "Cache-Control": "public, max-age=31536000, immutable"
+                                           if request.query.get("v") else "no-cache"})
 
 
 async def health(request):
@@ -300,6 +332,9 @@ def _chat_json(r, op_id):
         "archived": bool(r["archived"]) if "archived" in keys else False,
         "draft": (r["draft"] or "") if "draft" in keys else "",
         "tags": [t for t in (r["tags"] or "").split(",") if t] if "tags" in keys else [],
+        "paused": bool(r["paused_at"]) if "paused_at" in keys else False,
+        "rejected": bool(r["rejected_at"]) if "rejected_at" in keys else False,
+        "paused_until": (r["paused_until"] or "") if "paused_until" in keys else "",
         "preview": (preview or "")[:90],
         "time": _short_time(r["last_at"] or r["created_at"] or ""),
         "ts": r["last_at"] or r["created_at"] or "",
@@ -322,12 +357,16 @@ async def api_done_chats(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
+    kind = request.query.get("kind") or "done"
+    if kind not in ("done", "canceled", "rejected"):
+        kind = "done"
     out = []
-    for r in await q.op_done_chats(op["id"]):
+    for r in await q.op_done_chats(op["id"], kind=kind):
         prev = r["last_text"] or (_ct_label(r["last_ct"]) if r["last_ct"] else "")
         out.append({"order_id": r["id"], "name": r["full_name"] or r["phone"] or "Mijoz",
                     "phone": r["phone"] or "", "status": r["status"], "rating": r["rating"] or 0,
                     "last_sender": r["last_sender"] or "",
+                    "rejected": bool(r["rejected_at"]),
                     "tags": [t for t in (r["tags"] or "").split(",") if t],
                     "preview": prev[:90], "time": _short_time(r["closed_at"] or r["created_at"] or "")})
     return _json({"ok": True, "chats": out})
@@ -387,7 +426,10 @@ async def _chat_meta(order, user):
         if r:
             pinned = _msg_json(r)
     uname = user["username"] if user and "username" in user.keys() else ""
+    import webapp_extra
     return {
+        "rejected": bool(order["rejected_at"]) if "rejected_at" in order.keys() else False,
+        "pause": webapp_extra.pause_json(order, await q.order_pauses(order["id"])),
         "order_id": order["id"], "status": order["status"],
         "operator_id": order["operator_id"] or 0,
         "fulfillment": order["fulfillment"] or "",
@@ -1054,6 +1096,71 @@ async def api_close(request):
     return _json({"ok": True})
 
 
+# ---------------- API: bekor qilish / Отказ ----------------
+async def api_cancel(request):
+    """Murojaatni bekor qiladi (botdagi «Bekor» bilan bir xil): mijozga xabar boradi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order or order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Bu murojaat allaqachon yopilgan"})
+    if order["operator_id"] and order["operator_id"] != op["id"]:
+        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
+    await q.set_order_status(order_id, "canceled", f"operator:{op['id']}")
+    await q.set_operator_active_order(op["id"], None)
+    await q.set_operator_availability(op["id"], "free")
+    await q.set_user_active_order(order["user_id"], None)
+    from utils import cbot, update_group_card
+    client = cbot()
+    if client:
+        try:
+            await update_group_card(client, order_id)
+        except Exception:
+            pass
+        try:
+            clang = await q.get_lang(order["user_id"])
+            await client.send_message(order["user_id"], loc.t("order_canceled", clang, id=order_id))
+        except Exception:
+            pass
+    await q.audit(f"op:{op['name']}", "cancel", order_id)
+    return _json({"ok": True, "info": "Murojaat bekor qilindi"})
+
+
+async def api_reject(request):
+    """«Отказ» — murojaat Отказ kanaliga joylanadi va belgilanadi, LEKIN yopilmaydi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        order_id = int(body.get("order_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "order_id"}, 400)
+    order = await q.get_order(order_id)
+    if not order:
+        return _json({"ok": False, "error": "Murojaat topilmadi"})
+    try:
+        from utils import post_canceled_to_channel
+        await post_canceled_to_channel(order_id, op_name=op["name"])
+    except Exception:
+        logger.exception("reject -> channel")
+    await q.set_order_rejected(order_id, op["id"])
+    await q.audit(f"op:{op['name']}", "reject", order_id)
+    return _json({"ok": True, "info": "Отказ belgilandi — chat ochiq qoladi"})
+
+
 # ---------------- API: chatni o'chirish (yashirish) ----------------
 async def api_hide(request):
     try:
@@ -1075,6 +1182,7 @@ async def api_hide(request):
 
 # ---------------- API: profil ----------------
 async def api_profile(request):
+    import webapp_extra
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
@@ -1084,6 +1192,7 @@ async def api_profile(request):
                   "availability": op["availability"], "incoming": incoming,
                   "token": _fresh_op_token(op, request.query.get("token", "")),
                   "mk": _media_key(), "ws": op["work_start"], "we": op["work_end"],
+                  "goal": await webapp_extra.operator_goal(op),
                   "has_avatar": os.path.exists(os.path.join(AVATAR_DIR, f"{op['id']}.jpg")),
                   "stats": {"accepted": s["accepted"], "done": s["done"],
                             "today_done": s["today_done"], "rating": s["avg_rating"],
@@ -1317,12 +1426,23 @@ async def api_cmd(request):
                 return _json({"ok": False, "error": "filial topilmadi"})
             header = loc.t("op_branch_info", clang)
             # rasm + nomi/manzili/telefoni/ish vaqti + «Yo'l ko'rsatish» + xaritadagi nuqta
-            if not await send_branch_to_client(client, uid, b, clang, header=header, src_bot=client):
+            ids = await send_branch_to_client(client, uid, b, clang, header=header, src_bot=client)
+            if not ids:
                 return _json({"ok": False, "error": "mijozga yuborilmadi"}, 200)
+            ids = [i for i in ids if i]
             await q.add_message(order_id, "operator", "text",
-                                branch_card_text(b, clang, header), None, None)
+                                branch_card_text(b, clang, header), None, None,
+                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
             return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
 
+        if cmd == "billitems":
+            # Hisob-kitob yaratuvchi: dorilar ro'yxati -> tayyor matn, keyin oddiy «bill» yo'li
+            from webapp_extra import build_bill_text
+            items = body.get("items") or []
+            if not isinstance(items, list) or not items:
+                return _json({"ok": False, "error": "Ro'yxat bo'sh"})
+            arg, _total = build_bill_text(items, body.get("delivery") or 0, body.get("note") or "")
+            cmd = "bill"
         if cmd == "bill":
             billtext = str(arg or "").strip()
             media_kind = body.get("media_kind")
@@ -1505,6 +1625,8 @@ async def api_send_sticker(request):
 
 # ---------------- API: xabarni o'chirish / tahrirlash ----------------
 async def api_msg_del(request):
+    """Operator o'z xabarini o'chiradi: mijoz chatidan ham (Telegram 48 soat ichida ruxsat beradi).
+    Mijoz chatidagi ID si saqlanmagan eski/tizim xabarlari faqat yozishmadan o'chiriladi."""
     try:
         body = await request.json()
     except Exception:
@@ -1517,25 +1639,35 @@ async def api_msg_del(request):
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
     row = await q.get_message(mid)
-    if not row or row["sender"] != "operator" or not row["client_msg_id"]:
+    if not row or row["sender"] != "operator":
         return _json({"ok": False, "error": "Bu xabarni o'chirib bo'lmaydi"})
     order = await q.get_order(row["order_id"])
-    if not order or order["operator_id"] != op["id"]:
+    if not order or (order["operator_id"] and order["operator_id"] != op["id"]):
         return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
+    ids = [row["client_msg_id"]] if row["client_msg_id"] else []
+    extra = row["extra_cmids"] if "extra_cmids" in row.keys() else None
+    ids += [int(x) for x in (extra or "").split(",") if x.strip().isdigit()]
     from utils import cbot
     client = cbot()
-    if client:
-        try:
-            await client.delete_message(order["user_id"], row["client_msg_id"])
-        except Exception:
+    removed = 0
+    if ids and client:
+        for cm in ids:
+            try:
+                await client.delete_message(order["user_id"], cm)
+                removed += 1
+            except Exception:
+                pass
+        if not removed:
             return _json({"ok": False, "error": "Mijozda o'chirib bo'lmadi (48 soatdan oshgan)"})
     await q.audit(f"op:{op['name']}", "msg_delete", row["order_id"],
                   {"mid": mid, "type": row["content_type"], "text": row["text"] or "",
-                   "file_id": row["file_id"] or "", "sent_at": row["created_at"]})
+                   "file_id": row["file_id"] or "", "sent_at": row["created_at"],
+                   "client_deleted": bool(removed)})
     await q.delete_message_row(mid)
     if (order["pinned_mid"] if "pinned_mid" in order.keys() else None) == mid:
         await q.set_order_pinned(order["id"], None)
-    return _json({"ok": True})
+    return _json({"ok": True, "client": bool(removed),
+                  "info": "Xabar mijozdan ham o'chirildi" if removed else "Xabar yozishmadan o'chirildi"})
 
 
 async def api_msg_edit(request):
@@ -2063,6 +2195,7 @@ async def api_admin_dash(request):
         esc_min = 5
     return _json({"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
                   "tags": tagc, "escalate_min": esc_min, "mk": _media_key(),
+                  "pauses": await q.pause_stats(since, until),
                   "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
@@ -2092,6 +2225,7 @@ async def api_admin_orders(request):
               "status": r["status"], "operator": r["operator"] or "",
               "bill": bool((r["bill"] or "").strip()),   # hisob-kitob qilinganmi
               "tags": [t for t in (r["tags"] or "").split(",") if t],
+              "paused": bool(r["paused_at"]),
               "time": (r["created_at"] or "")[5:16], "rating": r["rating"] or 0} for r in rows]
     return _json({"ok": True, "total": total, "page": page, "items": items,
                   "tag_preset": await _tag_preset()})
@@ -2119,6 +2253,10 @@ async def api_admin_msgs(request):
         nj = _note_json(n)
         out.append({"kind": "note", "own": False, "type": "note", "text": nj["text"],
                     "author": nj["author"], "akind": nj["kind"], "ts": nj["ts"], "time": nj["time"]})
+    for p_ in await q.order_pauses(order_id):
+        out.append({"kind": "pause", "own": False, "type": "pause", "text": p_["reason"] or "",
+                    "start": p_["started_at"], "end": p_["ended_at"] or "", "minutes": round(p_["minutes"] or 0),
+                    "by": p_["ended_by"] or "", "ts": p_["started_at"], "time": (p_["started_at"] or "")[11:16]})
     for d in await q.deleted_messages(order_id):
         try:
             det = json.loads(d["details"] or "{}")
@@ -2135,6 +2273,7 @@ async def api_admin_msgs(request):
     return _json({"ok": True, "order_id": order_id, "status": order["status"],
                   "operator": op["name"] if op else "",
                   "tags": [t for t in (order["tags"] or "").split(",") if t],
+                  "paused": bool(order["paused_at"]), "paused_total_min": round(order["paused_total_min"] or 0),
                   "mk": _media_key(),
                   "rating": order["rating"] or 0,
                   "feedback": (order["feedback"] or "") if "feedback" in order.keys() else "",
@@ -2790,6 +2929,8 @@ async def api_admin_settings(request):
                   "auto_assign": await q.get_setting("auto_assign", "off"),
                   "sla_target_min": await q.get_setting("sla_target_min", "5"),
                   "tags_preset": await q.get_setting("tags_preset", ""),
+                  "daily_report": await q.get_setting("daily_report", "21:00"),
+                  "op_daily_goal": await q.get_setting("op_daily_goal", "0"),
                   "contact_text": await q.get_setting("contact_text", "")})
 
 
@@ -2802,7 +2943,12 @@ async def api_admin_settings_save(request):
         return _json({"ok": False}, 401)
     changed = {}
     for k in ("work_start", "work_end", "op_work_start", "op_work_end",
-              "escalate_min", "contact_text", "auto_assign", "sla_target_min", "tags_preset"):
+              "escalate_min", "contact_text", "auto_assign", "sla_target_min", "tags_preset",
+              "daily_report", "op_daily_goal"):
+        if k == "daily_report" and k in body and str(body[k]).strip() in ("", "off"):
+            await q.set_setting(k, "")
+            changed[k] = "off"
+            continue
         if k in body and str(body[k]).strip() != "":
             v = str(body[k]).strip()
             if k == "auto_assign" and v not in ("off", "rr", "least"):
@@ -3476,7 +3622,7 @@ async def api_admin_sla(request):
         if r["closed_at"]:
             m = _mins_between(r["created_at"], r["closed_at"])
             if m is not None and m >= 0:
-                d["resol"].append(m)
+                d["resol"].append(max(0, m - (r["paused_total_min"] or 0)))   # pauza vaqti hisoblanmaydi
         if r["rating"]:
             d["rated"].append(r["rating"])
     items = []
@@ -3680,6 +3826,8 @@ def build_app() -> web.Application:
     app.router.add_get("/api/client_info", api_client_info)
     app.router.add_get("/api/sync", api_sync)
     app.router.add_get("/api/done_chats", api_done_chats)
+    app.router.add_post("/api/cancel", api_cancel)
+    app.router.add_post("/api/reject", api_reject)
     app.router.add_get("/api/media_key", api_media_key)
     app.router.add_post("/api/typing", api_typing)
     app.router.add_post("/api/chat_state", api_chat_state)
@@ -3692,6 +3840,9 @@ def build_app() -> web.Application:
     app.router.add_post("/api/tpl_add", api_tpl_add)
     app.router.add_post("/api/tpl_del", api_tpl_del)
     app.router.add_get("/fmt.js", fmt_js)
+    app.router.add_get("/static/{name}", static_file)
+    import webapp_extra
+    webapp_extra.register(app)
     # Admin mini app
     app.router.add_get("/admin", admin_index)
     app.router.add_get("/view", view_index)
@@ -3762,4 +3913,6 @@ async def start(port: int):
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     asyncio.create_task(_cache_cleanup_loop())
+    import webapp_extra
+    webapp_extra.start_background()
     logger.info("🖥 Mini app server: 0.0.0.0:%s  (URL: %s)", port, WEBAPP_URL or "— sozlanmagan")

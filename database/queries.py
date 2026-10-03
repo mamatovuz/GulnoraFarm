@@ -285,6 +285,8 @@ async def set_fulfillment(order_id, kind):
 
 
 async def set_order_status(order_id, status, changed_by):
+    if status in ("done", "canceled"):
+        await resume_order(order_id, "close")      # pauza vaqti statistikaga to'g'ri yozilsin
     db = await get_db()
     cur = await db.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
     row = await cur.fetchone()
@@ -470,15 +472,25 @@ async def log_status(order_id, old, new, changed_by):
 # ============================ MESSAGES (proxy-chat) ============================
 async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None,
                       client_msg_id=None, file_name=None, mime_type=None,
-                      html=None, reply_to_mid=None, file_size=None):
+                      html=None, reply_to_mid=None, file_size=None, extra_cmids=None):
     """html — Telegram-HTML ko'rinishidagi formatlangan matn (qalin/kursiv...), text esa oddiy matn."""
+    # Bot o'zi yasagan xabarlar (filial kartasi, hisob-kitob...) <b> teglari bilan keladi —
+    # ular yozishmada «<b>» bo'lib ko'rinmasligi uchun HTML va oddiy matnga ajratamiz.
+    if sender == "operator" and html is None and text and "<" in text:
+        import tghtml
+        if tghtml.has_markup(text):
+            html = tghtml.sanitize(text)
+            text = tghtml.to_plain(html)
+    if sender in ("client", "operator"):
+        await resume_order(order_id, sender)       # yangi xabar — pauza avtomatik tugaydi
     db = await get_db()
     cur = await db.execute(
         "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, "
-        "client_msg_id, file_name, mime_type, created_at, html, reply_to_mid, file_size) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "client_msg_id, file_name, mime_type, created_at, html, reply_to_mid, file_size, extra_cmids) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id,
-         file_name, mime_type, now(), html, reply_to_mid, file_size),
+         file_name, mime_type, now(), html, reply_to_mid, file_size,
+         ",".join(str(x) for x in extra_cmids if x) if extra_cmids else None),
     )
     await db.commit()
     bump()
@@ -654,7 +666,7 @@ async def due_operator_unfinished_reminders(cutoff):
         "FROM orders o "
         "LEFT JOIN users u ON u.telegram_id = o.user_id "
         "WHERE o.status='in_progress' AND o.operator_id IS NOT NULL "
-        "AND o.accepted_at IS NOT NULL "
+        "AND o.accepted_at IS NOT NULL AND o.paused_at IS NULL "
         "AND COALESCE(o.last_operator_reminder_at, o.accepted_at) <= ? "
         "ORDER BY COALESCE(o.last_operator_reminder_at, o.accepted_at) ASC",
         (cutoff,),
@@ -1551,7 +1563,7 @@ async def general_stats():
         "WHERE sl.new_status = 'in_progress' GROUP BY o.id")
     stats["avg_response_min"] = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
-        "SELECT (julianday(closed_at) - julianday(created_at)) * 1440 "
+        "SELECT MAX(0, (julianday(closed_at)-julianday(created_at))*1440 - COALESCE(paused_total_min,0)) "
         "FROM orders WHERE status = 'done' AND closed_at IS NOT NULL")
     stats["avg_resolve_min"] = _median([r[0] for r in await cur.fetchall()])
 
@@ -1601,7 +1613,7 @@ async def branch_detail(branch_id):
         "WHERE branch_id=? AND rating IS NOT NULL", (branch_id,))).fetchone()
     rating, rated = (row[0] or 0), (row[1] or 0)
     cur = await db.execute(
-        "SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+        "SELECT MAX(0, (julianday(closed_at)-julianday(created_at))*1440 - COALESCE(paused_total_min,0)) FROM orders "
         "WHERE branch_id=? AND status='done' AND closed_at IS NOT NULL", (branch_id,))
     resolve = _median([r[0] for r in await cur.fetchall()])
     # so'nggi 14 kun dinamikasi (yakunlangan)
@@ -1659,6 +1671,7 @@ async def op_chats(operator_id):
     db = await get_db()
     cur = await db.execute(
         "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
+        "o.paused_at, o.paused_until, o.rejected_at, "
         "u.full_name, u.phone, u.username, "
         "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
         "lm.created_at AS last_at, lm.sender AS last_sender, "
@@ -1777,7 +1790,7 @@ async def orders_page(limit, offset, search=None, status=None, since=None, tag=N
         params.append(f"%,{tag},%")
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     cur = await db.execute(
-        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, o.bill, o.tags, "
+        f"SELECT o.id, o.status, o.created_at, o.closed_at, o.rating, o.content_type, o.bill, o.tags, o.paused_at, "
         f"u.full_name, u.phone, op.name AS operator "
         f"FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         f"LEFT JOIN operators op ON op.id=o.operator_id {where} "
@@ -1933,7 +1946,7 @@ async def operators_report(since, until=None):
             (f"operator:{oid}", since, *up))
         resp = _median([r[0] for r in await cur.fetchall()])
         cur = await db.execute(
-            f"SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+            f"SELECT MAX(0, (julianday(closed_at)-julianday(created_at))*1440 - COALESCE(paused_total_min,0)) FROM orders "
             f"WHERE operator_id=? AND status='done' AND closed_at>=?{UC}", (oid, since, *up))
         resol = _median([r[0] for r in await cur.fetchall()])
         rat = await val("SELECT AVG(rating) FROM orders WHERE operator_id=? AND rating IS NOT NULL",
@@ -1981,7 +1994,7 @@ async def period_report(since, until=None):
         + (" AND o.created_at < ?" if until else "") + " GROUP BY o.id", (since, *up))
     resp = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
-        f"SELECT (julianday(closed_at)-julianday(created_at))*1440 FROM orders "
+        f"SELECT MAX(0, (julianday(closed_at)-julianday(created_at))*1440 - COALESCE(paused_total_min,0)) FROM orders "
         f"WHERE status='done' AND closed_at>=?{UC} AND closed_at IS NOT NULL", (since, *up))
     resol = _median([r[0] for r in await cur.fetchall()])
     cur = await db.execute(
@@ -2098,16 +2111,32 @@ async def tag_counts(since, until=None):
     return sorted(out.items(), key=lambda x: -x[1])
 
 
-async def op_done_chats(operator_id, limit=80):
+async def op_done_chats(operator_id, limit=80, kind="done"):
+    """Operatorning yopilgan suhbatlari. kind: done (yakunlangan) | canceled (bekor) | rejected (Отказ)."""
     db = await get_db()
+    if kind == "rejected":
+        where = "o.rejected_at IS NOT NULL AND (o.operator_id=? OR o.rejected_by=?)"
+        params = (operator_id, operator_id)
+        order = "o.rejected_at"
+    else:
+        where = "o.operator_id=? AND o.status=?"
+        params = (operator_id, "canceled" if kind == "canceled" else "done")
+        order = "COALESCE(o.closed_at, o.created_at)"
     cur = await db.execute(
-        "SELECT o.id, o.status, o.closed_at, o.created_at, o.rating, o.tags, u.full_name, u.phone, "
+        "SELECT o.id, o.status, o.closed_at, o.created_at, o.rating, o.tags, o.rejected_at, u.full_name, u.phone, "
         "lm.text AS last_text, lm.content_type AS last_ct, lm.sender AS last_sender "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
         "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
-        "WHERE o.operator_id=? AND o.status IN ('done','canceled') "
-        "ORDER BY COALESCE(o.closed_at, o.created_at) DESC LIMIT ?", (operator_id, limit))
+        f"WHERE {where} ORDER BY {order} DESC LIMIT ?", (*params, limit))
     return await cur.fetchall()
+
+
+async def set_order_rejected(order_id, operator_id):
+    db = await get_db()
+    await db.execute("UPDATE orders SET rejected_at=COALESCE(rejected_at, ?), rejected_by=? WHERE id=?",
+                     (now(), operator_id, order_id))
+    await db.commit()
+    bump()
 
 
 # ============================ ICHKI IZOHLAR (mijoz ko'rmaydi) ============================
@@ -2197,7 +2226,7 @@ async def sla_rows(since, until=None):
     U = " AND o.created_at < ?" if until else ""
     cur = await db.execute(
         "SELECT o.id, o.operator_id, o.status, o.created_at, o.accepted_at, o.closed_at, o.rating, "
-        "op.name AS operator, "
+        "o.paused_total_min, op.name AS operator, "
         "(SELECT MIN(m.created_at) FROM messages m WHERE m.order_id=o.id AND m.sender='operator') AS first_reply "
         f"FROM orders o LEFT JOIN operators op ON op.id=o.operator_id WHERE o.created_at>=?{U}",
         (since, until) if until else (since,))
@@ -2230,4 +2259,250 @@ async def bump_operator_epoch(operator_id):
     db = await get_db()
     await db.execute("UPDATE operators SET sess_epoch = COALESCE(sess_epoch,0)+1 WHERE id=?",
                      (operator_id,))
+    await db.commit()
+
+
+
+# ============================ DORI KATALOGI ============================
+_CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюяўқғҳ",
+                ["a", "b", "v", "g", "d", "e", "yo", "j", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s",
+                 "t", "u", "f", "x", "ts", "ch", "sh", "sh", "", "i", "", "e", "yu", "ya", "o", "q", "g", "h"]))
+_PCACHE = {"rows": None}
+
+
+def norm_name(s: str) -> str:
+    """Qidiruv uchun: kichik harf, kirill -> lotin, belgilarsiz (Парацетамол == paratsetamol)."""
+    s = (s or "").lower().replace("ʻ", "'").replace("‘", "'").replace("’", "'")
+    out = "".join(_CYR.get(ch, ch) for ch in s)
+    out = out.replace("'", "").replace("c", "ts").replace("w", "v")
+    return "".join(ch for ch in out if ch.isalnum() or ch == " ")
+
+
+async def _all_products():
+    if _PCACHE["rows"] is None:
+        db = await get_db()
+        cur = await db.execute("SELECT * FROM products ORDER BY name COLLATE NOCASE")
+        rows = await cur.fetchall()
+        _PCACHE["rows"] = [(r, norm_name(r["name"]) + " " + norm_name(r["note"] or "")) for r in rows]
+    return _PCACHE["rows"]
+
+
+def _pc_reset():
+    _PCACHE["rows"] = None
+
+
+async def search_products(term, limit=40, only_stock=False):
+    t = norm_name(term).strip()
+    words = [w for w in t.split() if w]
+    res = []
+    for r, key in await _all_products():
+        if only_stock and not r["in_stock"]:
+            continue
+        if all(w in key for w in words):
+            # nomi so'z boshidan mos kelsa — tepada
+            res.append((0 if key.startswith(words[0] if words else "") else 1, r))
+    res.sort(key=lambda x: x[0])
+    return [r for _, r in res[:limit]]
+
+
+async def products_count():
+    return len(await _all_products())
+
+
+async def get_product(pid):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM products WHERE id=?", (pid,))
+    return await cur.fetchone()
+
+
+async def save_product(pid, name, price, unit="", note="", in_stock=1):
+    db = await get_db()
+    if pid:
+        await db.execute("UPDATE products SET name=?, price=?, unit=?, note=?, in_stock=?, updated_at=? WHERE id=?",
+                         (name, price, unit, note, in_stock, now(), pid))
+    else:
+        cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, updated_at) "
+                               "VALUES (?, ?, ?, ?, ?, ?)", (name, price, unit, note, in_stock, now()))
+        pid = cur.lastrowid
+    await db.commit()
+    _pc_reset()
+    return pid
+
+
+async def delete_product(pid):
+    db = await get_db()
+    await db.execute("DELETE FROM products WHERE id=?", (pid,))
+    await db.execute("DELETE FROM stock_waits WHERE product_id=?", (pid,))
+    await db.commit()
+    _pc_reset()
+
+
+async def set_product_stock(pid, in_stock):
+    db = await get_db()
+    await db.execute("UPDATE products SET in_stock=?, updated_at=? WHERE id=?", (1 if in_stock else 0, now(), pid))
+    await db.commit()
+    _pc_reset()
+
+
+async def import_products(items, replace=False):
+    """items: [(name, price, unit, note, in_stock)]. Nomi bir xil bo'lsa — yangilanadi."""
+    db = await get_db()
+    if replace:
+        await db.execute("DELETE FROM products")
+    cur = await db.execute("SELECT id, name FROM products")
+    by_name = {norm_name(r["name"]): r["id"] for r in await cur.fetchall()}
+    added = updated = 0
+    stamp = now()
+    for name, price, unit, note, stock in items:
+        key = norm_name(name)
+        if key in by_name:
+            await db.execute("UPDATE products SET price=?, unit=?, note=?, in_stock=?, updated_at=? WHERE id=?",
+                             (price, unit, note, stock, stamp, by_name[key]))
+            updated += 1
+        else:
+            cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, updated_at) "
+                                   "VALUES (?, ?, ?, ?, ?, ?)", (name, price, unit, note, stock, stamp))
+            by_name[key] = cur.lastrowid
+            added += 1
+    await db.commit()
+    _pc_reset()
+    return added, updated
+
+
+async def add_stock_wait(product_id, user_id, order_id, operator_id):
+    db = await get_db()
+    await db.execute("INSERT OR IGNORE INTO stock_waits (product_id, user_id, order_id, operator_id, created_at) "
+                     "VALUES (?, ?, ?, ?, ?)", (product_id, user_id, order_id, operator_id, now()))
+    await db.commit()
+
+
+async def pop_stock_waits(product_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM stock_waits WHERE product_id=?", (product_id,))
+    rows = await cur.fetchall()
+    await db.execute("DELETE FROM stock_waits WHERE product_id=?", (product_id,))
+    await db.commit()
+    return rows
+
+
+async def stock_wait_counts():
+    db = await get_db()
+    cur = await db.execute("SELECT product_id, COUNT(*) AS c FROM stock_waits GROUP BY product_id")
+    return {r["product_id"]: r["c"] for r in await cur.fetchall()}
+
+
+# ============================ KUNLIK HISOBOT / MAQSAD ============================
+async def day_summary(day_start, day_end):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT COUNT(*) AS total, "
+        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done, "
+        "SUM(CASE WHEN status IN ('new','in_progress') THEN 1 ELSE 0 END) AS open_, "
+        "SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END) AS canceled, "
+        "SUM(CASE WHEN rating IS NOT NULL AND rating<=3 THEN 1 ELSE 0 END) AS low, "
+        "AVG(rating) AS avg_r "
+        "FROM orders WHERE created_at>=? AND created_at<?", (day_start, day_end))
+    return await cur.fetchone()
+
+
+async def today_done_by_operator(operator_id, day_start):
+    db = await get_db()
+    cur = await db.execute("SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' AND closed_at>=?",
+                           (operator_id, day_start))
+    return (await cur.fetchone())[0]
+
+
+
+# ============================ PAUZA (chat yopilmaydi, vaqt statistikaga kirmaydi) ============================
+async def pause_order(order_id, operator_id, reason, until_at=None, remind_min=None):
+    """remind_min — pauza davomida operatorga har necha daqiqada eslatma (faqat ish vaqtida)."""
+    db = await get_db()
+    nxt = None
+    if remind_min:
+        cur = await db.execute("SELECT datetime(?, ?)", (now(), f"+{int(remind_min)} minutes"))
+        nxt = (await cur.fetchone())[0]
+    await db.execute("UPDATE orders SET pause_remind_min=?, pause_next_remind=? WHERE id=?",
+                     (int(remind_min) if remind_min else None, nxt, order_id))
+    cur = await db.execute("SELECT paused_at FROM orders WHERE id=?", (order_id,))
+    r = await cur.fetchone()
+    if r and r["paused_at"]:
+        await db.execute("UPDATE orders SET paused_until=? WHERE id=?", (until_at, order_id))
+        await db.execute("UPDATE order_pauses SET reason=?, until_at=? WHERE order_id=? AND ended_at IS NULL",
+                         (reason, until_at, order_id))
+    else:
+        stamp = now()
+        await db.execute("UPDATE orders SET paused_at=?, paused_until=? WHERE id=?", (stamp, until_at, order_id))
+        await db.execute("INSERT INTO order_pauses (order_id, operator_id, reason, started_at, until_at) "
+                         "VALUES (?, ?, ?, ?, ?)", (order_id, operator_id, reason, stamp, until_at))
+    await db.commit()
+    bump()
+
+
+async def resume_order(order_id, ended_by):
+    """Ochiq pauzani yopadi; pauzada o'tgan daqiqalar paused_total_min ga qo'shiladi."""
+    db = await get_db()
+    cur = await db.execute("SELECT paused_at FROM orders WHERE id=?", (order_id,))
+    r = await cur.fetchone()
+    if not r or not r["paused_at"]:
+        return 0
+    stamp = now()
+    cur = await db.execute("SELECT (julianday(?)-julianday(?))*1440", (stamp, r["paused_at"]))
+    mins = max(0.0, (await cur.fetchone())[0] or 0)
+    await db.execute("UPDATE orders SET paused_at=NULL, paused_until=NULL, pause_remind_min=NULL, "
+                     "pause_next_remind=NULL, paused_total_min=COALESCE(paused_total_min,0)+? WHERE id=?",
+                     (mins, order_id))
+    await db.execute("UPDATE order_pauses SET ended_at=?, ended_by=?, minutes=? "
+                     "WHERE order_id=? AND ended_at IS NULL", (stamp, ended_by, mins, order_id))
+    # pauzadan keyin «yakunlang» eslatmasi darrov emas, 5 daqiqadan keyin kelsin
+    await db.execute("UPDATE orders SET last_operator_reminder_at=? WHERE id=?", (stamp, order_id))
+    await db.commit()
+    bump()
+    return mins
+
+
+async def order_pauses(order_id):
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM order_pauses WHERE order_id=? ORDER BY id", (order_id,))
+    return await cur.fetchall()
+
+
+async def expired_pauses():
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.operator_id, o.paused_until, u.full_name FROM orders o "
+        "LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE o.paused_at IS NOT NULL AND o.paused_until IS NOT NULL AND o.paused_until<=?", (now(),))
+    return await cur.fetchall()
+
+
+async def pause_stats(since, until=None):
+    """Davr ichidagi pauzalar: soni, jami daqiqa, hozir pauzadagilar."""
+    db = await get_db()
+    U = " AND started_at < ?" if until else ""
+    cur = await db.execute(
+        f"SELECT COUNT(*), COALESCE(SUM(COALESCE(minutes, (julianday(?)-julianday(started_at))*1440)),0) "
+        f"FROM order_pauses WHERE started_at>=?{U}", (now(), since, until) if until else (now(), since))
+    cnt, mins = await cur.fetchone()
+    cur = await db.execute("SELECT COUNT(*) FROM orders WHERE paused_at IS NOT NULL AND status='in_progress'")
+    now_cnt = (await cur.fetchone())[0]
+    return {"count": cnt or 0, "minutes": round(mins or 0), "now": now_cnt}
+
+
+
+async def due_pause_reminders():
+    """Pauzadagi, eslatma vaqti kelgan murojaatlar."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.operator_id, o.pause_remind_min, o.paused_at, o.paused_until, u.full_name, "
+        "(SELECT reason FROM order_pauses p WHERE p.order_id=o.id AND p.ended_at IS NULL ORDER BY p.id DESC LIMIT 1) AS reason "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE o.paused_at IS NOT NULL AND o.status='in_progress' AND o.pause_remind_min>0 "
+        "AND o.pause_next_remind IS NOT NULL AND o.pause_next_remind<=?", (now(),))
+    return await cur.fetchall()
+
+
+async def set_pause_next_remind(order_id, minutes):
+    db = await get_db()
+    await db.execute("UPDATE orders SET pause_next_remind=datetime(?, ?) WHERE id=?",
+                     (now(), f"+{int(minutes)} minutes", order_id))
     await db.commit()

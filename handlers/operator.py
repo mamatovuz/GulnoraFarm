@@ -778,6 +778,7 @@ async def op_reject(call: CallbackQuery):
         await call.answer("Murojaat topilmadi", show_alert=True)
         return
     await post_canceled_to_channel(order_id, op_name=op["name"])   # rasmlar bilan albom + tugma
+    await q.set_order_rejected(order_id, op["id"])                 # mini app «Otkaz» papkasi uchun
     await call.message.answer(
         f"🚫 Murojaat #{order_id} — Отказ kanaliga joylandi.\n"
         f"Chat ochiq qoladi — davom ettiraverishingiz mumkin. "
@@ -848,9 +849,10 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
     client = cbot() or bot
     try:
         if tpl["sticker"]:
-            await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None)
-            await client.send_sticker(order["user_id"], tpl["sticker"],
-                                      reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            snt = await client.send_sticker(order["user_id"], tpl["sticker"],
+                                            reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None,
+                                client_msg_id=snt.message_id)
             if OPERATORS_GROUP_ID and order["group_msg_id"]:
                 try:
                     await client.send_sticker(OPERATORS_GROUP_ID, tpl["sticker"],
@@ -859,10 +861,11 @@ async def op_template_send(call: CallbackQuery, bot: Bot):
                 except (TelegramBadRequest, TelegramForbiddenError):
                     pass
         else:
-            await q.add_message(order_id, "operator", "text", tpl["text"], None, None)
-            await client.send_message(order["user_id"],
-                                      loc.t("operator_reply", clang, name=op_client_name(op), text=tpl["text"]),
-                                      reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            snt = await client.send_message(order["user_id"],
+                                            loc.t("operator_reply", clang, name=op_client_name(op), text=tpl["text"]),
+                                            reply_to_message_id=reply_to, allow_sending_without_reply=True)
+            await q.add_message(order_id, "operator", "text", tpl["text"], None, None,
+                                client_msg_id=snt.message_id)
             await post_operator_to_channel(bot, order, op["name"], text=tpl["text"])
         await call.answer("✅ Mijozga yuborildi")
     except (TelegramBadRequest, TelegramForbiddenError):
@@ -892,12 +895,15 @@ async def op_sendbranch_pick(call: CallbackQuery, bot: Bot):
         return
     clang = await q.get_lang(order["user_id"])
     # rasm + ma'lumot + «Yo'l ko'rsatish» tugmasi + xaritadagi nuqta (mijoz tilida)
-    if not await send_branch_to_client(cbot() or bot, order["user_id"], b, clang,
-                                       header=loc.t("op_branch_info", clang), src_bot=call.bot):
+    ids = await send_branch_to_client(cbot() or bot, order["user_id"], b, clang,
+                                      header=loc.t("op_branch_info", clang), src_bot=call.bot)
+    if not ids:
         await call.answer("Mijozga yuborib bo'lmadi", show_alert=True)
         return
+    ids = [i for i in ids if i]
     await q.add_message(int(order_id), "operator", "text",
-                        branch_card_text(b, clang, loc.t("op_branch_info", clang)), None, None)
+                        branch_card_text(b, clang, loc.t("op_branch_info", clang)), None, None,
+                        client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
     await call.answer("✅ Filial ma'lumoti mijozga yuborildi", show_alert=True)
     try:
         await call.message.edit_text(f"✅ <b>{b['name']}</b> ma'lumoti mijozga yuborildi.")
@@ -1011,11 +1017,12 @@ async def op_change_branch_pick(call: CallbackQuery, bot: Bot):
     delivered = await send_branch_to_client(
         cbot() or call.bot, order["user_id"], branch, clang, header=header, src_bot=call.bot,
     )
+    ids = [i for i in (delivered or []) if i]
     # Yozishmada (CRM va kanalda) ham ko'rinib tursin
     await q.add_message(oid, "operator", "text",
                         branch_card_text(branch, clang, header) if delivered
                         else f"🏥 Filial operator tomonidan o'zgartirildi: {branch['name']}",
-                        None, None)
+                        None, None, client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
     if delivered:
         await post_operator_to_channel(call.bot, order, op["name"] if op else "Operator",
                                        text=f"🏥 Filial yuborildi: {branch['name']}")

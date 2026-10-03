@@ -495,29 +495,34 @@ async def send_branch_to_client(client_bot: Bot, chat_id, branch, lang="uz",
     """Mijozga filial ma'lumotini to'liq yuboradi:
     rasm (bo'lsa) + nomi/manzili/telefoni/ish vaqti + «Yo'l ko'rsatish» tugmasi + xaritadagi nuqta.
     header — karta ustidagi izoh (masalan «Operator filialni o'zgartirdi»).
-    Mijozga yetib borsa True qaytaradi."""
+    Mijozga yetib borsa yuborilgan xabarlar message_id ro'yxatini qaytaradi (bo'sh emas = muvaffaqiyat),
+    aks holda False — CRM'dan o'chirilganda mijozdan ham hammasi o'chishi uchun."""
     if not client_bot or not branch:
         return False
     text = branch_card_text(branch, lang, header)
     has_loc = branch["lat"] is not None and branch["lon"] is not None
     markup = kb.branch_directions_kb(branch["lat"], branch["lon"], lang) if has_loc else None
     photo = branch["photo_file_id"]
+    ids = []
     try:
         if photo:
             try:
-                await client_bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
+                m = await client_bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
             except TelegramBadRequest:
                 # file_id boshqa botniki bo'lishi mumkin — cross-bot, u ham bo'lmasa matn bilan
-                sent = await send_file_from(client_bot, chat_id, "photo", photo,
-                                            src_bot, caption=text, markup=markup) if src_bot else None
-                if sent is None:
-                    await client_bot.send_message(chat_id, text, reply_markup=markup)
+                m = await send_file_from(client_bot, chat_id, "photo", photo,
+                                         src_bot, caption=text, markup=markup) if src_bot else None
+                if m is None:
+                    m = await client_bot.send_message(chat_id, text, reply_markup=markup)
         else:
-            await client_bot.send_message(chat_id, text, reply_markup=markup)
+            m = await client_bot.send_message(chat_id, text, reply_markup=markup)
+        if m is not None and getattr(m, "message_id", None):
+            ids.append(m.message_id)
         if has_loc:
-            await client_bot.send_venue(chat_id, latitude=branch["lat"], longitude=branch["lon"],
-                                        title=branch["name"], address=branch["address"] or "")
-        return True
+            v = await client_bot.send_venue(chat_id, latitude=branch["lat"], longitude=branch["lon"],
+                                            title=branch["name"], address=branch["address"] or "")
+            ids.append(v.message_id)
+        return ids or [0]
     except (TelegramBadRequest, TelegramForbiddenError):
         return False
 
