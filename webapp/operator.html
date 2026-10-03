@@ -36,6 +36,11 @@ html[data-theme="dark"]{--bg:#17212b;--sec:#0e1621;--text:#f5f5f5;--hint:#7d8b99
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-size:15px;overflow:hidden;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .hide{display:none!important}
+*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--hint) 45%,transparent) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--hint) 45%,transparent);border-radius:6px}
+@media (pointer:coarse){ ::-webkit-scrollbar{width:0;height:0} }
 button{font-family:inherit;color:inherit}
 .ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block;flex-shrink:0}
 .screen{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg)}
@@ -96,6 +101,11 @@ button{font-family:inherit;color:inherit}
 #app{background:var(--bg)}
 .tabpane{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+/* Profil kabi to'g'ridan-to'g'ri aylanadigan tab: flex emas, oddiy blok — aks holda
+   bloklar ekranga siqilib qoladi va pastga aylantirib bo'lmaydi */
+.tabpane.body{display:block}
+.tabpane > *, .screen > *{flex-shrink:0}
+.tabpane > .body, .screen > .body, .screen > .chatbody{flex-shrink:1;min-height:0}
 .tabbar{display:flex;background:var(--bg);border-top:1px solid var(--sep);padding-bottom:var(--safe-b);flex-shrink:0}
 .tabbar button{flex:1;background:none;border:none;color:var(--hint);padding:7px 0 8px;display:flex;flex-direction:column;
   align-items:center;gap:2px;font-size:11px;font-weight:500;cursor:pointer;position:relative}
@@ -111,6 +121,7 @@ button{font-family:inherit;color:inherit}
 .folders button{background:none;border:none;padding:11px 12px 10px;font-size:14.5px;font-weight:600;color:var(--hint);
   cursor:pointer;white-space:nowrap;position:relative;display:flex;align-items:center;gap:6px}
 .folders button.on{color:var(--accent)}
+@media (max-width:420px){ .folders{padding:0 4px} .folders button{padding:11px 9px 10px;font-size:14px} }
 .folders button.on::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:var(--accent)}
 .folders .fc{min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:11px;background:var(--hint);color:var(--bg);display:inline-flex;align-items:center;justify-content:center}
 .folders button.on .fc{background:var(--accent);color:#fff}
@@ -170,7 +181,7 @@ html[data-scheme="dark"] #notebanner{background:#3a3320;color:#e8d48a}
 .chatbody{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 #wall{position:absolute;inset:-20px;z-index:0;transition:filter .2s}
 #wall,.wallx{background:var(--chat-bg);background-size:cover;background-position:center}
-#wall::after,.wallx::after{content:"";position:absolute;inset:0;background-image:var(--pat);background-size:300px 300px;opacity:var(--pat-op)}
+#wall::after,.wallx::after{content:"";position:absolute;inset:0;background-image:var(--pat);background-size:clamp(200px,52vw,300px);opacity:var(--pat-op)}
 #wall.custom::after,.wallx.custom::after{display:none}
 #mm-cap{flex:1;min-width:0;max-height:120px;padding:11px 0;font-size:16px;color:var(--text)}
 #walldim{position:absolute;inset:0;z-index:0;background:#000;opacity:0;pointer-events:none}
@@ -217,7 +228,7 @@ html[data-scheme="dark"] .wp-sand{--chat-bg:linear-gradient(160deg,#2b251a 0%,#3
 .meta.fail{color:var(--red)!important;cursor:pointer}
 .bub .ed{font-style:italic;opacity:.85}
 .txt{white-space:pre-wrap}
-.txt .tgf-a,.bub .tgf-a{color:var(--q-in)}
+.txt .tgf-a,.bub .tgf-a{color:var(--q-in);word-break:normal;overflow-wrap:anywhere}
 .mrow.o .txt .tgf-a{color:var(--q-out)}
 .rq{display:flex;gap:7px;margin:1px 0 4px;padding:3px 8px 3px 7px;border-radius:5px 8px 8px 5px;cursor:pointer;
   background:color-mix(in srgb,var(--q-in) 11%,transparent);border-left:3px solid var(--q-in);max-width:100%;white-space:normal}
@@ -381,6 +392,7 @@ textarea.inp:focus,input.inp:focus{border-color:var(--accent)}
 .card{background:var(--bg);border-radius:14px;padding:12px 6px;text-align:center}
 .card b{font-size:20px;display:block}
 .card span{color:var(--hint);font-size:11.5px}
+.chev{width:18px;height:18px;fill:none;stroke:var(--hint);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;opacity:.7}
 #tab-prof .item .ic{width:30px;height:30px;padding:5px;border-radius:8px;color:#fff;stroke-width:2.2}
 .ic-blue{background:#3390ec}.ic-green{background:#31b545}.ic-orange{background:#f59e0b}.ic-red{background:#e5484d}.ic-violet{background:#8b5cf6}.ic-teal{background:#14b8a6}.ic-gray{background:#8a929c}.ic-pink{background:#ec4899}
 
@@ -494,19 +506,19 @@ mark{background:#ffd54a;color:#000;border-radius:3px;padding:0 1px}
         <div class="lbl">Mavzu</div>
         <div class="seg" id="themeseg"><button data-th="auto">Avto</button><button data-th="light">Yorug'</button><button data-th="dark">Tungi</button></div></div>
       <div class="item" data-act="openWallpaper"><svg class="ic ic-teal" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
-        <div class="lbl">Chat foni<div class="sub">Tayyor fonlar yoki o'z rasmingiz</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+        <div class="lbl">Chat foni<div class="sub">Tayyor fonlar yoki o'z rasmingiz</div></div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" data-act="openMyTpls"><svg class="ic ic-blue" viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
-        <div class="lbl">Tayyor javoblarim<div class="sub">Shaxsiy shablonlar</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+        <div class="lbl">Tayyor javoblarim<div class="sub">Shaxsiy shablonlar</div></div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list" style="padding:14px 14px 10px">
       <div style="font-size:14px;font-weight:600;margin-bottom:10px">Mening haftam <span style="color:var(--hint);font-weight:400;font-size:12px">kunlik yakunlar</span></div>
       <div id="mychart" style="display:flex;align-items:flex-end;gap:7px;height:96px"></div>
     </div>
     <div class="list">
-      <div class="item" data-act="openList" data-k="unfinished"><svg class="ic ic-orange" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" data-act="openList" data-k="done"><svg class="ic ic-blue" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><div class="lbl">Suhbatlar tarixi</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" data-act="openList" data-k="myratings"><svg class="ic ic-pink" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">So'nggi baholarim</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" data-act="openList" data-k="rating"><svg class="ic ic-violet" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/></svg><div class="lbl">Reyting (operatorlar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" data-act="openList" data-k="unfinished"><svg class="ic ic-orange" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div class="lbl">Yakunlanmagan murojaatlar</div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" data-act="openList" data-k="done"><svg class="ic ic-blue" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><div class="lbl">Suhbatlar tarixi</div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" data-act="openList" data-k="myratings"><svg class="ic ic-pink" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">So'nggi baholarim</div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" data-act="openList" data-k="rating"><svg class="ic ic-violet" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/></svg><div class="lbl">Reyting (operatorlar)</div><svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
       <div class="item danger" data-act="logout"><svg class="ic ic-red" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><div class="lbl">Chiqish</div></div>
@@ -2307,6 +2319,7 @@ async function toggleStatus(){
 async function loadMyChart(){
   const r = await GET("/api/mystats").catch(()=>null); if(!r || !r.ok) return;
   const mx = Math.max(...r.days.map(d=>d.c),1);
+  if(!r.days.some(d=>d.c)){ $("mychart").innerHTML = `<div style="flex:1;align-self:center;text-align:center;color:var(--hint);font-size:13.5px">Bu hafta hali yakunlangan murojaat yo'q.<br>Birinchisini yakunlang 💪</div>`; return; }
   $("mychart").innerHTML = r.days.map((d,i)=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;height:100%;justify-content:flex-end">
     <div style="font-size:10.5px;font-weight:600">${d.c||""}</div>
     <div style="width:100%;max-width:28px;height:${Math.max(4,(d.c/mx)*60)}px;border-radius:6px 6px 3px 3px;background:${d.c?(i===6?"var(--accent)":"color-mix(in srgb,var(--accent) 55%,transparent)"):"var(--sep)"};transition:height .4s"></div>

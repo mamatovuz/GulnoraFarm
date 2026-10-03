@@ -113,7 +113,8 @@ function menu(x, y, items){
   document.body.appendChild(m); _menu = m;
   const r = m.getBoundingClientRect(), W = innerWidth, H = innerHeight;
   let L = x, T = y;
-  if(L + r.width > W - 8){ L = Math.max(8, W - r.width - 8); }
+  if(L + r.width > W - 8){ L = W - r.width - 8; }
+  L = Math.max(8, L);
   if(T + r.height > H - 8){ T = Math.max(8, y - r.height); m.style.transformOrigin = "bottom left"; }
   m.style.left = L + "px"; m.style.top = T + "px";
   try{ TG && TG.HapticFeedback && TG.HapticFeedback.impactOccurred("light"); }catch(e){}
