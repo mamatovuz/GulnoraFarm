@@ -1368,6 +1368,13 @@ async def api_channel_accept(request):
 
 
 # ---------------- API: chat buyruqlari (/10daqiqa, /filialtanlatish ...) ----------------
+def _card_html(card: str):
+    """Bot HTML matni (<b>...) -> (xavfsiz html, oddiy matn) — CRM yozishmasida karta chiroyli chiqadi."""
+    import tghtml
+    h = tghtml.sanitize(card)
+    return h, tghtml.to_plain(h)
+
+
 async def api_cmd(request):
     try:
         body = await request.json()
@@ -1437,8 +1444,8 @@ async def api_cmd(request):
             if not ids:
                 return _json({"ok": False, "error": "mijozga yuborilmadi"}, 200)
             ids = [i for i in ids if i]
-            await q.add_message(order_id, "operator", "text",
-                                branch_card_text(b, clang, header), None, None,
+            h, plain = _card_html(branch_card_text(b, clang, header))
+            await q.add_message(order_id, "operator", "text", plain, None, None, html=h,
                                 client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
             return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
 
@@ -1462,10 +1469,10 @@ async def api_cmd(request):
             header = loc.t("op_branch_changed", clang)
             ids = await send_branch_to_client(client, uid, b, clang, header=header, src_bot=client)
             ids = [i for i in (ids or []) if i]
-            await q.add_message(order_id, "operator", "text",
-                                branch_card_text(b, clang, header) if ids
-                                else f"🏥 Filial operator tomonidan o'zgartirildi: {b['name']}",
-                                None, None, client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
+            h, plain = _card_html(branch_card_text(b, clang, header)) if ids else \
+                (None, f"🏥 Filial operator tomonidan o'zgartirildi: {b['name']}")
+            await q.add_message(order_id, "operator", "text", plain, None, None, html=h,
+                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
             if ids:
                 try:
                     await post_operator_to_channel(client, order, op["name"],
@@ -1952,7 +1959,8 @@ async def _admin_sign(tg_id, exp=None) -> str:
 
 
 # Faqat ko'rish (supervayzer) rolida ham ruxsat etilgan POST so'rovlar (hech narsani o'zgartirmaydi)
-_VIEWER_POST_OK = {"/api/admin/login", "/api/admin/excel", "/api/admin/excel_clients", "/api/admin/products_file"}
+_VIEWER_POST_OK = {"/api/admin/login", "/api/admin/excel", "/api/admin/excel_clients", "/api/admin/products_file",
+                   "/api/admin/ai_test"}
 
 
 async def _is_admin(tg_id) -> bool:

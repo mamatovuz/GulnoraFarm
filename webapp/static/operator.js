@@ -589,6 +589,7 @@ function addMsg(m){
   if(!CH) return;
   if(!CH.msgs.has(m.mid)){ CH.order.push(m.mid); CH.order.sort((a,b)=>a-b); }
   CH.msgs.set(m.mid, m);
+  if(!m.own && !m.kind && m.mid > (CH.lastClientMid||0)) CH.lastClientMid = m.mid;
   if(m.mid > CH.maxMid) CH.maxMid = m.mid;
 }
 function applyMeta(r){
@@ -689,7 +690,7 @@ function appendNew(list){
     if(firstPending) firstPending.insertAdjacentHTML("beforebegin", html); else MSGS.insertAdjacentHTML("beforeend", html);
   });
   const emp = MSGS.querySelector(".empty"); if(emp) emp.remove();
-  initVoicePlayers(); bindMediaLoad();
+  initVoicePlayers(); bindMediaLoad(); refreshTicks();
   if(nearBottom || list.some(m=>m.own)) toBottom(); else bumpFab(list.filter(m=>!m.own).length);
 }
 function toBottom(instant){
@@ -728,8 +729,18 @@ async function loadOlder(){
 const CK1 = '<svg class="ck" viewBox="0 0 16 11"><path d="M1.5 5.8l3.2 3.2L14.5 1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CLK = '<svg class="ck" viewBox="0 0 16 16" style="width:13px;height:13px"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.2 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 const ERRI = '<svg class="ck" viewBox="0 0 16 16" style="width:14px;height:14px"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 4.2v4.6M8 11.2v.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>';
+// Telegramdek: ✓ — yuborildi, ✓✓ — mijoz o'qidi.
+// Bot API o'qilganlik belgisini bermaydi, shuning uchun mijoz shu xabardan keyin yozgan bo'lsa — o'qigan hisoblanadi.
+const CK2 = '<svg class="ck ck2" viewBox="0 0 20 11"><path d="M1.2 5.8l3.2 3.2L14.2 1M8.6 8.6l.6.4L19 1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function isReadByClient(m){ return !!(CH && m.mid && m.mid < (CH.lastClientMid||0)); }
 function metaHtml(m){
-  return `<span class="meta">${m.edited?'<span class="ed">tahrirlangan</span> ':""}${esc(m.time||"")}${m.own?CK1:""}</span>`;
+  return `<span class="meta">${m.edited?'<span class="ed">tahrirlangan</span> ':""}${esc(m.time||"")}${m.own?(isReadByClient(m)?CK2:CK1):""}</span>`;
+}
+// Mijoz yangi xabar yozganda — oldingi xabarlarimiz ✓✓ bo'ladi
+function refreshTicks(){
+  if(!CH) return;
+  MSGS.querySelectorAll(".mrow.o[data-mid]").forEach(r=>{
+    if(+r.dataset.mid < (CH.lastClientMid||0)){ const c = r.querySelector(".meta .ck:not(.ck2)"); if(c) c.outerHTML = CK2; } });
 }
 function docIcon(name, mime){
   const n=(name||"").toLowerCase(), mm=(mime||"").toLowerCase();
@@ -806,9 +817,9 @@ function rowHtml(m, prev, next, isNew){
         if(/^─+$/.test(l.trim())) return `<div class="bsep"></div>`;
         if(/^💰/.test(l)) return `<div class="btot">${esc(l.replace(/^💰\s*/,""))}</div>`;
         return `<div class="bl">${esc(l)}</div>`; }).join("") + metaHtml(m);
-  } else if(m.own && m.html && /^(📋|🏥)/.test(m.text||"")){
+  } else if(m.own && m.html && /^(📋|🏥|✅ Operator|✅ Оператор)/.test(m.text||"")){
     bubCls += " infoc";
-    inner = rq + textBlock(m) + metaHtml(m);
+    inner = rq + `<div class="ich">${PIN_IC}<span>${esc(T("Filial ma'lumoti"))}</span></div>` + textBlock(m) + metaHtml(m);
   } else {
     inner = rq + textBlock(m) + metaHtml(m);
   }

@@ -305,6 +305,24 @@
     .prdbr:hover{background:var(--sec)}
     .prdbr.on{background:var(--accent)}
   }
+  /* Gemini AI */
+  .aibtn{background:linear-gradient(135deg,#7c5cff,#3390ec)}
+  .aicard h3{margin-bottom:8px}
+  .aispin{width:28px;height:28px;margin:14px auto 4px;border:3px solid var(--sec);border-top-color:#7c5cff;border-radius:50%;animation:aisp 0.8s linear infinite}
+  @keyframes aisp{to{transform:rotate(360deg)}}
+  .aigroups{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .aig{display:flex;gap:6px;align-items:baseline;padding:6px 10px;border-radius:10px;background:var(--sec);font-size:13px}
+  .aig b{font-size:15px}
+  .aig.unk{background:color-mix(in srgb,#f59e0b 18%,transparent)}
+  .aiwarn{font-size:13px;padding:8px 10px;border-radius:10px;margin:6px 0;background:color-mix(in srgb,#f59e0b 14%,transparent);line-height:1.6}
+  .aiwarn select,.aitable select{padding:4px 6px;border-radius:7px;border:none;background:var(--sec);color:var(--text);font-size:12.5px;max-width:170px}
+  .aitable{max-height:360px;overflow:auto;border-radius:10px;border:1px solid var(--sep)}
+  .aitable table{width:100%;border-collapse:collapse;font-size:13px}
+  .aitable th{position:sticky;top:0;background:var(--sec);text-align:left;padding:7px 8px;font-weight:600}
+  .aitable td{padding:6px 8px;border-top:1px solid var(--sep)}
+  .aitable tr.unk td{background:color-mix(in srgb,#f59e0b 10%,transparent)}
+  .aistat{font-size:13.5px;margin-bottom:10px}
+  .aistat code{background:var(--sec);padding:1px 6px;border-radius:6px}
   /* Davr tanlash tugmasi (kalendar) */
   .calbtn{gap:5px}
   /* Kesim: mos kelmaydigan variant o'chirilgan ko'rinadi */
@@ -504,6 +522,7 @@
       <div class="item" onclick="openSet('sla')"><svg class="ic" viewBox="0 0 24 24" style="color:#14b8a6"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><div class="lbl">SLA — javob tezligi<div style="font-size:12px;color:var(--hint)">Operatorlar bo'yicha birinchi javob va hal qilish vaqti</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('assign')"><svg class="ic" viewBox="0 0 24 24" style="color:#8b5cf6"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg><div class="lbl">Avto-taqsimlash<div style="font-size:12px;color:var(--hint)">Yangi murojaat avtomatik operatorga</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('products')"><svg class="ic" viewBox="0 0 24 24" style="color:#22a35a"><path d="M10.5 20.5l10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7zM8.5 8.5l7 7"/></svg><div class="lbl">Dori katalogi<div style="font-size:12px;color:var(--hint)">Narxlar, mavjudlik · Excel yuklash · «kelganda xabar»</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" onclick="openSet('ai')"><svg class="ic" viewBox="0 0 24 24" style="color:#7c5cff"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg><div class="lbl">Gemini AI<div style="font-size:12px;color:var(--hint)">API kalit · Excel'ni AI tahlil qilib filiallarga ajratadi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('daily')"><svg class="ic" viewBox="0 0 24 24" style="color:#f59e0b"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><div class="lbl">Kunlik hisobot va maqsad<div style="font-size:12px;color:var(--hint)">Har kuni Telegramga xulosa · operator kunlik maqsadi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('tags')"><svg class="ic" viewBox="0 0 24 24" style="color:#ec4899"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg><div class="lbl">Teglar<div style="font-size:12px;color:var(--hint)">Murojaat mavzulari ro'yxati</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('audit')"><svg class="ic" viewBox="0 0 24 24" style="color:#64748b"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg><div class="lbl">Audit jurnali<div style="font-size:12px;color:var(--hint)">Kim nima qildi · o'chirilgan xabarlar</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -1756,14 +1775,14 @@ const _SVT={branches:"Filiallar",faqs:"FAQ",tpls:"Tayyor javoblar",bc:"Ommaviy x
             hours:"Ish vaqti",contact:"Bog'lanish matni",ops:"Operatorlar",
             opbots:"Operator botlari",low:"Sifat nazorati",reviews:"Otzivlar",excel:"Excel hisobot",
             stale:"Eski murojaatlar",stats:"Statistika",admins:"Adminlar",
-            notify:"Bildirishnomalar",sla:"SLA — javob tezligi",assign:"Avto-taqsimlash",tags:"Teglar",audit:"Audit jurnali",products:"Dori katalogi",daily:"Kunlik hisobot va maqsad"};
+            notify:"Bildirishnomalar",sla:"SLA — javob tezligi",assign:"Avto-taqsimlash",tags:"Teglar",audit:"Audit jurnali",products:"Dori katalogi",ai:"Gemini AI",daily:"Kunlik hisobot va maqsad"};
 function openSet(kind){
   document.getElementById("sv-title").textContent=_SVT[kind]||"";
   document.getElementById("sv-body").innerHTML='<div class="empty">Yuklanmoqda...</div>';
   document.getElementById("setview").classList.remove("hide");
   ({branches:svBranches,faqs:svFaqs,tpls:svTpls,bc:svBc,hours:svHours,contact:svContact,
     ops:svOps,opbots:svOpbots,low:svLow,reviews:svReviews,excel:svExcel,stale:svStale,stats:svStats,
-    admins:svAdmins,notify:svNotify,sla:svSla,assign:svAssign,tags:svTags,audit:svAudit,products:svProducts,daily:svDaily})[kind]();
+    admins:svAdmins,notify:svNotify,sla:svSla,assign:svAssign,tags:svTags,audit:svAudit,products:svProducts,daily:svDaily,ai:svAi})[kind]();
 }
 
 // ---- Statistika (umumiy + filiallar kesimi) ----
@@ -2112,9 +2131,12 @@ async function svProducts(){
             <button class="sbtn" style="flex:1;min-width:140px" onclick="document.getElementById('prd-file').click()">📥 Excel yuklash</button>
             <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdFile('template')">📄 Tayyor shablon</button>
             <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdFile('export')">⬇️ Joriy katalog (Excel)</button></div>
+          <button class="sbtn aibtn hide" id="prd-aibtn" style="margin-top:8px" onclick="document.getElementById('prd-aifile').click()">🤖 AI bilan yuklash — filiallarni o'zi aniqlaydi</button>
+          <input type="file" id="prd-aifile" accept=".xlsx" class="hide" onchange="prdAiImport(this)">
           <div style="font-size:12px;color:var(--hint);margin-top:6px">Shablon va joriy katalog Telegram chatingizga fayl bo'lib keladi — to'ldirib, shu yerga qayta yuklang.</div>
           <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="prd-repl"> <span id="prd-repl-l">Shu katalogni to'liq almashtirish</span></label>
           <input type="file" id="prd-file" accept=".xlsx" class="hide" onchange="prdImport(this)"></div>
+        <div id="prd-ai"></div>
         <div class="searchbar" style="margin:0 0 10px"><input id="prd-q" placeholder="Dori qidirish (lotin yoki kirill)" oninput="prdDeb()"></div>
         <div id="prd-sum" style="font-size:13px;color:var(--hint);margin:0 4px 8px"></div>
         <div class="lrows" id="prd-rows"></div><div id="prd-pager" class="pager hide"></div>
@@ -2140,6 +2162,7 @@ function goPrdPage(p){ PRD.page=p; loadProducts(); }
 async function loadProducts(){
   const r=await q("/api/admin/products","GET",Object.assign(auth(),{q:PRD.q,page:PRD.page,br:PRD.br})); if(!r.ok) return;
   PRD.brs=r.branches||[]; PRD.all=r.all_cnt||0; PRD.common=r.common_cnt||0;
+  const ab=document.getElementById("prd-aibtn"); if(ab) ab.classList.toggle("hide", !r.ai);
   renderPrdSide();
   document.getElementById("prd-sum").textContent=`${prdBrName(PRD.br)}: ${r.total} ta dori`+(r.waiting?` · 🔔 ${r.waiting} ta mijoz kelishini kutyapti`:"");
   document.getElementById("prd-rows").innerHTML=r.items.map(p=>`
@@ -2204,6 +2227,80 @@ function prdImport(inp){
     rd.readAsDataURL(f);
   });
 }
+
+// ---- Gemini AI: Excel'ni tahlil qilib filiallarga taqsimlash ----
+let PAI=null;   // {items, groups}
+function prdAiImport(inp){
+  const f=inp.files[0]; inp.value=""; if(!f) return;
+  const box=document.getElementById("prd-ai");
+  box.innerHTML=`<div class="card aicard"><h3>🤖 AI tahlil qilmoqda...</h3><div style="color:var(--hint);font-size:13.5px">«${esc(f.name)}» — dorilar va filiallar aniqlanmoqda. Katta faylda 1–2 daqiqa olishi mumkin.</div><div class="aispin"></div></div>`;
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+  const rd=new FileReader();
+  rd.onload=async()=>{
+    let r; try{ r=await q("/api/admin/products_ai","POST",Object.assign(auth(),{data:rd.result})); }catch(e){ r={ok:false,error:"Internet aloqasi uzildi"}; }
+    if(!r.ok){ box.innerHTML=`<div class="card aicard"><h3>🤖 AI tahlili</h3><div style="color:#e5484d">${esc(r.error||"Xatolik")}</div></div>`; return; }
+    PAI={items:r.items, groups:r.groups, truncated:r.truncated, failed:r.failed_chunks}; renderPai();
+  };
+  rd.readAsDataURL(f);
+}
+function paiBrName(id){ if(id===0) return "Umumiy (barcha filiallar)"; if(id===-1) return "Filiali aniqlanmadi"; const b=PRD.brs.find(x=>x.id===id); return b?b.name:"#"+id; }
+function renderPai(){
+  const box=document.getElementById("prd-ai"); if(!PAI){ box.innerHTML=""; return; }
+  const cnt={}; PAI.items.forEach(it=>cnt[it.branch_id]=(cnt[it.branch_id]||0)+1);
+  const ids=Object.keys(cnt).map(Number).sort((a,b)=>(a===-1)-(b===-1)||a-b);
+  const unk=cnt[-1]||0;
+  const opts=`<option value="0">Umumiy (barcha filiallar)</option>`+PRD.brs.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  const sample=PAI.items.slice(0,40).map((it,i)=>`<tr${it.branch_id===-1?' class="unk"':""}><td>${esc(it.name)}</td><td style="text-align:right;white-space:nowrap">${it.price?String(it.price).replace(/\B(?=(\d{3})+(?!\d))/g," "):"—"}</td>
+      <td><select onchange="paiSet(${i},this.value)">${`<option value="-1"${it.branch_id===-1?" selected":""}>❓ aniqlanmadi</option>`+opts.replace(`value="${it.branch_id}"`,`value="${it.branch_id}" selected`)}</select></td>
+      <td>${it.in_stock?"✅":"❌"}</td></tr>`).join("");
+  box.innerHTML=`<div class="card aicard"><h3>🤖 AI natijasi — ${PAI.items.length} ta dori</h3>
+    <div class="aigroups">${ids.map(id=>`<div class="aig${id===-1?" unk":""}"><b>${cnt[id]}</b><span>${esc(paiBrName(id))}</span></div>`).join("")}</div>
+    ${PAI.truncated?`<div class="aiwarn">⚠️ Fayl juda katta — faqat birinchi 4000 qator tahlil qilindi.</div>`:""}
+    ${PAI.failed?`<div class="aiwarn">⚠️ ${PAI.failed} ta bo'lak tahlil qilinmadi (Gemini xatosi) — ularni qayta yuklang.</div>`:""}
+    ${unk?`<div class="aiwarn">❓ ${unk} ta dorining filiali aniqlanmadi. Ularni biriktiring: <select id="pai-unk">${opts}</select> <button class="pg-b" style="padding:4px 10px" onclick="paiUnk()">Biriktirish</button> — yoki ular qo'shilmaydi.</div>`:""}
+    <div class="aitable"><table><thead><tr><th>Dori</th><th>Narx</th><th>Filial</th><th></th></tr></thead><tbody>${sample}</tbody></table></div>
+    ${PAI.items.length>40?`<div style="font-size:12.5px;color:var(--hint);margin:6px 2px">… va yana ${PAI.items.length-40} ta</div>`:""}
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="sbtn" style="flex:2" onclick="paiApply()">✅ Katalogga qo'shish</button>
+      <button class="sbtn" style="flex:1;background:var(--sec);color:var(--text)" onclick="PAI=null;renderPai()">Bekor</button></div></div>`;
+}
+function paiSet(i,v){ if(PAI&&PAI.items[i]){ PAI.items[i].branch_id=+v; renderPai(); } }
+function paiUnk(){ const v=+document.getElementById("pai-unk").value; PAI.items.forEach(it=>{ if(it.branch_id===-1) it.branch_id=v; }); renderPai(); }
+function paiApply(){
+  if(!PAI) return; const n=PAI.items.filter(it=>it.branch_id>=0).length;
+  tg.showConfirm(`${n} ta dori filiallar bo'yicha katalogga qo'shilsinmi? (bir xil nomli dorilar yangilanadi)`, async ok=>{ if(!ok) return;
+    const r=await q("/api/admin/products_ai_apply","POST",Object.assign(auth(),{items:PAI.items}));
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    tg.showAlert(`Qo'shildi ✅\nFiliallar: ${r.branches}\nYangi: ${r.added}\nYangilangan: ${r.updated}`+(r.notified?`\n🔔 «Dori keldi» xabari: ${r.notified} ta mijozga`:""));
+    PAI=null; renderPai(); loadProducts();
+  });
+}
+async function svAi(){
+  const r=await q("/api/admin/ai_settings","GET",auth()); if(!r.ok) return;
+  document.getElementById("sv-body").innerHTML=`
+    <div class="card"><h3>🤖 Gemini AI</h3>
+      <div style="font-size:13.5px;color:var(--hint);line-height:1.55;margin-bottom:10px">
+        Dori katalogiga Excel yuklaganda AI faylni o'zi o'qiydi: dori nomi, narxi, mavjudligi va <b>qaysi filialga</b> tegishli ekanini aniqlaydi
+        (filial ustuni, varaq nomi yoki sarlavhadan). Natijani ko'rib, tasdiqlaganingizdan keyingina katalogga qo'shiladi.<br>
+        Kalitni <a href="#" onclick="tg.openLink('https://aistudio.google.com/apikey');return false">aistudio.google.com/apikey</a> sahifasidan oling.</div>
+      <div class="aistat">${r.has_key?`✅ Kalit o'rnatilgan: <code>${esc(r.key_mask)}</code>`:"⚪ Kalit kiritilmagan"}</div>
+      <div class="frm">
+        <input id="ai-key" type="password" autocomplete="off" placeholder="${r.has_key?"Yangi kalit (o'zgartirish uchun)":"Gemini API kalit (AIza...)"}">
+        <input id="ai-model" placeholder="Model" value="${esc(r.model)}">
+        <div style="font-size:12px;color:var(--hint)">Odatiy model: <b>${esc(r.default_model)}</b></div>
+        <button class="sbtn" onclick="aiSave()">Saqlash va tekshirish</button>
+        ${r.has_key?`<button class="sbtn" style="background:var(--sec);color:var(--text)" onclick="aiTest()">🔌 Ulanishni tekshirish</button>
+        <button class="morebtn" style="color:#e5484d;margin-top:0" onclick="aiClear()">Kalitni o'chirish</button>`:""}
+      </div></div>`;
+}
+async function aiSave(){
+  const key=document.getElementById("ai-key").value.trim(), model=document.getElementById("ai-model").value.trim();
+  const b=event&&event.target; if(b){ b.disabled=true; b.textContent="Tekshirilmoqda..."; }
+  const r=await q("/api/admin/ai_settings_save","POST",Object.assign(auth(),{key,model}));
+  tg.showAlert(r.ok?(r.info||"Saqlandi"):(r.error||"Xatolik")); svAi();
+}
+async function aiTest(){ const r=await q("/api/admin/ai_test","POST",auth()); tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); }
+function aiClear(){ tg.showConfirm("Gemini API kaliti o'chirilsinmi?", async ok=>{ if(!ok) return;
+  const r=await q("/api/admin/ai_settings_save","POST",Object.assign(auth(),{clear:true})); tg.showAlert(r.ok?r.info:(r.error||"Xatolik")); svAi(); }); }
 
 // ---- Teglar ro'yxati ----
 async function svTags(){

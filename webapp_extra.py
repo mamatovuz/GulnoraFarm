@@ -182,6 +182,7 @@ async def api_admin_products(request):
                   "items": [_prod_json(r, waits, bnames) for r in rows],
                   "waiting": sum(waits.values()),
                   "all_cnt": sum(counts.values()), "common_cnt": counts.get(0, 0),
+                  "ai": bool((await q.get_setting("gemini_api_key", "") or "").strip()),
                   "branches": [{"id": i, "name": n, "cnt": counts.get(i, 0)} for i, n in bnames.items()]})
 
 
@@ -422,6 +423,132 @@ async def api_admin_products_file(request):
         logger.exception("products file -> admin")
         return _json({"ok": False, "error": "Telegramga yuborib bo'lmadi — botni ishga tushiring (/start)"})
     return _json({"ok": True, "info": "Fayl Telegram chatingizga yuborildi ✅"})
+
+
+# ================================================================
+#                 GEMINI AI: Excel'ni tahlil qilib filiallarga taqsimlash
+# ================================================================
+async def api_admin_ai_settings(request):
+    if not await _w()._auth_admin(request, request.query):
+        return _json({"ok": False}, 401)
+    import gemini_ai
+    key, model = await gemini_ai.get_config()
+    return _json({"ok": True, "has_key": bool(key), "key_mask": gemini_ai.mask_key(key),
+                  "model": model, "default_model": gemini_ai.DEFAULT_MODEL})
+
+
+async def api_admin_ai_settings_save(request):
+    body = await _body(request)
+    tg = await _w()._auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    import gemini_ai
+    if body.get("clear"):
+        await q.set_setting("gemini_api_key", "")
+        await q.audit(f"admin:{tg}", "settings", None, {"gemini_api_key": "o'chirildi"})
+        return _json({"ok": True, "info": "API kalit o'chirildi"})
+    key = str(body.get("key") or "").strip()
+    model = str(body.get("model") or "").strip()[:60] or gemini_ai.DEFAULT_MODEL
+    if key:
+        if len(key) < 20 or any(ch.isspace() for ch in key):
+            return _json({"ok": False, "error": "API kalit noto'g'ri ko'rinishda"})
+        try:
+            await gemini_ai.test_key(key, model)     # saqlashdan oldin tekshiramiz
+        except gemini_ai.AIError as e:
+            return _json({"ok": False, "error": str(e)})
+        await q.set_setting("gemini_api_key", key)
+    await q.set_setting("gemini_model", model)
+    await q.audit(f"admin:{tg}", "settings", None,
+                  {"gemini_model": model, **({"gemini_api_key": gemini_ai.mask_key(key)} if key else {})})
+    return _json({"ok": True, "info": "Saqlandi va tekshirildi ✅" if key else "Saqlandi"})
+
+
+async def api_admin_ai_test(request):
+    body = await _body(request)
+    if not await _w()._auth_admin(request, body):
+        return _json({"ok": False}, 401)
+    import gemini_ai
+    key, model = await gemini_ai.get_config()
+    if not key:
+        return _json({"ok": False, "error": "API kalit kiritilmagan"})
+    try:
+        await gemini_ai.test_key(key, model)
+    except gemini_ai.AIError as e:
+        return _json({"ok": False, "error": str(e)})
+    return _json({"ok": True, "info": f"Gemini ishlayapti ✅ ({model})"})
+
+
+async def api_admin_products_ai(request):
+    """1-qadam: Excel -> Gemini tahlili -> reja (hali hech narsa saqlanmaydi, admin ko'rib tasdiqlaydi)."""
+    body = await _body(request)
+    tg = await _w()._auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    import gemini_ai
+    try:
+        raw = base64.b64decode(str(body.get("data") or "").split(",")[-1])
+    except Exception:
+        return _json({"ok": False, "error": "Fayl o'qilmadi"})
+    if len(raw) > 8 * 1024 * 1024:
+        return _json({"ok": False, "error": "Fayl juda katta (maks 8 MB)"})
+    try:
+        res = await gemini_ai.analyze_catalog_excel(raw)
+    except gemini_ai.AIError as e:
+        return _json({"ok": False, "error": str(e)})
+    except Exception:
+        logger.exception("products ai")
+        return _json({"ok": False, "error": "AI tahlili bajarilmadi"})
+    if not res["items"]:
+        return _json({"ok": False, "error": "AI faylda dori topmadi"})
+    bnames = await _branch_names()
+    cnt = {}
+    for it in res["items"]:
+        cnt[it["branch_id"]] = cnt.get(it["branch_id"], 0) + 1
+    groups = [{"id": 0, "name": "Umumiy (barcha filiallar)", "cnt": cnt.get(0, 0)}] + \
+             [{"id": i, "name": n, "cnt": cnt.get(i, 0)} for i, n in bnames.items()] + \
+             [{"id": -1, "name": "Filiali aniqlanmadi", "cnt": cnt.get(-1, 0)}]
+    await q.audit(f"admin:{tg}", "products_ai", None, {"items": len(res["items"])})
+    return _json({"ok": True, "items": res["items"], "groups": [g for g in groups if g["cnt"]],
+                  "truncated": res["truncated"], "failed_chunks": res["failed_chunks"]})
+
+
+async def api_admin_products_ai_apply(request):
+    """2-qadam: tasdiqlangan rejani filiallar bo'yicha katalogga yozish."""
+    body = await _body(request)
+    tg = await _w()._auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    items = body.get("items") or []
+    if not isinstance(items, list) or not items:
+        return _json({"ok": False, "error": "Ro'yxat bo'sh"})
+    valid = set((await _branch_names()).keys())
+    by_br = {}
+    for it in items[:20000]:
+        try:
+            bid = int(it.get("branch_id") or 0)
+            price = max(0, int(float(it.get("price") or 0)))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        name = str(it.get("name") or "").strip()[:200]
+        if not name or bid < 0 or (bid and bid not in valid):
+            continue      # filiali aniqlanmaganlar qo'shilmaydi
+        by_br.setdefault(bid, []).append((name, price, str(it.get("unit") or "")[:30],
+                                          str(it.get("note") or "")[:300], 1 if it.get("in_stock", True) else 0))
+    if not by_br:
+        return _json({"ok": False, "error": "Qo'shiladigan dori yo'q (filiali aniqlanmaganlarini filialga biriktiring)"})
+    added = updated = 0
+    for bid, rows in by_br.items():
+        a, u = await q.import_products(rows, replace=False, branch_id=bid or None)
+        added += a
+        updated += u
+    notified = 0
+    for pid in await q.stock_wait_counts():
+        p = await q.get_product(pid)
+        if p and p["in_stock"]:
+            notified += await notify_stock_arrived(pid)
+    await q.audit(f"admin:{tg}", "products_ai_apply", None,
+                  {"added": added, "updated": updated, "branches": len(by_br)})
+    return _json({"ok": True, "added": added, "updated": updated, "notified": notified, "branches": len(by_br)})
 
 
 # ================================================================
@@ -689,6 +816,11 @@ def register(app: web.Application):
     r.add_post("/api/admin/products_import", api_admin_products_import)
     r.add_get("/api/admin/products_template", api_admin_products_template)
     r.add_post("/api/admin/products_file", api_admin_products_file)
+    r.add_get("/api/admin/ai_settings", api_admin_ai_settings)
+    r.add_post("/api/admin/ai_settings_save", api_admin_ai_settings_save)
+    r.add_post("/api/admin/ai_test", api_admin_ai_test)
+    r.add_post("/api/admin/products_ai", api_admin_products_ai)
+    r.add_post("/api/admin/products_ai_apply", api_admin_products_ai_apply)
     r.add_get("/api/admin/daily_preview", api_admin_daily_preview)
 
 
