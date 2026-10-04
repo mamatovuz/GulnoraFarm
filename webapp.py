@@ -321,6 +321,7 @@ def _chat_json(r, op_id):
         "order_id": r["id"],
         "name": r["full_name"] or "—",
         "phone": r["phone"] or "",
+        "branch": (r["branch"] or "") if "branch" in keys else "",
         "status": r["status"],
         "mine": r["operator_id"] == op_id,
         "reply": r["last_sender"] == "client",   # javob kutyapti
@@ -426,6 +427,9 @@ async def _chat_meta(order, user):
         if r:
             pinned = _msg_json(r)
     uname = user["username"] if user and "username" in user.keys() else ""
+    # Murojaat filiali (operator/mijoz tanlagan), bo'lmasa mijozning asosiy filiali
+    bid = order["branch_id"] or (user["branch_id"] if user else None)
+    br = await q.get_branch(bid) if bid else None
     import webapp_extra
     return {
         "rejected": bool(order["rejected_at"]) if "rejected_at" in order.keys() else False,
@@ -438,7 +442,9 @@ async def _chat_meta(order, user):
         "notes": [_note_json(n) for n in await q.internal_notes(order["id"])],
         "client": {"name": user["full_name"] if user else "—",
                    "phone": user["phone"] if user else "",
-                   "username": uname or ""},
+                   "username": uname or "",
+                   "branch": br["name"] if br else "",
+                   "branch_id": br["id"] if br else 0},
     }
 
 
@@ -1281,7 +1287,8 @@ async def api_branches(request):
     if not op:
         return _json({"ok": False}, 401)
     bs = await q.list_branches()
-    return _json({"ok": True, "branches": [{"id": b["id"], "name": b["name"]} for b in bs]})
+    return _json({"ok": True, "branches": [{"id": b["id"], "name": b["name"],
+                                            "address": b["address"] or ""} for b in bs]})
 
 
 async def api_newcount(request):
@@ -1434,6 +1441,40 @@ async def api_cmd(request):
                                 branch_card_text(b, clang, header), None, None,
                                 client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
             return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
+
+        if cmd == "changebranch":
+            # Operator filialni o'zi tanlaydi: murojaat + mijoz profiliga yoziladi,
+            # mijozga to'liq filial kartasi boradi (bot ichidagi «Filialni o'zgartirish» bilan bir xil)
+            try:
+                b = await q.get_branch(int(arg))
+            except (TypeError, ValueError):
+                b = None
+            if not b:
+                return _json({"ok": False, "error": "filial topilmadi"})
+            from utils import update_group_card
+            await q.set_order_branch(order_id, b["id"])
+            await q.set_user_branch(uid, b["id"])
+            await q.clear_pending_branch(uid)
+            try:
+                await update_group_card(client, order_id)
+            except Exception:
+                logger.exception("changebranch -> group card")
+            header = loc.t("op_branch_changed", clang)
+            ids = await send_branch_to_client(client, uid, b, clang, header=header, src_bot=client)
+            ids = [i for i in (ids or []) if i]
+            await q.add_message(order_id, "operator", "text",
+                                branch_card_text(b, clang, header) if ids
+                                else f"🏥 Filial operator tomonidan o'zgartirildi: {b['name']}",
+                                None, None, client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
+            if ids:
+                try:
+                    await post_operator_to_channel(client, order, op["name"],
+                                                   text=f"🏥 Filial yuborildi: {b['name']}")
+                except Exception:
+                    logger.exception("changebranch -> channel")
+            return _json({"ok": True, "branch": b["name"], "branch_id": b["id"],
+                          "info": f"Filial: {b['name']} — mijozga yuborildi" if ids
+                          else f"Filial saqlandi: {b['name']} (mijozga yuborilmadi)"})
 
         if cmd == "billitems":
             # Hisob-kitob yaratuvchi: dorilar ro'yxati -> tayyor matn, keyin oddiy «bill» yo'li
@@ -1911,7 +1952,7 @@ async def _admin_sign(tg_id, exp=None) -> str:
 
 
 # Faqat ko'rish (supervayzer) rolida ham ruxsat etilgan POST so'rovlar (hech narsani o'zgartirmaydi)
-_VIEWER_POST_OK = {"/api/admin/login", "/api/admin/excel", "/api/admin/excel_clients"}
+_VIEWER_POST_OK = {"/api/admin/login", "/api/admin/excel", "/api/admin/excel_clients", "/api/admin/products_file"}
 
 
 async def _is_admin(tg_id) -> bool:
@@ -2023,14 +2064,35 @@ def _period_start_str(period: str) -> str:
     return "0000-01-01 00:00:00"
 
 
+# Dash natijasi qisqa muddat keshlanadi: ma'lumot o'zgarmagan bo'lsa (change_ver) va
+# 15 soniya o'tmagan bo'lsa — avto-yangilanish va bir nechta admin bazani qayta hisoblatmaydi.
+_DASH_TTL = 15
+_DASH_CACHE: dict = {}
+
+
 async def api_admin_dash(request):
     tg = await _auth_admin(request, request.query)
     if not tg:
         return _json({"ok": False, "error": "auth"}, 401)
-    period = request.query.get("period", "week")
-    gran_req = (request.query.get("gran") or "auto").strip()
-    f_ = request.query.get("from") or ""
-    t_ = request.query.get("to") or ""
+    qs = request.query
+    key = (qs.get("period", "week"), qs.get("gran") or "auto", qs.get("from") or "", qs.get("to") or "")
+    ver, now_ = q.change_ver(), time.monotonic()
+    hit = _DASH_CACHE.get(key)
+    if hit and hit[0] == ver and now_ - hit[1] < _DASH_TTL:
+        data = hit[2]
+    else:
+        data = await _admin_dash_data(qs)
+        if len(_DASH_CACHE) > 50:
+            _DASH_CACHE.clear()
+        _DASH_CACHE[key] = (ver, now_, data)
+    return _json({**data, "mk": _media_key()})
+
+
+async def _admin_dash_data(query) -> dict:
+    period = query.get("period", "week")
+    gran_req = (query.get("gran") or "auto").strip()
+    f_ = query.get("from") or ""
+    t_ = query.get("to") or ""
     until = None
     from datetime import datetime as _dt0, timedelta as _td0
     from config import now_local as _nl2
@@ -2193,8 +2255,8 @@ async def api_admin_dash(request):
         esc_min = int(await q.get_setting("escalate_min", "5") or 5)
     except ValueError:
         esc_min = 5
-    return _json({"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
-                  "tags": tagc, "escalate_min": esc_min, "mk": _media_key(),
+    return {"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
+                  "tags": tagc, "escalate_min": esc_min,
                   "pauses": await q.pause_stats(since, until),
                   "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
@@ -2204,7 +2266,7 @@ async def api_admin_dash(request):
                           "rating": rating, "rated": rated, "online": live["online"]},
                   "series": series,
                   "hours": [{"h": h, "c": hours.get(h, 0)} for h in range(24)],
-                  "ops": ops})
+                  "ops": ops}
 
 
 # ---------------- Admin: murojaatlar ro'yxati + yozishma ----------------

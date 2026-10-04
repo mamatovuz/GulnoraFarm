@@ -282,6 +282,29 @@
   /* To'liq ekran (fullscreen) — Telegram yuqori boshqaruvi ostiga tushib qolmasin */
   .screen{padding-top:var(--fs-top,0px)}
 
+  /* Dori katalogi: filiallar paneli (keng/to'liq ekranda o'ngda, telefonda tepada) */
+  .prdwrap{display:flex;flex-direction:column;gap:12px}
+  .prdmain{flex:1;min-width:0}
+  .prdside{display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:none}
+  .prdside::-webkit-scrollbar{display:none}
+  .prdside-h{display:none}
+  .prdbr{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 12px;border-radius:18px;background:var(--bg);cursor:pointer;font-size:13.5px;white-space:nowrap}
+  .prdbr .cnt{font-size:11.5px;color:var(--hint);background:var(--sec);border-radius:9px;padding:1px 7px}
+  .prdbr.on{background:var(--accent);color:#fff}
+  .prdbr.on .cnt{background:rgba(255,255,255,.25);color:#fff}
+  .prdtarget{font-size:13.5px;padding:8px 10px;margin-bottom:10px;border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,transparent)}
+  .prdtag{display:inline-block;font-size:11px;font-weight:600;padding:0 6px;border-radius:7px;background:color-mix(in srgb,#2f9e44 14%,transparent);color:#2f9e44}
+  #prd-form select{width:100%;padding:11px 12px;border:none;border-radius:10px;background:var(--sec);color:var(--text);font-size:15px}
+  @media (min-width:720px){
+    .prdwrap{flex-direction:row-reverse;align-items:flex-start}
+    .prdside{flex-direction:column;width:260px;flex-shrink:0;overflow:auto;max-height:calc(100vh - 140px);position:sticky;top:8px;
+             background:var(--bg);border-radius:14px;padding:8px}
+    .prdside-h{display:block;font-weight:700;font-size:13px;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;padding:6px 8px 8px}
+    .prdbr{border-radius:10px;background:none;white-space:normal}
+    .prdbr .nm{flex:1;min-width:0}
+    .prdbr:hover{background:var(--sec)}
+    .prdbr.on{background:var(--accent)}
+  }
   /* Davr tanlash tugmasi (kalendar) */
   .calbtn{gap:5px}
   /* Kesim: mos kelmaydigan variant o'chirilgan ko'rinadi */
@@ -772,6 +795,9 @@ document.addEventListener("scroll", hideTip, true);
 
 // ---- Gate / avto-login ----
 async function gate(){
+  // Saqlangan sessiya bo'lsa — statistikani login bilan PARALLEL so'raymiz (bitta tarmoq aylanishi tejaladi)
+  const sid=localStorage.getItem("adm_id"), stok=localStorage.getItem("adm_token");
+  const pre = (sid && stok) ? fetchDash({admin_id:sid, token:stok}).catch(()=>null) : null;
   const r = await q("/api/admin/login","POST",{});
   const sp = document.getElementById("gate-spin"), er = document.getElementById("gate-err");
   if(!r.ok){ sp.classList.add("hide"); er.textContent = r.error||"Xatolik"; er.classList.remove("hide"); return; }
@@ -783,7 +809,7 @@ async function gate(){
   localStorage.setItem("adm_id", ADM.id); localStorage.setItem("adm_token", ADM.token);
   document.getElementById("gate").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
-  loadDash();
+  loadDash(pre && String(sid)===String(ADM.id) ? pre : null);
   // Deep-link: bekor qilingan murojaat chatini to'g'ridan-to'g'ri ochish (?order=123)
   const _oid = parseInt(_QP.get("order")||"", 10);
   if(_oid) { try{ openTrans(_oid, "orders"); }catch(e){} }
@@ -904,11 +930,16 @@ function applyRange(){
 function resetCustom(){ setPeriod("week"); }
 
 // ---- Dashboard yuklash ----
-async function loadDash(){
+function fetchDash(a){
   updateGranAvail();
-  const params = Object.assign(auth(), {period:PERIOD, gran:GRAN});
+  const params = Object.assign(a, {period:PERIOD, gran:GRAN});
   if(PERIOD==="custom"){ params.from=CFROM; params.to=CTO; }
-  const r = await q("/api/admin/dash","GET",params);
+  return q("/api/admin/dash","GET",params);
+}
+async function loadDash(pre){
+  // pre — gate() da login bilan parallel boshlangan so'rov (eski token bo'lsa, odatdagidek qayta so'raymiz)
+  let r = pre ? await pre : null;
+  if(!r || !r.ok) r = await fetchDash(auth());
   if(!r.ok){ if(r.error==="auth"){ localStorage.clear(); location.reload(); } return; }
   DASH = r; if(r.mk) ADM.mk = r.mk; renderAll();
   const u=document.getElementById("upd");
@@ -2059,45 +2090,77 @@ async function saveDaily(){
   tg.showAlert(r.ok?"Saqlandi ✅":(r.error||"Xatolik"));
 }
 
-// ---- Dori katalogi ----
-let PRD={page:0,q:""}, prdT=null;
+// ---- Dori katalogi (filial bo'yicha) ----
+// br: "all" — hammasi, 0 — umumiy (barcha filiallar uchun), id — shu filial
+let PRD={page:0,q:"",br:"all",brs:[],all:0,common:0}, prdT=null;
 function prdDeb(){ clearTimeout(prdT); prdT=setTimeout(()=>{ PRD.page=0; PRD.q=document.getElementById("prd-q").value.trim(); loadProducts(); },300); }
+function prdTarget(){ return PRD.br==="all" ? 0 : PRD.br; }          // yuklash/qo'shish qaysi katalogga
+function prdBrName(b){ if(b==="all") return "Barcha filiallar"; if(!b) return "Umumiy katalog";
+  const x=PRD.brs.find(z=>z.id===b); return x?x.name:"Filial"; }
 async function svProducts(){
-  PRD={page:0,q:""};
+  PRD={page:0,q:"",br:"all",brs:[],all:0,common:0};
   document.getElementById("sv-body").innerHTML=`
-    <div class="card"><h3>Excel'dan yuklash</h3>
-      <div style="font-size:13px;color:var(--hint);line-height:1.5;margin-bottom:8px">Ustunlar: <b>Nomi</b>, <b>Narxi</b>, Birlik, Izoh, Mavjud (1/0 yoki bor/yo'q). Bir xil nomli dori yangilanadi.
-        «Mavjud» bo'lib qolgan dorilarni kutayotgan mijozlarga avtomatik xabar boradi.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="sbtn" style="flex:1;min-width:140px" onclick="document.getElementById('prd-file').click()">📥 Excel yuklash</button>
-        <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdTemplate()">📄 Namuna fayl</button></div>
-      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="prd-repl"> Eski katalogni to'liq almashtirish</label>
-      <input type="file" id="prd-file" accept=".xlsx" class="hide" onchange="prdImport(this)"></div>
-    <div class="searchbar" style="margin:0 0 10px"><input id="prd-q" placeholder="Dori qidirish (lotin yoki kirill)" oninput="prdDeb()"></div>
-    <div id="prd-sum" style="font-size:13px;color:var(--hint);margin:0 4px 8px"></div>
-    <div class="lrows" id="prd-rows"></div><div id="prd-pager" class="pager hide"></div>
-    <button class="morebtn" onclick="prdForm(null)">＋ Dori qo'shish</button><div id="prd-form"></div>`;
+    <div class="prdwrap">
+      <aside class="prdside" id="prd-side"></aside>
+      <div class="prdmain">
+        <div class="card"><h3 id="prd-up-h">Excel'dan yuklash</h3>
+          <div style="font-size:13px;color:var(--hint);line-height:1.5;margin-bottom:8px">Avval o'ngdagi ro'yxatdan (telefonda — tepadan) <b>filialni tanlang</b>, keyin Excel yuklang.
+            Ustunlar: <b>Nomi</b>, <b>Narxi</b>, Birlik, Izoh, Mavjud (bor/yo'q). Bir xil nomli dori yangilanadi.
+            «Mavjud» bo'lib qolgan dorini kutayotgan mijozlarga avtomatik xabar boradi.</div>
+          <div class="prdtarget" id="prd-target"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="sbtn" style="flex:1;min-width:140px" onclick="document.getElementById('prd-file').click()">📥 Excel yuklash</button>
+            <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdFile('template')">📄 Tayyor shablon</button>
+            <button class="sbtn" style="flex:1;min-width:140px;background:var(--sec);color:var(--text)" onclick="prdFile('export')">⬇️ Joriy katalog (Excel)</button></div>
+          <div style="font-size:12px;color:var(--hint);margin-top:6px">Shablon va joriy katalog Telegram chatingizga fayl bo'lib keladi — to'ldirib, shu yerga qayta yuklang.</div>
+          <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="prd-repl"> <span id="prd-repl-l">Shu katalogni to'liq almashtirish</span></label>
+          <input type="file" id="prd-file" accept=".xlsx" class="hide" onchange="prdImport(this)"></div>
+        <div class="searchbar" style="margin:0 0 10px"><input id="prd-q" placeholder="Dori qidirish (lotin yoki kirill)" oninput="prdDeb()"></div>
+        <div id="prd-sum" style="font-size:13px;color:var(--hint);margin:0 4px 8px"></div>
+        <div class="lrows" id="prd-rows"></div><div id="prd-pager" class="pager hide"></div>
+        <button class="morebtn" onclick="prdForm(null)">＋ Dori qo'shish</button><div id="prd-form"></div>
+      </div>
+    </div>`;
   loadProducts();
+}
+function prdPickBr(b){ PRD.br=b; PRD.page=0; document.getElementById("prd-form").innerHTML=""; loadProducts(); }
+function renderPrdSide(){
+  const it=(b,ic,name,cnt)=>`<div class="prdbr${String(PRD.br)===String(b)?" on":""}" onclick='prdPickBr(${ja(b)})'>
+      <span class="ic2">${ic}</span><span class="nm">${esc(name)}</span><span class="cnt">${cnt}</span></div>`;
+  document.getElementById("prd-side").innerHTML=`<div class="prdside-h">Filiallar</div>`+
+    it("all","🌐","Barchasi",PRD.all)+it(0,"📦","Umumiy (barcha filiallar)",PRD.common)+
+    PRD.brs.map(b=>it(b.id,"📍",b.name,b.cnt)).join("");
+  const t=prdTarget(), nm=prdBrName(t);
+  document.getElementById("prd-target").innerHTML=`Yuklanadi: <b>${esc(nm)}</b>`+
+    (PRD.br==="all"?` <span style="color:var(--hint)">(filial tanlanmagan — umumiy katalogga)</span>`:"");
+  document.getElementById("prd-repl-l").textContent=`«${nm}» katalogini to'liq almashtirish`;
+  const on=document.querySelector(".prdbr.on"); if(on && on.scrollIntoView) on.scrollIntoView({block:"nearest",inline:"nearest"});
 }
 function goPrdPage(p){ PRD.page=p; loadProducts(); }
 async function loadProducts(){
-  const r=await q("/api/admin/products","GET",Object.assign(auth(),{q:PRD.q,page:PRD.page})); if(!r.ok) return;
-  document.getElementById("prd-sum").textContent=`Jami: ${r.total} ta dori`+(r.waiting?` · 🔔 ${r.waiting} ta mijoz kelishini kutyapti`:"");
+  const r=await q("/api/admin/products","GET",Object.assign(auth(),{q:PRD.q,page:PRD.page,br:PRD.br})); if(!r.ok) return;
+  PRD.brs=r.branches||[]; PRD.all=r.all_cnt||0; PRD.common=r.common_cnt||0;
+  renderPrdSide();
+  document.getElementById("prd-sum").textContent=`${prdBrName(PRD.br)}: ${r.total} ta dori`+(r.waiting?` · 🔔 ${r.waiting} ta mijoz kelishini kutyapti`:"");
   document.getElementById("prd-rows").innerHTML=r.items.map(p=>`
     <div class="lrow" onclick='prdForm(${ja(p)})'>
       <div class="mid"><div class="nm"><span>${esc(p.name)}</span><span class="tm" style="font-weight:700;color:var(--text)">${p.price?String(p.price).replace(/\B(?=(\d{3})+(?!\d))/g," ")+" so'm":"—"}</span></div>
-        <div class="sub">${p.unit?esc(p.unit)+" · ":""}${p.note?esc(p.note)+" · ":""}${p.waits?`🔔 ${p.waits} kutyapti · `:""}<span style="color:${p.in_stock?"#2f9e44":"#e5484d"};font-weight:600">${p.in_stock?"bor":"yo'q"}</span></div></div>
+        <div class="sub">${PRD.br==="all"?`<span class="prdtag">${esc(p.branch||"Umumiy")}</span> `:""}${p.unit?esc(p.unit)+" · ":""}${p.note?esc(p.note)+" · ":""}${p.waits?`🔔 ${p.waits} kutyapti · `:""}<span style="color:${p.in_stock?"#2f9e44":"#e5484d"};font-weight:600">${p.in_stock?"bor":"yo'q"}</span></div></div>
       <button class="delbtn" style="font-size:12px;padding:5px 9px;color:${p.in_stock?"#e5484d":"#2f9e44"}" onclick="event.stopPropagation();prdStock(${p.id},${p.in_stock?0:1})">${p.in_stock?"Tugadi":"Keldi ✓"}</button>
-    </div>`).join("")||'<div class="empty">Katalog bo\'sh — Excel yuklang yoki qo\'shing</div>';
+    </div>`).join("")||`<div class="empty">${esc(prdBrName(PRD.br))} katalogi bo'sh — Excel yuklang yoki qo'shing</div>`;
   const pg=document.getElementById("prd-pager"), pages=Math.ceil(r.total/50);
   if(pages>1){ pg.classList.remove("hide"); pg.innerHTML=`<button class="pg-b" ${PRD.page<=0?"disabled":""} onclick="goPrdPage(${PRD.page-1})">‹</button><span class="pg-gap" style="min-width:70px">${PRD.page+1} / ${pages}</span><button class="pg-b" ${PRD.page>=pages-1?"disabled":""} onclick="goPrdPage(${PRD.page+1})">›</button>`; }
   else pg.classList.add("hide");
 }
 function prdForm(p){
+  const cur = p ? (p.branch_id||0) : prdTarget();
+  const opts=[`<option value="0"${!cur?" selected":""}>Umumiy (barcha filiallar)</option>`]
+    .concat(PRD.brs.map(b=>`<option value="${b.id}"${cur===b.id?" selected":""}>${esc(b.name)}</option>`)).join("");
   document.getElementById("prd-form").innerHTML=`<div class="card" style="margin-top:12px"><h3>${p?"Tahrirlash":"Yangi dori"}</h3><div class="frm">
     <input id="pf-n" placeholder="Nomi" value="${p?esc(p.name):""}">
     <div style="display:flex;gap:8px"><input id="pf-p" inputmode="numeric" placeholder="Narxi (so'm)" value="${p&&p.price?p.price:""}" style="flex:1"><input id="pf-u" placeholder="Birlik (quti)" value="${p?esc(p.unit):""}" style="flex:1"></div>
     <input id="pf-note" placeholder="Izoh (ishlab chiqaruvchi, dozasi)" value="${p?esc(p.note):""}">
+    <label style="font-size:13px;color:var(--hint)">Filial</label><select id="pf-br">${opts}</select>
     <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="pf-s" ${!p||p.in_stock?"checked":""}> Mavjud</label>
     <button class="sbtn" onclick="prdSave(${p?p.id:0})">Saqlash</button>
     ${p?`<button class="morebtn" style="color:#e5484d;margin-top:0" onclick="prdDel(${p.id})">O'chirish</button>`:""}</div></div>`;
@@ -2106,7 +2169,7 @@ function prdForm(p){
 async function prdSave(id){
   const r=await q("/api/admin/product_save","POST",Object.assign(auth(),{id,name:document.getElementById("pf-n").value,
     price:document.getElementById("pf-p").value,unit:document.getElementById("pf-u").value,note:document.getElementById("pf-note").value,
-    in_stock:document.getElementById("pf-s").checked}));
+    br:document.getElementById("pf-br").value,in_stock:document.getElementById("pf-s").checked}));
   if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
   if(r.notified) tg.showAlert(`Saqlandi. ${r.notified} ta mijozga «dori keldi» xabari yuborildi ✅`);
   document.getElementById("prd-form").innerHTML=""; loadProducts();
@@ -2119,18 +2182,27 @@ async function prdStock(id,on){
 }
 function prdDel(id){ tg.showConfirm("Dori katalogdan o'chirilsinmi?", async ok=>{ if(!ok) return;
   await q("/api/admin/product_del","POST",Object.assign(auth(),{id})); document.getElementById("prd-form").innerHTML=""; loadProducts(); }); }
-function prdTemplate(){ const u=new URL("/api/admin/products_template", location.href).href; try{ tg.openLink(u); }catch(e){ window.open(u); } }
+// Shablon / joriy katalog — adminning Telegram chatiga fayl bo'lib keladi (telefonda ham ishonchli)
+async function prdFile(kind){
+  const r=await q("/api/admin/products_file","POST",Object.assign(auth(),{kind,br:prdTarget()}));
+  if(r.ok){ tg.showAlert(r.info||"Yuborildi ✅"); return; }
+  if(kind==="template"){   // bot yubora olmasa — havola orqali yuklab olish
+    const u=new URL("/api/admin/products_template", location.href).href; try{ tg.openLink(u); }catch(e){ window.open(u); } return; }
+  tg.showAlert(r.error||"Xatolik");
+}
 function prdImport(inp){
   const f=inp.files[0]; inp.value=""; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=async()=>{
-    tg.showAlert && 0;
-    const r=await q("/api/admin/products_import","POST",Object.assign(auth(),{data:rd.result,replace:document.getElementById("prd-repl").checked}));
-    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
-    tg.showAlert(`Yuklandi ✅\nYangi: ${r.added}\nYangilangan: ${r.updated}`+(r.notified?`\n🔔 «Dori keldi» xabari: ${r.notified} ta mijozga`:""));
-    loadProducts();
-  };
-  rd.readAsDataURL(f);
+  const t=prdTarget(), nm=prdBrName(t), repl=document.getElementById("prd-repl").checked;
+  tg.showConfirm(`«${f.name}» → ${nm} katalogiga yuklansinmi?`+(repl?`\n⚠️ ${nm} katalogi to'liq almashtiriladi.`:""), ok=>{ if(!ok) return;
+    const rd=new FileReader();
+    rd.onload=async()=>{
+      const r=await q("/api/admin/products_import","POST",Object.assign(auth(),{data:rd.result,replace:repl,br:t}));
+      if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+      tg.showAlert(`Yuklandi ✅ (${nm})\nYangi: ${r.added}\nYangilangan: ${r.updated}`+(r.notified?`\n🔔 «Dori keldi» xabari: ${r.notified} ta mijozga`:""));
+      if(PRD.br==="all"){ PRD.br=t; } loadProducts();
+    };
+    rd.readAsDataURL(f);
+  });
 }
 
 // ---- Teglar ro'yxati ----

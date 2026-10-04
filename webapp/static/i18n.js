@@ -18,6 +18,23 @@ if(LANG !== "uz" && LANG !== "ru"){
 document.documentElement.lang = LANG;
 
 const RU = {
+  // yangi: filial tanlash, nusxa olish, ko'ruvchi, to'liq ekran
+  "Filialni almashtirish (mijozga yuboriladi)":"Сменить филиал (отправится клиенту)","Filialni almashtirish":"Сменить филиал",
+  "Filial ma'lumotini yuborish":"Отправить информацию о филиале","Filial nomi yoki manzili":"Название или адрес филиала",
+  "Filial topilmadi":"Филиал не найден","hozirgi":"текущий","filial nomini yozing · ↑↓ tanlash · Enter":"введите название · ↑↓ выбор · Enter",
+  "Tanlangan filial murojaat va mijoz profiliga yoziladi, mijozga filial kartasi yuboriladi.":"Филиал сохранится в обращении и профиле клиента, клиенту уйдёт карточка филиала.",
+  "Filial «{n}» qilib almashtirilsinmi? Mijozga filial ma'lumoti yuboriladi.":"Сменить филиал на «{n}»? Клиенту отправится информация о филиале.",
+  "Operator tanlaydi — mijozga yuboriladi":"Выбирает оператор — уходит клиенту",
+  "Nusxa olish":"Копировать","Izohni nusxalash":"Копировать подпись","Rasmni nusxalash":"Копировать фото",
+  "Fayl havolasini nusxalash":"Копировать ссылку на файл","Tanlash":"Выбрать","{n} ta tanlandi":"Выбрано: {n}",
+  "{n} ta xabar nusxalandi":"Скопировано сообщений: {n}","Rasm nusxalandi":"Фото скопировано",
+  "Rasm havolasi nusxalandi":"Ссылка на фото скопирована","Havola nusxalandi":"Ссылка скопирована","Nusxa olindi":"Скопировано",
+  "Uzoqlashtirish (−)":"Уменьшить (−)","Yaqinlashtirish (+)":"Увеличить (+)","Aylantirish (R)":"Повернуть (R)",
+  "To'liq ekran":"Полный экран","Telegram ichida butun ekranni egallaydi":"Занимает весь экран в Telegram",
+  "To'liq ekran uchun Telegramni yangilang":"Обновите Telegram для полноэкранного режима",
+  "Bu qurilmada to'liq ekran qo'llab-quvvatlanmaydi":"Полный экран не поддерживается на этом устройстве",
+  "To'liq ekran ochilmadi":"Не удалось открыть полный экран","Ovozli xabar o'chirildi":"Голосовое сообщение удалено",
+  "Bir nechta tanlash mumkin — har biri alohida yuboriladi":"Можно выбрать несколько — каждое отправится отдельно",
   // umumiy
   "Chatlar":"Чаты","Mijozlarim":"Мои клиенты","Profil":"Профиль","Qidiruv":"Поиск","Menyu":"Меню",
   "Hammasi":"Все","Javobsiz":"Без ответа","Yakunlangan":"Завершённые","Arxiv":"Архив","Pauza":"Пауза",

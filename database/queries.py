@@ -1532,23 +1532,25 @@ async def general_stats():
     week_ago = (now_local() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
     month = now_local().strftime("%Y-%m")
 
-    async def count(q, p=()):
-        cur = await db.execute(q, p)
-        return (await cur.fetchone())[0]
-
+    # Ikki o'tishda (har ko'rsatkichga alohida COUNT o'rniga); LIKE o'rniga sana oralig'i
+    tomorrow = (now_local() + timedelta(days=1)).strftime("%Y-%m-%d")
+    nxt_month = (now_local().replace(day=28) + timedelta(days=4)).strftime("%Y-%m")
+    cur = await db.execute(
+        "SELECT COUNT(*), "
+        "SUM(registered_at >= ? AND registered_at < ?), SUM(registered_at >= ? AND registered_at < ?), "
+        "SUM(registered_at >= ?), SUM(registered_at >= ? AND registered_at < ?) FROM users",
+        (today, tomorrow, yesterday, today, week_ago, month, nxt_month))
+    u = [v or 0 for v in await cur.fetchone()]
+    cur = await db.execute(
+        "SELECT COUNT(*), SUM(created_at >= ? AND created_at < ?), SUM(created_at >= ?), "
+        "SUM(status='new'), SUM(status='in_progress'), SUM(status='done'), SUM(status='canceled') "
+        "FROM orders", (today, tomorrow, week_ago))
+    o = [v or 0 for v in await cur.fetchone()]
     stats = {
-        "users_total": await count("SELECT COUNT(*) FROM users"),
-        "users_today": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (today + "%",)),
-        "users_yesterday": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (yesterday + "%",)),
-        "users_week": await count("SELECT COUNT(*) FROM users WHERE registered_at >= ?", (week_ago,)),
-        "users_month": await count("SELECT COUNT(*) FROM users WHERE registered_at LIKE ?", (month + "%",)),
-        "orders_total": await count("SELECT COUNT(*) FROM orders"),
-        "orders_today": await count("SELECT COUNT(*) FROM orders WHERE created_at LIKE ?", (today + "%",)),
-        "orders_week": await count("SELECT COUNT(*) FROM orders WHERE created_at >= ?", (week_ago,)),
-        "orders_new": await count("SELECT COUNT(*) FROM orders WHERE status = 'new'"),
-        "orders_progress": await count("SELECT COUNT(*) FROM orders WHERE status = 'in_progress'"),
-        "orders_done": await count("SELECT COUNT(*) FROM orders WHERE status = 'done'"),
-        "orders_canceled": await count("SELECT COUNT(*) FROM orders WHERE status = 'canceled'"),
+        "users_total": u[0], "users_today": u[1], "users_yesterday": u[2],
+        "users_week": u[3], "users_month": u[4],
+        "orders_total": o[0], "orders_today": o[1], "orders_week": o[2],
+        "orders_new": o[3], "orders_progress": o[4], "orders_done": o[5], "orders_canceled": o[6],
     }
     # umumiy o'rtacha baho
     cur = await db.execute("SELECT AVG(rating), COUNT(rating) FROM orders WHERE rating IS NOT NULL")
@@ -1639,26 +1641,31 @@ async def branch_detail(branch_id):
 async def live_stats():
     """Real vaqt holati: yangi/jarayonda/bugun yakunlangan + operatorlar kesimi."""
     db = await get_db()
+    # «bugun» — LIKE 'sana%' o'rniga oraliq: created_at/closed_at indekslari ishlaydi
     today = now_local().strftime("%Y-%m-%d")
+    tomorrow = (now_local() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     async def c(q_, p=()):
         cur = await db.execute(q_, p)
         return (await cur.fetchone())[0]
 
-    new = await c("SELECT COUNT(*) FROM orders WHERE status='new'")
-    prog = await c("SELECT COUNT(*) FROM orders WHERE status='in_progress'")
-    today_new = await c("SELECT COUNT(*) FROM orders WHERE created_at LIKE ?", (today + "%",))
-    today_done = await c("SELECT COUNT(*) FROM orders WHERE status='done' AND closed_at LIKE ?",
-                         (today + "%",))
+    cur = await db.execute(
+        "SELECT SUM(status='new'), SUM(status='in_progress') FROM orders "
+        "WHERE status IN ('new','in_progress')")
+    new, prog = [v or 0 for v in await cur.fetchone()]
+    today_new = await c("SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ?",
+                        (today, tomorrow))
+    today_done = await c("SELECT COUNT(*) FROM orders WHERE status='done' "
+                         "AND closed_at >= ? AND closed_at < ?", (today, tomorrow))
     online = await c("SELECT COUNT(*) FROM operators WHERE telegram_id IS NOT NULL")
     # operatorlar kesimi: hozir jarayonda nechta, online/holat
     cur = await db.execute(
         "SELECT op.id, op.name, op.availability, op.telegram_id, "
         "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='in_progress') AS cnt, "
         "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='done' "
-        " AND o.closed_at LIKE ?) AS done_today "
+        " AND o.closed_at >= ? AND o.closed_at < ?) AS done_today "
         "FROM operators op WHERE op.status='active' ORDER BY cnt DESC, done_today DESC",
-        (today + "%",))
+        (today, tomorrow))
     per_op = await cur.fetchall()
     return {"new": new, "prog": prog, "today_new": today_new, "today_done": today_done,
             "online": online, "per_op": per_op}
@@ -1673,6 +1680,7 @@ async def op_chats(operator_id):
         "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
         "o.paused_at, o.paused_until, o.rejected_at, "
         "u.full_name, u.phone, u.username, "
+        "(SELECT b.name FROM branches b WHERE b.id=COALESCE(o.branch_id, u.branch_id)) AS branch, "
         "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
         "lm.created_at AS last_at, lm.sender AS last_sender, "
         "cs.pinned AS pinned, cs.archived AS archived, cs.marked_unread AS marked_unread, "
@@ -1796,8 +1804,8 @@ async def orders_page(limit, offset, search=None, status=None, since=None, tag=N
         f"LEFT JOIN operators op ON op.id=o.operator_id {where} "
         f"ORDER BY o.id DESC LIMIT ? OFFSET ?", (*params, limit, offset))
     rows = await cur.fetchall()
-    cur = await db.execute(
-        f"SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id {where}", params)
+    join_u = "LEFT JOIN users u ON u.telegram_id=o.user_id " if search else ""
+    cur = await db.execute(f"SELECT COUNT(*) FROM orders o {join_u}{where}", params)
     total = (await cur.fetchone())[0]
     return rows, total
 
@@ -1923,36 +1931,45 @@ async def operators_report(since, until=None):
     db = await get_db()
     cur = await db.execute("SELECT id, name FROM operators WHERE status='active' ORDER BY id")
     ops = await cur.fetchall()
-
-    async def val(q_, p):
-        cur = await db.execute(q_, p)
-        return (await cur.fetchone())[0]
+    if not ops:
+        return []
+    U = " AND created_at < ?" if until else ""
+    UC = " AND closed_at < ?" if until else ""
+    up = (until,) if until else ()
+    # Operatorlar kesimi guruhlangan so'rovlar bilan (har operatorga alohida 5 ta so'rov o'rniga)
+    cur = await db.execute(
+        f"SELECT operator_id, COUNT(*) FROM orders WHERE operator_id IS NOT NULL "
+        f"AND created_at>=?{U} GROUP BY operator_id", (since, *up))
+    accepted = {r[0]: r[1] for r in await cur.fetchall()}
+    done_cnt, resol_vals = {}, {}
+    cur = await db.execute(
+        f"SELECT operator_id, MAX(0, (julianday(closed_at)-julianday(created_at))*1440 "
+        f"- COALESCE(paused_total_min,0)) FROM orders "
+        f"WHERE operator_id IS NOT NULL AND status='done' AND closed_at>=?{UC}", (since, *up))
+    for oid, m in await cur.fetchall():
+        done_cnt[oid] = done_cnt.get(oid, 0) + 1
+        resol_vals.setdefault(oid, []).append(m)
+    resp_vals = {}
+    cur = await db.execute(
+        "SELECT sl.changed_by, (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
+        "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
+        "WHERE sl.new_status='in_progress' AND sl.changed_by LIKE 'operator:%' AND o.created_at>=?"
+        + (" AND o.created_at < ?" if until else "") + " GROUP BY sl.changed_by, o.id",
+        (since, *up))
+    for by, m in await cur.fetchall():
+        resp_vals.setdefault(by, []).append(m)
+    cur = await db.execute(
+        "SELECT operator_id, AVG(rating) FROM orders WHERE operator_id IS NOT NULL "
+        "AND rating IS NOT NULL GROUP BY operator_id")
+    rats = {r[0]: r[1] for r in await cur.fetchall()}
 
     res = []
     for op in ops:
         oid = op["id"]
-        U = " AND created_at < ?" if until else ""
-        UC = " AND closed_at < ?" if until else ""
-        up = (until,) if until else ()
-        accepted = await val(f"SELECT COUNT(*) FROM orders WHERE operator_id=? AND created_at>=?{U}",
-                             (oid, since, *up))
-        done = await val(f"SELECT COUNT(*) FROM orders WHERE operator_id=? AND status='done' "
-                         f"AND closed_at>=?{UC}", (oid, since, *up))
-        cur = await db.execute(
-            "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
-            "FROM orders o JOIN status_log sl ON sl.order_id=o.id "
-            "WHERE sl.new_status='in_progress' AND sl.changed_by=? AND o.created_at>=?"
-            + (" AND o.created_at < ?" if until else "") + " GROUP BY o.id",
-            (f"operator:{oid}", since, *up))
-        resp = _median([r[0] for r in await cur.fetchall()])
-        cur = await db.execute(
-            f"SELECT MAX(0, (julianday(closed_at)-julianday(created_at))*1440 - COALESCE(paused_total_min,0)) FROM orders "
-            f"WHERE operator_id=? AND status='done' AND closed_at>=?{UC}", (oid, since, *up))
-        resol = _median([r[0] for r in await cur.fetchall()])
-        rat = await val("SELECT AVG(rating) FROM orders WHERE operator_id=? AND rating IS NOT NULL",
-                        (oid,))
-        res.append({"name": op["name"], "accepted": accepted, "done": done,
-                    "resp": resp, "resol": resol,
+        rat = rats.get(oid)
+        res.append({"name": op["name"], "accepted": accepted.get(oid, 0), "done": done_cnt.get(oid, 0),
+                    "resp": _median(resp_vals.get(f"operator:{oid}", [])),
+                    "resol": _median(resol_vals.get(oid, [])),
                     "rating": round(rat, 1) if rat else 0})
     return res
 
@@ -1975,17 +1992,13 @@ async def period_report(since, until=None):
     UC = " AND closed_at < ?" if until else ""
     up = (until,) if until else ()
 
-    async def val(q_, p=()):
-        cur = await db.execute(q_, p)
-        return (await cur.fetchone())[0]
-
-    total = await val(f"SELECT COUNT(*) FROM orders WHERE created_at>=?{U}", (since, *up))
-    new = await val(f"SELECT COUNT(*) FROM orders WHERE status='new' AND created_at>=?{U}", (since, *up))
-    prog = await val(f"SELECT COUNT(*) FROM orders WHERE status='in_progress' AND created_at>=?{U}", (since, *up))
-    done = await val(f"SELECT COUNT(*) FROM orders WHERE status='done' AND created_at>=?{U}", (since, *up))
-    canceled = await val(f"SELECT COUNT(*) FROM orders WHERE status='canceled' AND created_at>=?{U}", (since, *up))
-    delivery = await val(f"SELECT COUNT(*) FROM orders WHERE fulfillment='delivery' AND created_at>=?{U}", (since, *up))
-    pickup = await val(f"SELECT COUNT(*) FROM orders WHERE fulfillment='pickup' AND created_at>=?{U}", (since, *up))
+    # Barcha hisoblagichlar bitta o'tishda (7 ta alohida COUNT o'rniga)
+    cur = await db.execute(
+        f"SELECT COUNT(*), "
+        f"SUM(status='new'), SUM(status='in_progress'), SUM(status='done'), SUM(status='canceled'), "
+        f"SUM(fulfillment='delivery'), SUM(fulfillment='pickup') "
+        f"FROM orders WHERE created_at>=?{U}", (since, *up))
+    total, new, prog, done, canceled, delivery, pickup = [v or 0 for v in await cur.fetchone()]
     # MEDIAN — tunda javobsiz qolgan/kunlar o'tib yopilganlar o'rtachani buzmasin (real ko'rsatkich)
     cur = await db.execute(
         "SELECT (julianday(MIN(sl.changed_at))-julianday(o.created_at))*1440 "
@@ -2291,12 +2304,24 @@ def _pc_reset():
     _PCACHE["rows"] = None
 
 
-async def search_products(term, limit=40, only_stock=False):
+def _branch_ok(r, branch, with_common):
+    """branch=None — hammasi; 0 — faqat umumiy; id — shu filial (with_common: + umumiy)."""
+    if branch is None:
+        return True
+    bid = r["branch_id"] if "branch_id" in r.keys() else None
+    if not branch:
+        return bid is None
+    return bid == branch or (with_common and bid is None)
+
+
+async def search_products(term, limit=40, only_stock=False, branch=None, with_common=False):
     t = norm_name(term).strip()
     words = [w for w in t.split() if w]
     res = []
     for r, key in await _all_products():
         if only_stock and not r["in_stock"]:
+            continue
+        if not _branch_ok(r, branch, with_common):
             continue
         if all(w in key for w in words):
             # nomi so'z boshidan mos kelsa — tepada
@@ -2305,8 +2330,17 @@ async def search_products(term, limit=40, only_stock=False):
     return [r for _, r in res[:limit]]
 
 
-async def products_count():
-    return len(await _all_products())
+async def products_count(branch=None, with_common=False):
+    return sum(1 for r, _ in await _all_products() if _branch_ok(r, branch, with_common))
+
+
+async def product_branch_counts() -> dict:
+    """{branch_id (umumiy uchun 0): dorilar soni}"""
+    out = {}
+    for r, _ in await _all_products():
+        k = (r["branch_id"] if "branch_id" in r.keys() else None) or 0
+        out[k] = out.get(k, 0) + 1
+    return out
 
 
 async def get_product(pid):
@@ -2315,14 +2349,15 @@ async def get_product(pid):
     return await cur.fetchone()
 
 
-async def save_product(pid, name, price, unit="", note="", in_stock=1):
+async def save_product(pid, name, price, unit="", note="", in_stock=1, branch_id=None):
     db = await get_db()
     if pid:
-        await db.execute("UPDATE products SET name=?, price=?, unit=?, note=?, in_stock=?, updated_at=? WHERE id=?",
-                         (name, price, unit, note, in_stock, now(), pid))
+        await db.execute("UPDATE products SET name=?, price=?, unit=?, note=?, in_stock=?, branch_id=?, updated_at=? "
+                         "WHERE id=?", (name, price, unit, note, in_stock, branch_id or None, now(), pid))
     else:
-        cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, updated_at) "
-                               "VALUES (?, ?, ?, ?, ?, ?)", (name, price, unit, note, in_stock, now()))
+        cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, branch_id, updated_at) "
+                               "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                               (name, price, unit, note, in_stock, branch_id or None, now()))
         pid = cur.lastrowid
     await db.commit()
     _pc_reset()
@@ -2344,12 +2379,19 @@ async def set_product_stock(pid, in_stock):
     _pc_reset()
 
 
-async def import_products(items, replace=False):
-    """items: [(name, price, unit, note, in_stock)]. Nomi bir xil bo'lsa — yangilanadi."""
+async def import_products(items, replace=False, branch_id=None):
+    """items: [(name, price, unit, note, in_stock)] — branch_id filialiga (None — umumiy katalog).
+    Shu filialda nomi bir xil bo'lsa — yangilanadi; replace — faqat shu filial katalogi almashadi."""
     db = await get_db()
+    branch_id = branch_id or None
     if replace:
-        await db.execute("DELETE FROM products")
-    cur = await db.execute("SELECT id, name FROM products")
+        cur = await db.execute("SELECT id FROM products WHERE branch_id IS ?", (branch_id,))
+        old_ids = [r["id"] for r in await cur.fetchall()]
+        await db.execute("DELETE FROM products WHERE branch_id IS ?", (branch_id,))
+        if old_ids:
+            await db.execute(f"DELETE FROM stock_waits WHERE product_id IN ({','.join('?' * len(old_ids))})",
+                             old_ids)
+    cur = await db.execute("SELECT id, name FROM products WHERE branch_id IS ?", (branch_id,))
     by_name = {norm_name(r["name"]): r["id"] for r in await cur.fetchall()}
     added = updated = 0
     stamp = now()
@@ -2360,8 +2402,8 @@ async def import_products(items, replace=False):
                              (price, unit, note, stock, stamp, by_name[key]))
             updated += 1
         else:
-            cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, updated_at) "
-                                   "VALUES (?, ?, ?, ?, ?, ?)", (name, price, unit, note, stock, stamp))
+            cur = await db.execute("INSERT INTO products (name, price, unit, note, in_stock, branch_id, updated_at) "
+                                   "VALUES (?, ?, ?, ?, ?, ?, ?)", (name, price, unit, note, stock, branch_id, stamp))
             by_name[key] = cur.lastrowid
             added += 1
     await db.commit()

@@ -41,10 +41,27 @@ def _money(n) -> str:
         return "0"
 
 
-def _prod_json(r, waits=None):
+def _prod_json(r, waits=None, bnames=None):
+    bid = (r["branch_id"] if "branch_id" in r.keys() else None) or 0
     return {"id": r["id"], "name": r["name"], "price": r["price"] or 0, "unit": r["unit"] or "",
             "note": r["note"] or "", "in_stock": bool(r["in_stock"]),
+            "branch_id": bid, "branch": (bnames or {}).get(bid, "") if bid else "",
             "waits": (waits or {}).get(r["id"], 0)}
+
+
+async def _branch_names() -> dict:
+    return {b["id"]: b["name"] for b in await q.list_branches()}
+
+
+def _br_arg(v):
+    """'all'/'' -> None (hammasi); '0' -> 0 (umumiy); '5' -> 5"""
+    v = str(v if v is not None else "").strip()
+    if v in ("", "all"):
+        return None
+    try:
+        return max(0, int(v))
+    except ValueError:
+        return None
 
 
 # ================================================================
@@ -56,10 +73,26 @@ async def api_products(request):
     if not op:
         return _json({"ok": False}, 401)
     term = (request.query.get("q") or "").strip()
-    rows = await q.search_products(term, 40) if term else (await q.search_products("", 40))
+    # Chat ochiq bo'lsa — mijoz filiali katalogi + umumiy katalog
+    branch, bname = None, ""
+    try:
+        oid = int(request.query.get("order_id") or 0)
+    except ValueError:
+        oid = 0
+    if oid:
+        order = await q.get_order(oid)
+        if order:
+            user = await q.get_user(order["user_id"])
+            bid = order["branch_id"] or (user["branch_id"] if user else None)
+            if bid and await q.products_count(bid):
+                branch = bid
+    bnames = await _branch_names()
+    if branch:
+        bname = bnames.get(branch, "")
+    rows = await q.search_products(term, 40, branch=branch, with_common=True)
     waits = await q.stock_wait_counts()
-    return _json({"ok": True, "items": [_prod_json(r, waits) for r in rows],
-                  "total": await q.products_count()})
+    return _json({"ok": True, "items": [_prod_json(r, waits, bnames) for r in rows],
+                  "branch": bname, "total": await q.products_count(branch, with_common=True)})
 
 
 async def api_stock_wait(request):
@@ -138,12 +171,18 @@ async def api_admin_products(request):
         page = int(request.query.get("page") or 0)
     except ValueError:
         page = 0
-    rows = await q.search_products(term, 100000)
+    br = _br_arg(request.query.get("br"))
+    rows = await q.search_products(term, 100000, branch=br)
     waits = await q.stock_wait_counts()
     total = len(rows)
     rows = rows[page * 50:(page + 1) * 50]
-    return _json({"ok": True, "total": total, "page": page, "items": [_prod_json(r, waits) for r in rows],
-                  "waiting": sum(waits.values())})
+    bnames = await _branch_names()
+    counts = await q.product_branch_counts()
+    return _json({"ok": True, "total": total, "page": page, "br": "all" if br is None else br,
+                  "items": [_prod_json(r, waits, bnames) for r in rows],
+                  "waiting": sum(waits.values()),
+                  "all_cnt": sum(counts.values()), "common_cnt": counts.get(0, 0),
+                  "branches": [{"id": i, "name": n, "cnt": counts.get(i, 0)} for i, n in bnames.items()]})
 
 
 async def api_admin_product_save(request):
@@ -162,7 +201,7 @@ async def api_admin_product_save(request):
     old = await q.get_product(pid) if pid else None
     stock = 1 if body.get("in_stock", True) else 0
     pid = await q.save_product(pid, name, price, str(body.get("unit") or "")[:30],
-                               str(body.get("note") or "")[:300], stock)
+                               str(body.get("note") or "")[:300], stock, _br_arg(body.get("br")) or None)
     n = 0
     if stock and old is not None and not old["in_stock"]:
         n = await notify_stock_arrived(pid)
@@ -260,7 +299,10 @@ async def api_admin_products_import(request):
         return _json({"ok": False, "error": "Faylni o'qib bo'lmadi. .xlsx formatida yuklang."})
     if not items:
         return _json({"ok": False, "error": "Faylda dori topilmadi (1-ustun: Nomi, 2-ustun: Narxi)"})
-    added, updated = await q.import_products(items, replace=bool(body.get("replace")))
+    br = _br_arg(body.get("br")) or None
+    if br and not await q.get_branch(br):
+        return _json({"ok": False, "error": "Filial topilmadi"})
+    added, updated = await q.import_products(items, replace=bool(body.get("replace")), branch_id=br)
     # kelgan dorilar bo'yicha kutayotganlarga xabar
     notified = 0
     waits = await q.stock_wait_counts()
@@ -268,27 +310,118 @@ async def api_admin_products_import(request):
         p = await q.get_product(pid)
         if p and p["in_stock"]:
             notified += await notify_stock_arrived(pid)
-    await q.audit(f"admin:{tg}", "products_import", None, {"added": added, "updated": updated})
+    await q.audit(f"admin:{tg}", "products_import", None, {"added": added, "updated": updated, "branch": br or 0})
     return _json({"ok": True, "added": added, "updated": updated, "notified": notified})
 
 
-async def api_admin_products_template(request):
-    """Namuna Excel fayl (admin yuklab olib to'ldiradi)."""
+_SAMPLE = [("Paratsetamol 500mg", 12000, "quti", "10 tabletka", "bor"),
+           ("Aspirin Kardio 100mg", 38000, "quti", "Bayer", "bor"),
+           ("Vitamin D3 2000 IU", 95000, "quti", "60 kapsula", "yo'q"),
+           ("Nurofen sirop 100ml", 54000, "dona", "bolalar uchun", "bor")]
+
+
+def build_catalog_xlsx(rows, branch_name="") -> bytes:
+    """Katalog Excel fayli: namuna (rows=None) yoki joriy katalog. Import xuddi shu formatni o'qiydi."""
     import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.worksheet.datavalidation import DataValidation
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Katalog"
+    ws.append([f"Gulnora Farm — {branch_name or 'Umumiy katalog (barcha filiallar)'}"])
+    ws.append(["Faqat 4-qatordan pastini to'ldiring. Sarlavhalarni o'zgartirmang."])
+    ws.append([])
     ws.append(["Nomi", "Narxi", "Birlik", "Izoh", "Mavjud"])
-    ws.append(["Paratsetamol 500mg", 12000, "quti", "10 tabletka", 1])
-    ws.append(["Aspirin Kardio 100mg", 38000, "quti", "Bayer", 1])
-    ws.append(["Vitamin D3 2000 IU", 95000, "quti", "", 0])
-    for c, wdt in zip("ABCDE", (34, 12, 10, 26, 10)):
-        ws.column_dimensions[c].width = wdt
+    ws["A1"].font = Font(bold=True, size=14, color="1B7F4B")
+    ws["A2"].font = Font(italic=True, size=10, color="888888")
+    head_fill = PatternFill("solid", fgColor="1B7F4B")
+    thin = Side(style="thin", color="D0D7DE")
+    for c in ws[4]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = head_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = Border(bottom=thin)
+    ws.row_dimensions[4].height = 22
+    data = rows if rows is not None else _SAMPLE
+    for name, price, unit, note, stock in data:
+        if not isinstance(stock, str):
+            stock = "bor" if stock else "yo'q"
+        ws.append([name, price or 0, unit or "", note or "", stock])
+    last = max(5, ws.max_row) + 500
+    for r in ws.iter_rows(min_row=5, max_row=ws.max_row, min_col=2, max_col=2):
+        for c in r:
+            c.number_format = "# ##0"
+    dv = DataValidation(type="list", formula1='"bor,yo\'q"', allow_blank=True,
+                        error="«bor» yoki «yo'q» tanlang", errorTitle="Mavjud")
+    ws.add_data_validation(dv)
+    dv.add(f"E5:E{last}")
+    for col, wdt in zip("ABCDE", (38, 13, 11, 30, 10)):
+        ws.column_dimensions[col].width = wdt
+    ws.freeze_panes = "A5"
+    # Yo'riqnoma
+    h = wb.create_sheet("Yo'riqnoma")
+    for line in ["Qanday to'ldiriladi:",
+                 "• Nomi — dori nomi (majburiy). Bir xil nomli dori qayta yuklansa, yangilanadi.",
+                 "• Narxi — so'mda, faqat raqam (masalan 12000).",
+                 "• Birlik — quti, dona, ml ... (ixtiyoriy).",
+                 "• Izoh — ishlab chiqaruvchi, dozasi (ixtiyoriy).",
+                 "• Mavjud — «bor» yoki «yo'q» (1/0 ham bo'ladi). Bo'sh qolsa — «bor».",
+                 "",
+                 "Yuklash: Admin panel → Sozlamalar → Dori katalogi → filialni tanlang → «Excel yuklash».",
+                 "«Mavjud» bo'lib qolgan dorini kutayotgan mijozlarga avtomatik xabar boradi."]:
+        h.append([line])
+    h["A1"].font = Font(bold=True, size=13)
+    h.column_dimensions["A"].width = 100
     buf = io.BytesIO()
     wb.save(buf)
-    return web.Response(body=buf.getvalue(), headers={
+    return buf.getvalue()
+
+
+def _xlsx_resp(raw, fname):
+    return web.Response(body=raw, headers={
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="katalog_namuna.xlsx"'})
+        "Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+async def api_admin_products_template(request):
+    """Namuna Excel fayl (havola orqali yuklab olish — avtorizatsiyasiz, faqat namuna)."""
+    return _xlsx_resp(build_catalog_xlsx(None), "katalog_namuna.xlsx")
+
+
+async def api_admin_products_file(request):
+    """Namuna yoki tanlangan filialning joriy katalogi — adminning Telegram chatiga fayl bo'lib boradi
+    (telefonda ham ishonchli yuklab olinadi, keyin to'ldirib qayta yuklanadi)."""
+    body = await _body(request)
+    tg = await _w()._auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    br = _br_arg(body.get("br"))
+    kind = body.get("kind") or "template"
+    bnames = await _branch_names()
+    bname = bnames.get(br, "") if br else ""
+    slug = "".join(ch if ch.isalnum() else "_" for ch in (bname or "umumiy")).strip("_")[:30] or "katalog"
+    if kind == "export":
+        rows = await q.search_products("", 100000, branch=br if br is not None else 0)
+        data = [(r["name"], r["price"], r["unit"], r["note"], r["in_stock"]) for r in rows]
+        raw = build_catalog_xlsx(data, bname)
+        fname = f"katalog_{slug}.xlsx"
+        cap = f"📦 Joriy katalog: <b>{_htm.escape(bname or 'Umumiy')}</b> — {len(data)} ta dori.\n" \
+              f"Tahrirlab, admin panelda shu filialni tanlab qayta yuklang."
+    else:
+        raw = build_catalog_xlsx(None, bname)
+        fname = f"katalog_namuna_{slug}.xlsx"
+        cap = "📄 Dori katalogi namunasi. To'ldirib, admin panel → Dori katalogi → «Excel yuklash» orqali yuklang."
+    from aiogram.types import BufferedInputFile
+    from utils import cbot
+    bot = cbot()
+    if not bot:
+        return _json({"ok": False, "error": "bot tayyor emas"})
+    try:
+        await bot.send_document(tg, BufferedInputFile(raw, fname), caption=cap)
+    except Exception:
+        logger.exception("products file -> admin")
+        return _json({"ok": False, "error": "Telegramga yuborib bo'lmadi — botni ishga tushiring (/start)"})
+    return _json({"ok": True, "info": "Fayl Telegram chatingizga yuborildi ✅"})
 
 
 # ================================================================
@@ -555,6 +688,7 @@ def register(app: web.Application):
     r.add_post("/api/admin/product_del", api_admin_product_del)
     r.add_post("/api/admin/products_import", api_admin_products_import)
     r.add_get("/api/admin/products_template", api_admin_products_template)
+    r.add_post("/api/admin/products_file", api_admin_products_file)
     r.add_get("/api/admin/daily_preview", api_admin_daily_preview)
 
 

@@ -327,6 +327,15 @@ CREATE INDEX IF NOT EXISTS idx_reminders_due   ON reminders(done, remind_at);
 CREATE INDEX IF NOT EXISTS idx_notes_order     ON internal_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_audit_order     ON audit_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_products_name   ON products(name);
+-- Admin statistika (dash) so'rovlari uchun
+CREATE INDEX IF NOT EXISTS idx_orders_closed    ON orders(closed_at);
+CREATE INDEX IF NOT EXISTS idx_orders_st_closed ON orders(status, closed_at);
+CREATE INDEX IF NOT EXISTS idx_orders_op_status ON orders(operator_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_statuslog_new    ON status_log(new_status, order_id, changed_at);
+CREATE INDEX IF NOT EXISTS idx_orders_branch    ON orders(branch_id, status);
+CREATE INDEX IF NOT EXISTS idx_users_branch     ON users(branch_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender  ON messages(order_id, sender, created_at);
 """
 
 
@@ -477,9 +486,13 @@ async def init_db():
                                    ("pause_remind_min", "INTEGER"), ("pause_next_remind", "TEXT"),
                                    ("rejected_at", "TEXT"), ("rejected_by", "INTEGER")])   # «Отказ» belgisi
     await db.execute("CREATE INDEX IF NOT EXISTS idx_pauses_order ON order_pauses(order_id)")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_pauses_started ON order_pauses(started_at)")
     await _add_cols(db, "operators", [("sess_epoch", "INTEGER DEFAULT 0")])
     await _add_cols(db, "templates", [("operator_id", "INTEGER")])
     await _add_cols(db, "admins", [("role", "TEXT DEFAULT 'admin'")])
+    # Dori katalogi filial bo'yicha: NULL — umumiy (barcha filiallar uchun)
+    await _add_cols(db, "products", [("branch_id", "INTEGER")])
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_products_branch ON products(branch_id)")
     await db.execute("CREATE INDEX IF NOT EXISTS idx_messages_edited ON messages(order_id, edited_at)")
     # Eski yozuvlar: bot yasagan xabarlar matnida qolib ketgan <b> teglarini HTML ustuniga ko'chiramiz
     import tghtml
@@ -511,3 +524,5 @@ async def init_db():
         )
 
     await db.commit()
+    # Yangi indekslar uchun statistika — SQLite rejalashtiruvchisi to'g'ri indeksni tanlasin
+    await db.execute("PRAGMA optimize")
