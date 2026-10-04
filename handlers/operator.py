@@ -1169,10 +1169,16 @@ async def _auto_close_task(bot: Bot, order_id: int, armed_at: str, operator_tg: 
         return  # allaqachon yopilgan/bekor qilingan
     last_client = await q.last_client_msg_time(order_id)
     if last_client and last_client > armed_at:
+        await q.set_auto_close(order_id, None)
         return  # mijoz javob berdi -> avto-yakunlash bekor
     await _finish_with_rating(cbot() or bot, order_id, "auto")
     # Operatorga o'z boti orqali xabar (operator asosiy botni ochmagan bo'lishi mumkin)
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    if op:
+        await q.add_operator_notification(
+            op["id"], "auto_close", f"Murojaat #{order_id} avtomatik yakunlandi",
+            f"Mijoz {AUTO_CLOSE_MIN} daqiqa javob bermadi.", order_id,
+            f"auto-close:{order_id}:{armed_at}")
     notify_bot = bot
     notify_tg = operator_tg
     if op and op["telegram_id"]:
@@ -1200,6 +1206,8 @@ async def op_autoclose(call: CallbackQuery):
         await call.answer("Bu murojaat faol emas.", show_alert=True)
         return
     armed_at = q.now()
+    close_at = (now_local() + timedelta(minutes=AUTO_CLOSE_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+    await q.set_auto_close(order_id, close_at)
     spawn_auto_close(call.bot, order_id, armed_at, call.from_user.id)
     # Mijozni darhol ogohlantiramiz (uning tilida, asosiy bot orqali)
     clang = await q.get_lang(order["user_id"])
@@ -1240,6 +1248,10 @@ async def op_workhours_loop(bot: Bot):
                         today = n.strftime("%Y-%m-%d")
                         if 0 < left <= 10 and _endwarn.get(op["id"]) != today:
                             _endwarn[op["id"]] = today
+                            await q.add_operator_notification(
+                                op["id"], "work_hours", "Ish vaqti tugashiga oz qoldi",
+                                f"Ish vaqtingiz tugashiga {left} daqiqa qoldi ({we}).",
+                                None, f"work-end:{op['id']}:{today}")
                             ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
                             await ob.send_message(
                                 op["telegram_id"],

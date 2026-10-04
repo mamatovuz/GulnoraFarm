@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS orders (
     bill_photo   TEXT,                            -- hisob-kitob rasmi (file_id)
     accepted_at  TEXT,                            -- operator qabul qilgan vaqt
     last_operator_reminder_at TEXT,                -- yakunlash eslatmasi oxirgi yuborilgan vaqt
-    fulfillment  TEXT                              -- yetkazish turi: delivery | pickup | NULL
+    fulfillment  TEXT,                             -- yetkazish turi: delivery | pickup | NULL
+    auto_close_at TEXT                              -- /10daqiqa yoqilganda yopilish vaqti
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -173,6 +174,30 @@ CREATE TABLE IF NOT EXISTS reminders (
     remind_at   TEXT,
     note        TEXT,
     done        INTEGER DEFAULT 0
+);
+
+-- Mini-app bildirishnoma markazi: botdagi muhim eslatmalar shu yerda ham ko'rinadi
+CREATE TABLE IF NOT EXISTS operator_notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    operator_id INTEGER NOT NULL,
+    kind        TEXT,
+    title       TEXT NOT NULL,
+    body        TEXT,
+    order_id    INTEGER,
+    dedupe_key  TEXT,
+    created_at  TEXT,
+    read_at     TEXT,
+    UNIQUE(operator_id, dedupe_key)
+);
+
+-- Operatorlar orasidagi ichki yozishma (mijozga yuborilmaydi)
+CREATE TABLE IF NOT EXISTS operator_messages (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_operator_id INTEGER NOT NULL,
+    to_operator_id   INTEGER NOT NULL,
+    text             TEXT NOT NULL,
+    created_at       TEXT,
+    read_at          TEXT
 );
 
 -- Mijoz haqida operator izohi (CRM profilida ko'rinadi)
@@ -324,6 +349,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_order  ON messages(order_id);
 CREATE INDEX IF NOT EXISTS idx_statuslog_order ON status_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_msglinks_op     ON msg_links(operator_msg_id, operator_tg);
 CREATE INDEX IF NOT EXISTS idx_reminders_due   ON reminders(done, remind_at);
+CREATE INDEX IF NOT EXISTS idx_opnotify_user   ON operator_notifications(operator_id, read_at, id);
+CREATE INDEX IF NOT EXISTS idx_opmsg_pair      ON operator_messages(from_operator_id, to_operator_id, id);
 CREATE INDEX IF NOT EXISTS idx_notes_order     ON internal_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_audit_order     ON audit_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_products_name   ON products(name);
@@ -401,6 +428,9 @@ async def init_db():
     if "fulfillment" not in ocols:
         # yetkazish turi: delivery (yetkazib berish) | pickup (olib ketish) | NULL
         await db.execute("ALTER TABLE orders ADD COLUMN fulfillment TEXT")
+        await db.commit()
+    if "auto_close_at" not in ocols:
+        await db.execute("ALTER TABLE orders ADD COLUMN auto_close_at TEXT")
         await db.commit()
 
     # Migratsiya: operators.last_active va availability ustunlari

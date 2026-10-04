@@ -712,6 +712,10 @@ async def _send_pause_reminder(r):
             f"📝 {_htm.escape(r['reason'] or 'Pauza')}\n"
             f"🕐 Pauza: {since}" + (f" · {_fmt_until(r['paused_until'])} gacha" if r["paused_until"] else "") + "\n\n"
             f"Davom ettirish uchun mini app'da chatni oching. Keyingi eslatma {_rem_label(r['pause_remind_min'])}dan keyin.")
+    await q.add_operator_notification(
+        op["id"], "pause", f"Murojaat #{r['id']} pauzada",
+        f"{r['full_name'] or 'Mijoz'} · {r['reason'] or 'Pauza'}", r["id"],
+        f"pause:{r['id']}:{q.now()[:16]}")
     try:
         if b:
             await b.send_message(op["telegram_id"], text)

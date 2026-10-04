@@ -356,46 +356,61 @@
     .cardgrid{grid-template-columns:1fr 1fr 1fr}
   }
 
-  /* ===== Gulnora Farm UI: sokin, ishchi va brendga mos ===== */
+  /* ===== Gulnora Farm — logotipga mos monoxrom boshqaruv tizimi ===== */
   :root{
-    --bg:#ffffff;--sec:#f3f6f4;--text:#17211c;--hint:#6f7d75;--link:#14734f;
-    --accent:#14734f;--sep:#dfe6e1;--nav:#102b20;--nav-text:#dce9e2;
+    --bg:#ffffff;--sec:#f5f5f3;--text:#232323;--hint:#747474;--link:#555555;
+    --accent:#686868;--sep:#e3e3df;--nav:#252525;--nav-text:#e7e7e7;--brand:#808080;
   }
-  html[data-theme="light"]{--bg:#ffffff;--sec:#f3f6f4;--text:#17211c;--hint:#6f7d75;--link:#14734f;--sep:#dfe6e1}
-  html[data-theme="dark"]{--bg:#15211b;--sec:#0e1712;--text:#eef5f1;--hint:#91a198;--link:#68c69c;--accent:#46aa7c;--sep:#293a31;--nav:#09130e;--nav-text:#dce9e2}
-  html,body{letter-spacing:-.005em}
-  .brandbar{height:58px;display:flex;align-items:center;gap:11px;padding:8px 14px;background:var(--bg);
+  html[data-theme="light"]{--bg:#ffffff;--sec:#f5f5f3;--text:#232323;--hint:#747474;--link:#555555;--accent:#686868;--sep:#e3e3df;--nav:#252525;--nav-text:#e7e7e7}
+  html[data-theme="dark"]{--bg:#202020;--sec:#171717;--text:#f4f4f2;--hint:#a0a09c;--link:#d1d1cd;--accent:#b9b9b4;--sep:#383836;--nav:#101010;--nav-text:#ededeb}
+  html,body{letter-spacing:-.008em}
+  body{background:var(--sec)}
+  .brandbar{height:62px;display:flex;align-items:center;gap:12px;padding:9px 14px;background:var(--bg);
     border-bottom:1px solid var(--sep);flex-shrink:0;z-index:7}
-  .brandmark{width:40px;height:40px;border-radius:10px;background:#808080;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}
+  .brandmark{width:44px;height:44px;border-radius:12px;background:var(--brand);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}
   .brandmark img{display:block;width:100%;height:100%;object-fit:cover}
-  .brandcopy{display:flex;flex-direction:column;min-width:0;line-height:1.15;flex:1}
-  .brandcopy b{font-size:14px;letter-spacing:.01em}.brandcopy span{font-size:12px;color:var(--hint);margin-top:3px}
-  .brandbar .rf{margin-left:auto;background:transparent;border:1px solid var(--sep)}
-  .card,.tile,.list,.lrows{border:1px solid var(--sep);box-shadow:none;border-radius:12px}
-  .tile{background:var(--bg)}
-  .chips button{border-radius:8px;background:transparent}
-  .chips button.on{background:color-mix(in srgb,var(--accent) 11%,var(--bg));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--sep));box-shadow:none}
+  .brandcopy{display:flex;flex-direction:column;min-width:0;line-height:1.12;flex:1}
+  .brandcopy b{font-size:14px;font-weight:720;letter-spacing:.01em}.brandcopy span{font-size:12px;color:var(--hint);margin-top:4px}
+  .brandbar .rf{margin-left:auto;background:var(--sec);border:1px solid var(--sep);color:var(--text);border-radius:10px}
+  .card,.tile,.list,.lrows{border:1px solid var(--sep);box-shadow:none;border-radius:14px}
+  .tile{background:var(--bg);padding:15px 16px}
+  .tile .v{color:var(--text);font-weight:730}.tile .l{font-weight:540}
+  .card{background:var(--bg)}
+  .card h3{font-weight:680}
+  .chips{gap:6px}
+  .chips button{border:1px solid transparent;border-radius:9px;background:transparent}
+  .chips button:hover{background:color-mix(in srgb,var(--text) 5%,var(--bg))}
+  .chips button.on{background:var(--text);color:var(--bg);border-color:var(--text);box-shadow:none}
+  .searchbar input,.frm input,.frm select,.frm textarea{border-color:var(--sep);background:var(--bg);border-radius:10px}
   .tabbar{background:var(--bg);border-top:1px solid var(--sep)}
   .tabbar button .ic{border-radius:8px}
-  .tabbar button.on .ic{background:color-mix(in srgb,var(--accent) 11%,transparent)}
-  .morebtn{border:1px solid var(--sep)}
-  .sheet{box-shadow:0 -16px 42px rgba(16,43,32,.16)}
-  .aibtn{background:var(--accent)}
-  .oprow .ava,.ava2{background:var(--accent)}
+  .tabbar button.on .ic{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .sidebrand{display:none}
+  .morebtn{border:1px solid var(--sep);background:var(--bg)}
+  .sheet{box-shadow:0 -18px 48px rgba(0,0,0,.16)}
+  .aibtn{background:var(--text)}
+  .oprow .ava,.ava2{background:var(--brand)}
+  .sbtn{background:var(--text);color:var(--bg);border-radius:10px}
+  .list .item{min-height:50px}
 
   @media (min-width:900px){
-    #app{padding-left:224px}
-    #app>.tabbar{position:absolute;left:0;top:0;bottom:0;width:224px;padding:88px 12px 18px;
-      flex-direction:column;justify-content:flex-start;gap:5px;background:var(--nav);border:none}
-    #app>.tabbar::before{content:"GULNORA FARM";position:absolute;top:28px;left:24px;color:#fff;
-      font-size:13px;font-weight:750;letter-spacing:.12em}
-    #app>.tabbar button{flex:0 0 auto;min-height:46px;padding:0 12px;flex-direction:row;justify-content:flex-start;
-      gap:12px;border-radius:9px;color:color-mix(in srgb,var(--nav-text) 72%,transparent);font-size:14px}
-    #app>.tabbar button:hover{background:rgba(255,255,255,.06);color:#fff}
-    #app>.tabbar button.on{background:rgba(255,255,255,.11);color:#fff}
-    #app>.tabbar button .ic,#app>.tabbar button.on .ic{box-sizing:border-box;padding:0;background:none;width:21px;height:21px}
-    .brandbar{height:66px;padding:10px 24px}.brandcopy b{display:none}.brandcopy span{font-size:18px;color:var(--text);font-weight:680;margin:0}
-    .body{padding-top:18px;padding-bottom:28px}
+    #app{padding-left:248px}
+    #app>.tabbar{position:absolute;left:0;top:0;bottom:0;width:248px;padding:20px 14px;
+      flex-direction:column;justify-content:flex-start;gap:6px;background:var(--nav);border:none}
+    #app>.tabbar::before{display:none}
+    #app>.tabbar .sidebrand{display:flex;align-items:center;gap:11px;margin:0 2px 22px;padding:5px 4px 20px;border-bottom:1px solid rgba(255,255,255,.11)}
+    #app>.tabbar .sidebrand img{width:52px;height:52px;object-fit:cover;border-radius:13px;flex:0 0 auto}
+    #app>.tabbar .sidebrand div{display:flex;flex-direction:column;min-width:0;line-height:1.15}
+    #app>.tabbar .sidebrand strong{color:#fff;font-size:14px;letter-spacing:.01em;white-space:nowrap}
+    #app>.tabbar .sidebrand span{color:#aeadad;font-size:11px;margin-top:5px;white-space:nowrap}
+    #app>.tabbar button{flex:0 0 auto;min-height:46px;padding:0 13px;flex-direction:row;justify-content:flex-start;
+      gap:12px;border-radius:10px;color:#aaa;font-size:14px;font-weight:550}
+    #app>.tabbar button:hover{background:rgba(255,255,255,.06);color:#f5f5f5}
+    #app>.tabbar button.on{background:#f1f1ef;color:#242424;font-weight:650}
+    #app>.tabbar button .ic,#app>.tabbar button.on .ic{box-sizing:border-box;padding:0;background:none;width:20px;height:20px}
+    .brandbar{height:68px;padding:10px 28px}.brandmark{display:none}.brandcopy b{display:none}.brandcopy span{font-size:19px;color:var(--text);font-weight:690;margin:0}
+    .body{padding-top:20px;padding-bottom:32px}
+    .kpi{gap:12px}.cardgrid{gap:18px}
   }
 </style>
 </head>
@@ -590,6 +605,10 @@
   </div>
 
   <div class="tabbar">
+    <div class="sidebrand" aria-label="Gulnora Farm">
+      <img src="/static/gulnora-farm-logo.jpg?v=3" alt="">
+      <div><strong>Gulnora Farm</strong><span>Boshqaruv markazi</span></div>
+    </div>
     <button id="tb-dash" class="on" onclick="showTab('dash')">
       <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18M8 16v-5M13 16V8M18 16v-8"/></svg>
       Statistika

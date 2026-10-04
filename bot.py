@@ -200,6 +200,9 @@ async def reminders_loop(bot):
                 text = (f"⏰ <b>Eslatma</b> — murojaat #{r['order_id']}"
                         f" ({r['full_name'] or 'mijoz'})"
                         + (f"\n📝 {r['note']}" if r["note"] else ""))
+                await q.add_operator_notification(
+                    op["id"], "reminder", f"Murojaat #{r['order_id']} uchun eslatma",
+                    r["note"] or (r["full_name"] or "Mijoz"), r["order_id"], f"reminder:{r['id']}")
                 try:
                     await ob.send_message(op["telegram_id"], text)
                 except Exception:
@@ -233,6 +236,10 @@ async def unfinished_operator_reminder_loop(bot):
                     f"{r['full_name'] or 'Mijoz'} bilan suhbat tugagan bo'lsa, "
                     f"iltimos murojaatni yakunlang."
                 )
+                await q.add_operator_notification(
+                    op["id"], "unfinished", f"Murojaat #{r['id']} hali yakunlanmadi",
+                    f"{r['full_name'] or 'Mijoz'} bilan suhbat tugagan bo'lsa, yakunlang.",
+                    r["id"], f"unfinished:{r['id']}:{q.now()[:16]}")
                 try:
                     await ob.send_message(
                         op["telegram_id"],
@@ -280,6 +287,10 @@ async def unaccepted_orders_reminder_loop(bot):
                             pass
                     if not news:
                         continue
+                    await q.add_operator_notification(
+                        op["id"], "new_orders", f"{len(news)} ta qabul qilinmagan murojaat",
+                        "Yangi murojaatlarni mini-appdagi Chatlar bo'limidan qabul qiling.",
+                        None, f"new-orders:{len(news)}:{max(o['id'] for o in news)}")
                     lines = [f"📥 <b>{len(news)} ta qabul qilinmagan murojaat bor!</b>",
                              "Qabul qilasizmi? Pastdagi tugma orqali biriktirib oling.\n"]
                     for o in news[:10]:

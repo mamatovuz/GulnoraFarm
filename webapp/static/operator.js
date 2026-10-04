@@ -54,8 +54,8 @@ const Store = {
 };
 
 /* ---------- holat ---------- */
-const ST = { op:{}, mk:LS.get("op_mk")||"", v:0, kick:false, chats:[], chatMap:{}, done:null, folder:"all", q:"",
-             newcount:0, inited:false, online:true };
+const ST = { op:{}, mk:LS.get("op_mk")||"", v:0, kick:false, chats:[], chatMap:{}, done:null, operators:[], folder:"all", q:"",
+             newcount:0, notifyUnread:0, operatorUnread:0, inited:false, online:true };
 let CUR = null, CH = null;
 let SELM = null;   // tanlash rejimi: belgilangan xabarlar (Set) yoki null
 
@@ -219,11 +219,12 @@ function onAuthFail(){
 }
 function logout(silent){
   stopSync();
+  clearInterval(opChatTimer); opChatTimer=null; OPCHAT=null;
   if(pinTimer){ clearInterval(pinTimer); pinTimer=null; }
   if(chanTimer){ clearInterval(chanTimer); chanTimer=null; }
   if(recActive()) finishRec(false);
   Store.del("op_session");
-  ST.op = {}; ST.chats = []; ST.chatMap = {}; ST.inited = false; ST.v = 0; CUR = null; CH = null;
+  ST.op = {}; ST.chats = []; ST.chatMap = {}; ST.operators=[]; ST.notifyUnread=0; ST.operatorUnread=0; ST.inited = false; ST.v = 0; CUR = null; CH = null;
   $("in-pass").value = "";
   closeAllOverlays(); renderSaved(); show("login");
 }
@@ -231,7 +232,7 @@ function logout(silent){
 /* ============================================================
    EKRANLAR + Telegram BackButton
    ============================================================ */
-const SCREENS = ["login","app","chat","channel","listview"];
+const SCREENS = ["login","app","chat","opchat","channel","listview"];
 let CURSCREEN = "login";
 function show(id, anim){
   const wide = id !== "login" && typeof isWide === "function" && isWide();
@@ -249,7 +250,7 @@ function topOverlay(){
   return null;
 }
 function updateBackBtn(){
-  try{ const need = !!topOverlay() || ["chat","channel","listview"].includes(CURSCREEN) || !!SELM;
+  try{ const need = !!topOverlay() || ["chat","opchat","channel","listview"].includes(CURSCREEN) || !!SELM;
     need ? tg.BackButton.show() : tg.BackButton.hide(); }catch(e){}
 }
 function goBack(){
@@ -264,6 +265,7 @@ function goBack(){
     if(["cmdpanel","quickpanel","stickerpanel"].some(p=>!$(p).classList.contains("hide"))) return hidePanels();
     return backToList();
   }
+  if(CURSCREEN==="opchat") return closeOperatorChat();
   if(CURSCREEN==="channel") return closeChannel();
   if(CURSCREEN==="listview") return closeList();
 }
@@ -356,7 +358,7 @@ function applySync(r){
     if(r.newcount > ST.newcount) ring = true;
   }
   ST.chats = r.chats; ST.chatMap = {}; r.chats.forEach(c=>ST.chatMap[c.order_id]=c);
-  ST.newcount = r.newcount; ST.v = r.v; ST.inited = true;
+  ST.newcount = r.newcount; ST.notifyUnread = r.notify_unread||0; ST.operatorUnread = r.operator_unread||0; ST.v = r.v; ST.inited = true;
   if(ring) beep();
   renderChatList(); updateBadges();
   if(r.chat_error && CUR){ toast(r.chat_error, 3200); backToList(); return; }
@@ -367,9 +369,10 @@ function updateBadges(){
   const unread = ST.chats.filter(c=>!c.archived && (c.unread>0 || c.marked_unread)).length;
   const tot = unread + ST.newcount;
   const e = $("tb-badge"); e.textContent = tot>99?"99+":tot; e.classList.toggle("hide", !tot);
+  const nb = $("notify-badge"); if(nb){ nb.textContent=ST.notifyUnread>99?"99+":ST.notifyUnread; nb.classList.toggle("hide",!ST.notifyUnread); }
   const all = ST.chats.filter(c=>!c.archived).length, rep = ST.chats.filter(c=>!c.archived && !c.paused && c.reply).length, arc = ST.chats.filter(c=>c.archived).length;
   const pz = ST.chats.filter(c=>c.paused).length;
-  [["fc-all",unread],["fc-unread",rep],["fc-archived",arc],["fc-paused",pz]].forEach(([id,n])=>{ const x=$(id); x.textContent=n; x.classList.toggle("hide",!n); });
+  [["fc-all",unread],["fc-unread",rep],["fc-archived",arc],["fc-paused",pz],["fc-operators",ST.operatorUnread]].forEach(([id,n])=>{ const x=$(id); x.textContent=n; x.classList.toggle("hide",!n); });
   void all;
 }
 
@@ -382,7 +385,9 @@ $("folders").addEventListener("click", e=>{
   const b = e.target.closest("button[data-f]"); if(!b) return;
   ST.folder = b.dataset.f; document.querySelectorAll("#folders button").forEach(x=>x.classList.toggle("on", x===b));
   haptic("sel");
-  if(["done","canceled","rejected"].includes(ST.folder)) loadDoneChats(); else renderChatList();
+  if(["done","canceled","rejected"].includes(ST.folder)) loadDoneChats();
+  else if(ST.folder==="operators") loadOperatorPeers();
+  else renderChatList();
 });
 function toggleSearch(){
   const box = $("chsearch"); const open = box.classList.contains("hide");
@@ -398,6 +403,20 @@ async function loadDoneChats(){
   const r = await GET("/api/done_chats", { kind }).catch(()=>null);
   if(ST.folder !== kind) return;
   ST.done = r && r.ok ? r.chats : []; renderChatList();
+}
+async function loadOperatorPeers(){
+  $("chatlist").innerHTML = '<div class="spinner"></div>';
+  const r = await GET("/api/operator_peers").catch(()=>null);
+  if(ST.folder!=="operators") return;
+  ST.operators = r&&r.ok ? r.operators : [];
+  ST.operatorUnread = ST.operators.reduce((n,o)=>n+(+o.unread||0),0);
+  renderChatList(); updateBadges();
+}
+function operatorRowHtml(o){
+  const state = (o.availability==="busy" ? "Band" : "Bo'sh") + ` · ${o.open_count||0} ta murojaat`;
+  return `<div class="crow oprow-chat" data-opid="${o.id}" data-name="${esc(o.name)}"><div class="cfront">${avaHtml(o.name)}
+    <div class="mid"><div class="l1"><span class="nm">${esc(o.name)}</span><span class="opstate">${esc(state)}</span><span class="tm">${esc((o.last_at||"").slice(11,16))}</span></div>
+    <div class="l2"><span class="pv">${esc(o.last_text||"Ichki xabar yozish")}</span>${o.unread?`<span class="badge">${o.unread}</span>`:""}</div></div></div></div>`;
 }
 function chanRowHtml(){
   const n = ST.newcount;
@@ -417,12 +436,22 @@ function chatRowHtml(c, done){
   const tm = (c.last_sender==="operator" ? ICK : "") + esc(c.time||"");
   const st = (done ? (c.status==="canceled" ? "🔴 " : "") : "") + (c.rejected ? "🚫 " : "");
   const tags = (c.branch ? `<span class="brc">📍${esc(c.branch)}</span>` : "") + (c.tags||[]).slice(0,2).map(t=>`<span class="chip" style="font-size:10.5px;padding:1px 6px">${esc(t)}</span>`).join(" ");
+  const close = !done && c.auto_close_at ? `<span class="autoclose-pill" data-close="${esc(c.auto_close_at)}">⏱ ${remainingLabel(c.auto_close_at)}</span>` : "";
   return `<div class="crow${c.pinned&&!done?" pinned":""}${c.order_id===CUR?" sel":""}" data-oid="${c.order_id}" data-name="${esc(c.name)}" ${done?'data-done="1"':""}>
     ${done?"":`<div class="cacts"><button class="a1" data-sw="pin">${c.pinned?"Olib<br>tashlash":"Qadash"}</button><button class="a2" data-sw="read">${unread?"O'qilgan":"O'qilmagan"}</button><button class="a3" data-sw="arch">${c.archived?"Arxivdan":"Arxiv"}</button></div>`}
     <div class="cfront">${avaHtml(c.name)}
       <div class="mid"><div class="l1"><span class="nm">${st}${esc(c.name)}</span>${tags}<span class="tm">${tm}</span></div>
-        <div class="l2"><span class="pv">${pv}</span>${done && c.rating?`<span style="color:var(--orange);font-size:13px">${c.rating}★</span>`:""}${right}</div></div></div></div>`;
+        <div class="l2"><span class="pv">${pv}</span>${close}${done && c.rating?`<span style="color:var(--orange);font-size:13px">${c.rating}★</span>`:""}${right}</div></div></div></div>`;
 }
+function remainingLabel(ts){
+  if(!ts) return "";
+  const due=new Date(ts.replace(" ","T")), left=Math.max(0,Math.ceil((due-Date.now())/1000));
+  return left<=0 ? T("Yakunlanmoqda") : `${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}`;
+}
+setInterval(()=>{
+  document.querySelectorAll("[data-close]").forEach(x=>x.textContent="⏱ "+remainingLabel(x.dataset.close));
+  if(CH&&CH.autoCloseAt&&CURSCREEN==="chat") updateSub();
+},1000);
 let _listPending = false;
 function renderChatList(){
   if(CURSCREEN==="login") return;
@@ -432,7 +461,10 @@ function renderChatList(){
   const qq = ST.q;
   const match = c => !qq || (c.name||"").toLowerCase().includes(qq) || (c.phone||"").includes(qq) || (c.preview||"").toLowerCase().includes(qq) || ("#"+c.order_id)===qq;
   let html = "";
-  if(["done","canceled","rejected"].includes(ST.folder)){
+  if(ST.folder==="operators"){
+    const list=(ST.operators||[]).filter(o=>!qq||(o.name||"").toLowerCase().includes(qq)||(o.last_text||"").toLowerCase().includes(qq));
+    html=list.map(operatorRowHtml).join("")||`<div class="empty"><div class="big">👥</div>Boshqa faol operator yo'q</div>`;
+  } else if(["done","canceled","rejected"].includes(ST.folder)){
     if(ST.done === null){ box.innerHTML = '<div class="spinner"></div>'; return; }
     const list = (ST.done||[]).filter(match);
     const emp = {done:["🗂","Yakunlangan suhbatlar yo'q"], canceled:["🔴","Bekor qilingan murojaatlar yo'q"], rejected:["🚫","Otkaz qilingan murojaatlar yo'q"]}[ST.folder];
@@ -474,6 +506,7 @@ CL.addEventListener("click", e=>{
   if(row.classList.contains("swiped")){ closeSwipes(); return; }
   if(row.dataset.act==="openChannel") return openChannel();
   if(row._lp){ row._lp=false; return; }
+  if(row.dataset.opid) return openOperatorChat(+row.dataset.opid, row.dataset.name);
   openChat(+row.dataset.oid, row.dataset.name);
 });
 CL.addEventListener("contextmenu", e=>{
@@ -595,6 +628,7 @@ function addMsg(m){
 }
 function applyMeta(r){
   CH.status = r.status; CH.client = r.client || {}; CH.tags = r.tags || []; CH.pinned = r.pinned || null;
+  CH.operatorName = r.operator_name || ""; CH.autoCloseAt = r.auto_close_at || "";
   CH.rejected = !!r.rejected;
   const pkey = p => JSON.stringify(((p||{}).history||[]).map(h=>[h.start,h.end]));
   const notesChanged = JSON.stringify((r.notes||[]).map(n=>n.id)) !== JSON.stringify(CH.notes.map(n=>n.id))
@@ -610,7 +644,8 @@ function applyMeta(r){
 function updateSub(){
   const s = $("c-sub"); if(s.classList.contains("typing")) return;
   const st = CH.status==="done" ? T("yakunlangan") : CH.status==="canceled" ? T("bekor qilingan") : "";
-  s.textContent = [CH.branch ? "📍 " + CH.branch : "", CH.phone, st, CH.rejected ? "🚫 " + T("Otkaz") : "", "#"+CH.oid].filter(Boolean).join(" · ");
+  s.textContent = [CH.operatorName ? T("Operator")+": "+CH.operatorName : "", CH.branch ? "📍 " + CH.branch : "", CH.phone,
+    CH.autoCloseAt ? "⏱ "+remainingLabel(CH.autoCloseAt) : "", st, CH.rejected ? "🚫 " + T("Otkaz") : "", "#"+CH.oid].filter(Boolean).join(" · ");
 }
 function mergeChat(meta, serverTs){
   const notesChanged = applyMeta(meta);
@@ -956,6 +991,19 @@ function copySel(){
   const text = list.length===1 ? selContent(list[0])
     : list.map(m=>`${m.own ? T("Siz") : (CH.name || T("Mijoz"))}, [${(m.ts||"").slice(0,16)}]\n${selContent(m)}`).join("\n\n");
   copyText(text, T("{n} ta xabar nusxalandi", { n: list.length })); endSelect();
+}
+async function deleteSelected(){
+  if(!SELM || !SELM.size) return;
+  const own=[...SELM].filter(mid=>{ const m=CH&&CH.msgs.get(mid); return m&&m.own; });
+  const skipped=SELM.size-own.length;
+  if(!own.length){ alert2("Faqat operator yuborgan xabarlarni o'chirish mumkin"); return; }
+  const note=skipped ? ` ${skipped} ta mijoz xabari o'chirilmaydi.` : "";
+  if(!await confirm2(`${own.length} ta xabar mijoz chatidan ham o'chiriladi.${note} Davom etasizmi?`)) return;
+  const r=await POST("/api/msg_delete_many",{mids:own}).catch(()=>null);
+  if(!r||!r.ok){ alert2((r&&r.error)||"Xabarlar o'chirilmadi"); return; }
+  (r.deleted||[]).forEach(mid=>{ const i=CH.order.indexOf(mid); if(i>=0) CH.order.splice(i,1); CH.msgs.delete(mid); });
+  if(CH.pinned&&(r.deleted||[]).includes(CH.pinned.mid)){ CH.pinned=null; renderPinbar(); }
+  endSelect(); renderTimeline({keep:true}); toast(r.info||"Xabarlar o'chirildi"); haptic("medium");
 }
 
 function jumpTo(mid){
@@ -2217,6 +2265,70 @@ function renderGoal(g){
 }
 
 /* ============================================================
+   BILDIRISHNOMALAR MARKAZI
+   ============================================================ */
+async function openNotifications(){
+  const r=await GET("/api/notifications").catch(()=>null);
+  if(!r||!r.ok){ toast("Bildirishnomalarni yuklab bo'lmadi"); return; }
+  const icons={reminder:"⏰",unfinished:"⌛",new_orders:"📥",pause:"⏸",rating:"⭐",auto_close:"⏱",operator_message:"💬"};
+  const html=`<div class="shead"><b>${esc(T("Bildirishnomalar"))}</b><button data-close>✕</button></div><div class="notify-list">${r.items.length?r.items.map(n=>`
+    <div class="notify-row ${n.read?"read":"unread"}" data-notify="${n.id}" ${n.order_id?`data-order="${n.order_id}"`:""}>
+      <span class="notify-dot"></span><div style="flex:1;min-width:0"><div class="nt">${icons[n.kind]||"•"} ${esc(n.title)}</div>
+      ${n.body?`<div class="nb">${esc(n.body)}</div>`:""}<div class="ntime">${esc((n.created_at||"").slice(0,16))}</div></div></div>`).join(""):
+      `<div class="empty"><div class="big">✓</div>Yangi bildirishnoma yo'q</div>`}</div>`;
+  openSheet(html,el=>{
+    el.querySelector("[data-close]").onclick=closeSheet;
+    el.addEventListener("click",e=>{ const row=e.target.closest("[data-notify]"); if(!row)return;
+      const oid=+row.dataset.order||0; if(oid){ closeSheet(); openChat(oid,"Murojaat #"+oid); }
+    });
+  });
+  if(r.items.some(n=>!n.read)){
+    ST.notifyUnread=0; updateBadges(); POST("/api/notifications/read",{}).catch(()=>null);
+  }
+}
+
+/* ============================================================
+   OPERATORLARARO ICHKI CHAT
+   ============================================================ */
+let OPCHAT=null, opChatTimer=null;
+async function openOperatorChat(id,name){
+  if(!id)return; clearInterval(opChatTimer);
+  OPCHAT={id,name:name||"Operator",messages:new Map(),order:[],max:0};
+  $("opchat-name").textContent=OPCHAT.name; $("opchat-ava").textContent=ini(OPCHAT.name); $("opchat-ava").style.background=avaBg(OPCHAT.name);
+  $("opmsgs").innerHTML='<div class="spinner"></div>'; $("opinput").value=""; show("opchat","in");
+  await loadOperatorMessages(true); opChatTimer=setInterval(()=>loadOperatorMessages(false),3000);
+  setTimeout(()=>$("opinput").focus(),80);
+}
+async function loadOperatorMessages(first){
+  if(!OPCHAT)return; const id=OPCHAT.id;
+  const r=await GET("/api/operator_messages",{peer_id:id,after:first?0:OPCHAT.max}).catch(()=>null);
+  if(!r||!r.ok||!OPCHAT||OPCHAT.id!==id)return;
+  (r.messages||[]).forEach(m=>{ if(!OPCHAT.messages.has(m.id))OPCHAT.order.push(m.id); OPCHAT.messages.set(m.id,m); OPCHAT.max=Math.max(OPCHAT.max,m.id); });
+  if(first||r.messages.length)renderOperatorMessages();
+  const peer=ST.operators.find(o=>o.id===id); if(peer)peer.unread=0;
+  ST.operatorUnread=ST.operators.reduce((n,o)=>n+(+o.unread||0),0); updateBadges();
+}
+function renderOperatorMessages(){
+  if(!OPCHAT)return; const box=$("opmsgs"), near=box.scrollHeight-box.scrollTop-box.clientHeight<90;
+  box.innerHTML=OPCHAT.order.map(id=>OPCHAT.messages.get(id)).map(m=>`<div class="opmsg ${m.own?"own":""}">
+    <div class="omt">${esc(m.text)}</div><div class="omm">${esc((m.created_at||"").slice(11,16))}${m.own&&m.read?" · ✓✓":""}</div></div>`).join("")||
+    `<div class="empty"><div class="big">💬</div>${esc(OPCHAT.name)} bilan ichki yozishma.<br>Bu xabarlar mijozga ko'rinmaydi.</div>`;
+  if(near||!box._drawn)box.scrollTop=box.scrollHeight; box._drawn=true;
+}
+function closeOperatorChat(){
+  clearInterval(opChatTimer); opChatTimer=null; OPCHAT=null; show("app","fade");
+  if(ST.folder==="operators")loadOperatorPeers();
+}
+async function sendOperator(){
+  if(!OPCHAT)return; const input=$("opinput"), text=input.value.trim(); if(!text)return;
+  const id=OPCHAT.id; input.value="";
+  const r=await POST("/api/operator_send",{peer_id:id,text}).catch(()=>null);
+  if(!r||!r.ok){ input.value=text; alert2((r&&r.error)||"Xabar yuborilmadi"); return; }
+  await loadOperatorMessages(false); haptic("light");
+}
+$("opinput").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendOperator();} });
+
+/* ============================================================
    KOMPYUTER: IKKI USTUNLI KO'RINISH (Telegram Desktop kabi)
    ============================================================ */
 const WIDE_MQ = matchMedia("(min-width: 900px)");
@@ -2229,7 +2341,8 @@ WIDE_MQ.addEventListener && WIDE_MQ.addEventListener("change", ()=>{ if(CURSCREE
 const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout:()=>confirm2("Hisobdan chiqasizmi?").then(ok=>ok&&logout()),
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
-  cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill, closeMedia, sendMedia, closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, reopenChat };
+  cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill, closeMedia, sendMedia, closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
+  openNotifications, closeOperatorChat, sendOperator };
 document.addEventListener("click", e=>{
   const t = e.target.closest("[data-act]"); if(!t) return;
   const f = ACTS[t.dataset.act]; if(!f) return;

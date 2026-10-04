@@ -147,6 +147,8 @@ async def main():
                 return self._sent(audio=SimpleNamespace(file_id="audio-fid"))
             async def send_sticker(self, *args, **kwargs):
                 self.calls.append(("sticker", args, kwargs)); return self._sent()
+            async def delete_message(self, *args, **kwargs):
+                self.calls.append(("delete", args, kwargs)); return True
             async def edit_message_text(self, *args, **kwargs):
                 self.calls.append(("edit", args, kwargs)); return True
         chat_bot = ChatBot()
@@ -160,9 +162,11 @@ async def main():
         raw64 = base64.b64encode(b"test-media").decode()
         r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "photo",
                                                        "media_data": raw64, "text": "rasm"})).json()
+        photo_mid = r.get("mid") or r.get("message", {}).get("mid")
         check("rasm yuborish", r["ok"] and r["message"]["type"] == "photo", r)
         r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "document",
                                                        "media_data": raw64, "media_name": "test.txt"})).json()
+        doc_mid = r.get("mid") or r.get("message", {}).get("mid")
         check("fayl yuborish", r["ok"] and r["message"]["type"] == "document", r)
         r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "voice",
                                                        "media_data": raw64, "media_mime": "audio/ogg"})).json()
@@ -171,6 +175,13 @@ async def main():
         r = await (await cli.post("/api/send_sticker", json={**A, "order_id": oid,
                                                               "sticker_id": sticker_id})).json()
         check("sticker yuborish", r["ok"] and any(c[0] == "sticker" for c in chat_bot.calls), r)
+        r = await (await cli.post("/api/msg_delete_many", json={**A, "mids": [photo_mid, doc_mid, m1]})).json()
+        check("tanlangan rasm va faylni ommaviy o'chirish", r["ok"] and len(r["deleted"]) == 2 and m1 in r["skipped"], r)
+
+        r = await (await cli.post("/api/cmd", json={**A, "order_id": oid, "cmd": "autoclose"})).json()
+        check("10 daqiqalik taymer bazada saqlandi", r["ok"] and (await q.get_order(oid))["auto_close_at"], r)
+        await q.add_message(oid, "client", "text", "taymerni bekor qiluvchi javob", None, 13)
+        check("mijoz javobida taymer bekor qilindi", (await q.get_order(oid))["auto_close_at"] is None)
         utils.cbot = lambda: None
 
         print("TRANSFER / OPS")
@@ -186,6 +197,24 @@ async def main():
         r = await (await cli.post("/api/transfer", json={**A_OTHER, "order_id": transfer_oid,
                                                           "to_id": op_id, "note": "qaytarildi"})).json()
         check("murojaatni qayta o'tkazish", r["ok"] and (await q.get_order(transfer_oid))["operator_id"] == op_id, r)
+
+        print("OPERATORLARARO ICHKI CHAT / BILDIRISHNOMA")
+        r = await (await cli.get("/api/operator_peers", params=A)).json()
+        check("boshqa operator chatlar ro'yxatida", r["ok"] and any(x["id"] == op2 for x in r["operators"]), r)
+        r = await (await cli.post("/api/operator_send", json={**A, "peer_id": op2, "text": "Vali, yordam kerak"})).json()
+        check("operatorga ichki xabar yuborildi", r["ok"], r)
+        r = await (await cli.get("/api/operator_messages", params={**A_OTHER, "peer_id": op_id})).json()
+        check("ikkinchi operator xabarni ko'radi", r["ok"] and r["messages"][-1]["text"] == "Vali, yordam kerak" and not r["messages"][-1]["own"], r)
+        r = await (await cli.get("/api/notifications", params=A_OTHER)).json()
+        check("ichki xabar mini-app bildirishnomasiga keldi", any(x["kind"] == "operator_message" for x in r["items"]), r)
+        await cli.post("/api/notifications/read", json=A_OTHER)
+        check("bildirishnomalar o'qilgan deb belgilandi", await q.operator_notifications_unread(op2) == 0)
+
+        from handlers.order import _notify_operators_rating
+        await q.set_order_rating(oid, 5)
+        await _notify_operators_rating(chat_bot, oid, None, None)
+        notes = await q.operator_notifications(op_id)
+        check("None/5 o'rniga bazadagi haqiqiy baho", any("5/5" in n["title"] for n in notes), [n["title"] for n in notes])
 
         print("FILE / MEDIA KEY")
         r = await cli.get("/api/file", params={"fid": "x", "kind": "photo", "mk": "bad"})
@@ -204,7 +233,7 @@ async def main():
         r = await (await cli.post("/api/msg_del", json={**A, "mid": mo})).json()
         check("xabar o'chirildi (bot yo'q)", r["ok"], r)
         dels = await q.deleted_messages(oid)
-        check("o'chirilgan asl matn auditda", dels and "o'chiriladigan" in dels[0]["details"], dels)
+        check("o'chirilgan asl matn auditda", any("o'chiriladigan" in d["details"] for d in dels), dels)
 
         print("ADMIN")
         atok = await webapp._admin_sign(111)
@@ -248,8 +277,10 @@ async def main():
         print("AUTO-ASSIGN")
         oid2 = await q.create_order(5001, None, "text")
         from handlers.operator import try_auto_assign
+        import handlers.operator as operator_mod
         import utils
         utils.cbot = lambda: None
+        operator_mod.cbot = lambda: None
         ok = await try_auto_assign(oid2)
         check("bot yo'q bo'lsa avto-taqsimlash xatosiz o'tadi", ok is False)
 

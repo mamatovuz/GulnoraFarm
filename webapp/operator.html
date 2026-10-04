@@ -32,7 +32,9 @@
   <!-- CHATLAR -->
   <div id="tab-chats" class="tabpane">
     <div class="topbar">
+      <div class="opbrand"><img src="/static/gulnora-farm-logo.jpg?v={{V}}" alt=""><span>Gulnora Farm</span></div>
       <div class="t" id="chats-title">Chatlar</div>
+      <button class="iconbtn notifybtn" data-act="openNotifications" title="Bildirishnomalar"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="notify-badge" class="headbadge hide">0</span></button>
       <button class="iconbtn fsbtn hide" data-act="toggleFS" title="To'liq ekran"><svg class="ic" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="iconbtn" data-act="toggleSearch" title="Qidiruv"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
     </div>
@@ -44,6 +46,7 @@
     <div class="folders" id="folders">
       <button data-f="all" class="on">Hammasi <span class="fc hide" id="fc-all"></span></button>
       <button data-f="unread">Javobsiz <span class="fc hide" id="fc-unread"></span></button>
+      <button data-f="operators">Operatorlar <span class="fc hide" id="fc-operators"></span></button>
       <button data-f="done">Yakunlangan</button>
       <button data-f="canceled">Bekor qilingan</button>
       <button data-f="rejected">Rad etilgan</button>
@@ -116,8 +119,22 @@
   </div>
 </div>
 
+<!-- ============ OPERATORLARARO ICHKI CHAT ============ -->
+<div id="opchat" class="screen hide">
+  <div class="topbar">
+    <button class="iconbtn" data-act="closeOperatorChat"><svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="ava opchat-ava" id="opchat-ava">O</div>
+    <div class="ctitle"><div class="n" id="opchat-name">Operator</div><div class="s" id="opchat-status">Ichki yozishma · mijozga ko'rinmaydi</div></div>
+  </div>
+  <div id="opmsgs" class="opmsgs"></div>
+  <div class="opcomposer">
+    <textarea id="opinput" rows="1" maxlength="4000" placeholder="Operatorga xabar yozing..."></textarea>
+    <button data-act="sendOperator" title="Yuborish"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
+  </div>
+</div>
+
 <!-- Kompyuter: chat tanlanmaganda o'ng tomonda -->
-<div id="pane-empty" class="hide"><div class="pe-in"><div class="pe-ic">💬</div><div class="pe-t">Chatni tanlang</div><div class="pe-s">Chap tomondagi ro'yxatdan suhbatni oching yoki yangi murojaatni qabul qiling</div></div></div>
+<div id="pane-empty" class="hide"><div class="pe-in"><img class="pe-logo" src="/static/gulnora-farm-logo.jpg?v={{V}}" alt="Gulnora Farm"><div class="pe-t">Chatni tanlang</div><div class="pe-s">Chap tomondagi ro'yxatdan suhbatni oching yoki yangi murojaatni qabul qiling</div></div></div>
 
 <!-- ============ CHAT ============ -->
 <div id="chat" class="screen hide">
@@ -132,6 +149,7 @@
     <button class="iconbtn" data-act="endSelect" title="Bekor qilish"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     <div class="t" id="sel-n">0 ta tanlandi</div>
     <button class="selcopy" data-act="copySel"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Nusxa olish</button>
+    <button class="seldelete" data-act="deleteSelected"><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>O'chirish</button>
   </div>
   <div id="csearch" class="hide">
     <input id="cs-q" placeholder="Yozishmadan qidirish" autocomplete="off">

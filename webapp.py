@@ -13,12 +13,13 @@ import hashlib
 import asyncio
 import logging
 import mimetypes
+from datetime import timedelta
 from urllib.parse import parse_qsl, quote
 
 from aiohttp import web
 from aiogram.types import BufferedInputFile
 
-from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE, ADMIN_IDS
+from config import BOT_TOKEN, WEBAPP_URL, AVATAR_DIR, MEDIA_CACHE, ADMIN_IDS, now_local
 from database import queries as q
 from utils import BILL_TAG, send_branch_to_client, branch_card_text, op_client_name
 import locales as loc
@@ -362,6 +363,8 @@ def _chat_json(r, op_id):
         "paused": bool(r["paused_at"]) if "paused_at" in keys else False,
         "rejected": bool(r["rejected_at"]) if "rejected_at" in keys else False,
         "paused_until": (r["paused_until"] or "") if "paused_until" in keys else "",
+        "auto_close_at": (r["auto_close_at"] or "") if "auto_close_at" in keys else "",
+        "operator_name": (r["operator_name"] or "") if "operator_name" in keys else "",
         "preview": (preview or "")[:90],
         "time": _short_time(r["last_at"] or r["created_at"] or ""),
         "ts": r["last_at"] or r["created_at"] or "",
@@ -457,11 +460,14 @@ async def _chat_meta(order, user):
     bid = order["branch_id"] or (user["branch_id"] if user else None)
     br = await q.get_branch(bid) if bid else None
     import webapp_extra
+    owner = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
     return {
         "rejected": bool(order["rejected_at"]) if "rejected_at" in order.keys() else False,
         "pause": webapp_extra.pause_json(order, await q.order_pauses(order["id"])),
         "order_id": order["id"], "status": order["status"],
         "operator_id": order["operator_id"] or 0,
+        "operator_name": (owner["name"] if owner else "") or "",
+        "auto_close_at": (order["auto_close_at"] or "") if "auto_close_at" in order.keys() else "",
         "fulfillment": order["fulfillment"] or "",
         "tags": [t for t in ((order["tags"] if "tags" in order.keys() else "") or "").split(",") if t],
         "pinned": pinned,
@@ -523,6 +529,8 @@ async def api_sync(request):
         await q.wait_change(v, 20)
     ver = q.change_ver()
     res = {"ok": True, "v": ver, "server_ts": q.now(), "newcount": await q.new_count(),
+           "notify_unread": await q.operator_notifications_unread(op["id"]),
+           "operator_unread": sum(int(r["unread"] or 0) for r in await q.operator_peers(op["id"])),
            "chats": await _chat_list(op), "mk": _media_key()}
     tok = _fresh_op_token(op, qd.get("token", ""))
     if tok:
@@ -548,6 +556,105 @@ async def api_sync(request):
             chat["messages"] = await _msgs_with_replies(rows)
             res["chat"] = chat
     return _json(res)
+
+
+# ---------------- API: mini-app bildirishnomalari ----------------
+async def api_notifications(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.operator_notifications(op["id"])
+    return _json({"ok": True, "items": [
+        {"id": r["id"], "kind": r["kind"] or "info", "title": r["title"] or "",
+         "body": r["body"] or "", "order_id": r["order_id"] or 0,
+         "created_at": r["created_at"] or "", "read": bool(r["read_at"])} for r in rows]})
+
+
+async def api_notifications_read(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        nid = int(body.get("id") or 0) or None
+    except (TypeError, ValueError):
+        nid = None
+    await q.mark_operator_notifications_read(op["id"], nid)
+    return _json({"ok": True})
+
+
+# ---------------- API: operatorlararo ichki chat ----------------
+async def api_operator_peers(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.operator_peers(op["id"])
+    return _json({"ok": True, "operators": [
+        {"id": r["id"], "name": r["name"] or "Operator",
+         "availability": r["availability"] or "free", "last_active": r["last_active"] or "",
+         "open_count": r["open_count"] or 0,
+         "last_text": r["last_text"] or "", "last_at": r["last_at"] or "",
+         "unread": r["unread"] or 0} for r in rows]})
+
+
+async def api_operator_messages(request):
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        peer_id = int(request.query.get("peer_id"))
+        after = max(0, int(request.query.get("after") or 0))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "peer_id"}, 400)
+    peer = await q.get_operator(peer_id)
+    if not peer or peer["status"] != "active" or peer_id == op["id"]:
+        return _json({"ok": False, "error": "Operator topilmadi"}, 404)
+    rows = await q.operator_messages_between(op["id"], peer_id, after)
+    await q.mark_operator_messages_read(op["id"], peer_id)
+    return _json({"ok": True, "operator": {"id": peer["id"], "name": peer["name"] or "Operator",
+                                             "availability": peer["availability"] or "free"},
+                  "messages": [{"id": r["id"], "own": r["from_operator_id"] == op["id"],
+                                "from_name": r["from_name"] or "Operator", "text": r["text"] or "",
+                                "created_at": r["created_at"] or "", "read": bool(r["read_at"])}
+                               for r in rows]})
+
+
+async def api_operator_send(request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        peer_id = int(body.get("peer_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "peer_id"}, 400)
+    text = str(body.get("text") or "").strip()[:4000]
+    peer = await q.get_operator(peer_id)
+    if not text:
+        return _json({"ok": False, "error": "Xabar bo'sh"}, 400)
+    if not peer or peer["status"] != "active" or peer_id == op["id"]:
+        return _json({"ok": False, "error": "Operator topilmadi"}, 404)
+    mid = await q.add_operator_message(op["id"], peer_id, text)
+    await q.add_operator_notification(peer_id, "operator_message", f"{op['name']}dan yangi xabar",
+                                      text[:240], None, f"operator-message:{mid}")
+    # Mini-app yopiq bo'lsa ham operator xabarni Telegram botida ko'radi.
+    if peer["telegram_id"]:
+        try:
+            import botreg
+            from utils import cbot
+            ob = (botreg.get_operator_bot(peer["bot_id"]) if peer["bot_id"] else None) or cbot()
+            if ob:
+                await ob.send_message(peer["telegram_id"],
+                                      f"💬 <b>{_htm.escape(op['name'] or 'Operator')}</b>\n{_htm.escape(text)}")
+        except Exception:
+            pass
+    return _json({"ok": True, "id": mid, "created_at": q.now()})
 
 
 async def api_media_key(request):
@@ -1468,10 +1575,13 @@ async def api_cmd(request):
 
         if cmd == "autoclose":
             from handlers.operator import spawn_auto_close, AUTO_CLOSE_MIN
+            close_at = (now_local() + timedelta(minutes=AUTO_CLOSE_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+            await q.set_auto_close(order_id, close_at)
             # Kuchli havola bilan ishga tushiramiz (aks holda vazifa GC'da yo'qoladi)
             spawn_auto_close(client, order_id, q.now(), op["telegram_id"] or 0)
             await client.send_message(uid, loc.t("auto_close_warning", clang, min=AUTO_CLOSE_MIN))
-            return _json({"ok": True, "info": f"{AUTO_CLOSE_MIN} daqiqada avto-yakunlash yoqildi"})
+            return _json({"ok": True, "info": f"{AUTO_CLOSE_MIN} daqiqada avto-yakunlash yoqildi",
+                          "auto_close_at": close_at})
 
         if cmd == "askbranch":
             regions = await q.list_regions()
@@ -1770,6 +1880,69 @@ async def api_msg_del(request):
         await q.set_order_pinned(order["id"], None)
     return _json({"ok": True, "client": bool(removed),
                   "info": "Xabar mijozdan ham o'chirildi" if removed else "Xabar yozishmadan o'chirildi"})
+
+
+async def api_msg_delete_many(request):
+    """Tanlangan operator xabarlarini bitta amalda o'chiradi.
+    Mijoz yuborgan xabarlar o'chirilmaydi; natijada nechta o'tkazib yuborilgani qaytadi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    raw = body.get("mids") if isinstance(body.get("mids"), list) else []
+    mids = []
+    for value in raw[:100]:
+        try:
+            mid = int(value)
+            if mid > 0 and mid not in mids:
+                mids.append(mid)
+        except (TypeError, ValueError):
+            pass
+    if not mids:
+        return _json({"ok": False, "error": "Xabar tanlanmagan"}, 400)
+    from utils import cbot
+    client = cbot()
+    deleted, skipped = [], []
+    for mid in mids:
+        row = await q.get_message(mid)
+        if not row or row["sender"] != "operator":
+            skipped.append(mid)
+            continue
+        order, denied = await _operator_order(op, row["order_id"])
+        if denied is not None:
+            skipped.append(mid)
+            continue
+        ids = [row["client_msg_id"]] if row["client_msg_id"] else []
+        extra = row["extra_cmids"] if "extra_cmids" in row.keys() else None
+        ids += [int(x) for x in (extra or "").split(",") if x.strip().isdigit()]
+        removed = 0
+        if ids and client:
+            for cmid in ids:
+                try:
+                    await client.delete_message(order["user_id"], cmid)
+                    removed += 1
+                except Exception:
+                    pass
+            if not removed:
+                skipped.append(mid)
+                continue
+        await q.audit(f"op:{op['name']}", "msg_delete", row["order_id"],
+                      {"mid": mid, "type": row["content_type"], "text": row["text"] or "",
+                       "file_id": row["file_id"] or "", "sent_at": row["created_at"],
+                       "client_deleted": bool(removed), "batch": True})
+        await q.delete_message_row(mid)
+        if (order["pinned_mid"] if "pinned_mid" in order.keys() else None) == mid:
+            await q.set_order_pinned(order["id"], None)
+        deleted.append(mid)
+    if not deleted:
+        return _json({"ok": False, "error": "Tanlangan xabarlarni o'chirib bo'lmadi",
+                      "deleted": [], "skipped": skipped})
+    return _json({"ok": True, "deleted": deleted, "skipped": skipped,
+                  "info": f"{len(deleted)} ta xabar o'chirildi" +
+                          (f", {len(skipped)} tasi o'tkazib yuborildi" if skipped else "")})
 
 
 async def api_msg_edit(request):
@@ -3951,11 +4124,17 @@ def build_app() -> web.Application:
     app.router.add_get("/api/note", api_note)
     app.router.add_post("/api/note", api_note_save)
     app.router.add_post("/api/msg_del", api_msg_del)
+    app.router.add_post("/api/msg_delete_many", api_msg_delete_many)
     app.router.add_post("/api/msg_edit", api_msg_edit)
     app.router.add_post("/api/remind", api_remind)
     app.router.add_get("/api/mystats", api_mystats)
     app.router.add_get("/api/client_info", api_client_info)
     app.router.add_get("/api/sync", api_sync)
+    app.router.add_get("/api/notifications", api_notifications)
+    app.router.add_post("/api/notifications/read", api_notifications_read)
+    app.router.add_get("/api/operator_peers", api_operator_peers)
+    app.router.add_get("/api/operator_messages", api_operator_messages)
+    app.router.add_post("/api/operator_send", api_operator_send)
     app.router.add_get("/api/done_chats", api_done_chats)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_post("/api/reject", api_reject)

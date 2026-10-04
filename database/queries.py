@@ -294,7 +294,7 @@ async def set_order_status(order_id, status, changed_by):
     stamp = now()
     closed = now() if status in ("done", "canceled") else None
     if closed:
-        await db.execute("UPDATE orders SET status = ?, closed_at = ? WHERE id = ?",
+        await db.execute("UPDATE orders SET status = ?, closed_at = ?, auto_close_at = NULL WHERE id = ?",
                          (status, closed, order_id))
     elif status == "in_progress":
         await db.execute(
@@ -341,7 +341,7 @@ async def reopen_order(order_id, operator_id):
     old = row["status"] if row else None
     stamp = now()
     await db.execute(
-        "UPDATE orders SET status='in_progress', operator_id=?, closed_at=NULL, "
+        "UPDATE orders SET status='in_progress', operator_id=?, closed_at=NULL, auto_close_at=NULL, "
         "accepted_at=?, last_operator_reminder_at=? WHERE id=?",
         (operator_id, stamp, stamp, order_id))
     # Yashirilgan bo'lsa — chat ro'yxatida qayta ko'rinsin
@@ -389,6 +389,13 @@ async def set_order_rating(order_id, rating):
     db = await get_db()
     await db.execute("UPDATE orders SET rating = ? WHERE id = ?", (rating, order_id))
     await db.commit()
+
+
+async def set_auto_close(order_id, close_at=None):
+    db = await get_db()
+    await db.execute("UPDATE orders SET auto_close_at=? WHERE id=?", (close_at, order_id))
+    await db.commit()
+    bump()
 
 
 async def set_order_feedback(order_id, feedback):
@@ -506,6 +513,9 @@ async def add_message(order_id, sender, content_type, text=None, file_id=None, t
          file_name, mime_type, now(), html, reply_to_mid, file_size,
          ",".join(str(x) for x in extra_cmids if x) if extra_cmids else None),
     )
+    if sender == "client":
+        # Mijoz javob bersa /10daqiqa avto-yakunlash bekor qilinadi.
+        await db.execute("UPDATE orders SET auto_close_at=NULL WHERE id=?", (order_id,))
     await db.commit()
     bump()
     return cur.lastrowid
@@ -591,6 +601,103 @@ async def due_reminders(now_str):
 async def mark_reminder_done(rid):
     db = await get_db()
     await db.execute("UPDATE reminders SET done = 1 WHERE id = ?", (rid,))
+    await db.commit()
+
+
+# ============================ MINI-APP BILDIRISHNOMALARI ============================
+async def add_operator_notification(operator_id, kind, title, body="", order_id=None, dedupe_key=None):
+    if not operator_id:
+        return None
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO operator_notifications "
+        "(operator_id, kind, title, body, order_id, dedupe_key, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (operator_id, kind or "info", title, body or "", order_id, dedupe_key, now()))
+    await db.commit()
+    if cur.rowcount:
+        bump()
+        return cur.lastrowid
+    return None
+
+
+async def operator_notifications(operator_id, limit=80):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM operator_notifications WHERE operator_id=? ORDER BY id DESC LIMIT ?",
+        (operator_id, limit))
+    return await cur.fetchall()
+
+
+async def operator_notifications_unread(operator_id):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM operator_notifications WHERE operator_id=? AND read_at IS NULL",
+        (operator_id,))
+    return (await cur.fetchone())[0]
+
+
+async def mark_operator_notifications_read(operator_id, notification_id=None):
+    db = await get_db()
+    if notification_id:
+        await db.execute(
+            "UPDATE operator_notifications SET read_at=COALESCE(read_at,?) "
+            "WHERE operator_id=? AND id=?", (now(), operator_id, notification_id))
+    else:
+        await db.execute(
+            "UPDATE operator_notifications SET read_at=COALESCE(read_at,?) WHERE operator_id=?",
+            (now(), operator_id))
+    await db.commit()
+    bump()
+
+
+# ============================ OPERATORLARARO ICHKI CHAT ============================
+async def operator_peers(operator_id):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT op.id, op.name, op.availability, op.last_active, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.operator_id=op.id AND o.status='in_progress') AS open_count, "
+        "(SELECT text FROM operator_messages m WHERE "
+        " (m.from_operator_id=? AND m.to_operator_id=op.id) OR "
+        " (m.from_operator_id=op.id AND m.to_operator_id=?) ORDER BY m.id DESC LIMIT 1) AS last_text, "
+        "(SELECT created_at FROM operator_messages m WHERE "
+        " (m.from_operator_id=? AND m.to_operator_id=op.id) OR "
+        " (m.from_operator_id=op.id AND m.to_operator_id=?) ORDER BY m.id DESC LIMIT 1) AS last_at, "
+        "(SELECT COUNT(*) FROM operator_messages m WHERE m.from_operator_id=op.id "
+        " AND m.to_operator_id=? AND m.read_at IS NULL) AS unread "
+        "FROM operators op WHERE op.status='active' AND op.id<>? "
+        "ORDER BY CASE WHEN last_at IS NULL THEN 1 ELSE 0 END, last_at DESC, op.name",
+        (operator_id, operator_id, operator_id, operator_id, operator_id, operator_id))
+    return await cur.fetchall()
+
+
+async def operator_messages_between(operator_id, peer_id, after=0, limit=200):
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT m.*, a.name AS from_name FROM operator_messages m "
+        "LEFT JOIN operators a ON a.id=m.from_operator_id "
+        "WHERE m.id>? AND ((m.from_operator_id=? AND m.to_operator_id=?) OR "
+        "(m.from_operator_id=? AND m.to_operator_id=?)) ORDER BY m.id LIMIT ?",
+        (after, operator_id, peer_id, peer_id, operator_id, limit))
+    return await cur.fetchall()
+
+
+async def add_operator_message(from_operator_id, to_operator_id, text):
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO operator_messages (from_operator_id,to_operator_id,text,created_at) "
+        "VALUES (?,?,?,?)", (from_operator_id, to_operator_id, text, now()))
+    await db.commit()
+    bump()
+    return cur.lastrowid
+
+
+async def mark_operator_messages_read(operator_id, peer_id):
+    db = await get_db()
+    await db.execute(
+        "UPDATE operator_messages SET read_at=COALESCE(read_at,?) "
+        "WHERE from_operator_id=? AND to_operator_id=? AND read_at IS NULL",
+        (now(), peer_id, operator_id))
     await db.commit()
 
 
@@ -1693,7 +1800,7 @@ async def op_chats(operator_id):
     db = await get_db()
     cur = await db.execute(
         "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
-        "o.paused_at, o.paused_until, o.rejected_at, "
+        "o.paused_at, o.paused_until, o.rejected_at, o.auto_close_at, op.name AS operator_name, "
         "u.full_name, u.phone, u.username, "
         "(SELECT b.name FROM branches b WHERE b.id=COALESCE(o.branch_id, u.branch_id)) AS branch, "
         "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
@@ -1704,6 +1811,7 @@ async def op_chats(operator_id):
         " AND m2.id > COALESCE(cs.last_read_mid, (SELECT MAX(m3.id) FROM messages m3 "
         "   WHERE m3.order_id=o.id AND m3.sender='operator'), 0)) AS unread "
         "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN operators op ON op.id=o.operator_id "
         "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
         "LEFT JOIN op_chat_state cs ON cs.operator_id=? AND cs.order_id=o.id "
         "WHERE o.status='in_progress' AND o.operator_id=? "

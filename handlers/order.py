@@ -43,10 +43,21 @@ async def _notify_operators_rating(bot, order_id, rating, feedback):
     order = await q.get_order(order_id)
     if not order:
         return
+    # FSM ma'lumoti ayrim callbacklarda yo'qolishi mumkin; bazadagi baho ishonchli manba.
+    try:
+        rating = int(rating or order["rating"] or 0)
+    except (TypeError, ValueError):
+        rating = 0
+    if not 1 <= rating <= 5:
+        return
     text = f"⭐ Murojaat #{order_id} baholandi: {'⭐' * int(rating or 0)} ({rating}/5)"
     if feedback:
         text += f"\n💬 Mijoz izohi: {feedback}"
     op = await q.get_operator(order["operator_id"]) if order["operator_id"] else None
+    if op:
+        await q.add_operator_notification(
+            op["id"], "rating", f"Murojaat #{order_id} baholandi: {rating}/5",
+            feedback or "Mijoz izoh qoldirmadi", order_id, f"rating:{order_id}:{rating}")
     targets = []
     if op and op["telegram_id"]:
         targets.append(op["telegram_id"])
