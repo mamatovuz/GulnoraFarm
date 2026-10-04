@@ -53,6 +53,11 @@ async def _branch_names() -> dict:
     return {b["id"]: b["name"] for b in await q.list_branches()}
 
 
+async def _ai_enabled() -> bool:
+    import ai_catalog
+    return await ai_catalog.enabled()
+
+
 def _br_arg(v):
     """'all'/'' -> None (hammasi); '0' -> 0 (umumiy); '5' -> 5"""
     v = str(v if v is not None else "").strip()
@@ -80,12 +85,13 @@ async def api_products(request):
     except ValueError:
         oid = 0
     if oid:
-        order = await q.get_order(oid)
-        if order:
-            user = await q.get_user(order["user_id"])
-            bid = order["branch_id"] or (user["branch_id"] if user else None)
-            if bid and await q.products_count(bid):
-                branch = bid
+        order, denied = await _w()._operator_order(op, oid, allow_unassigned_new=True)
+        if denied is not None:
+            return denied
+        user = await q.get_user(order["user_id"])
+        bid = order["branch_id"] or (user["branch_id"] if user else None)
+        if bid and await q.products_count(bid):
+            branch = bid
     bnames = await _branch_names()
     if branch:
         bname = bnames.get(branch, "")
@@ -106,11 +112,20 @@ async def api_stock_wait(request):
         pid = int(body.get("product_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order = await q.get_order(order_id)
+    order, denied = await _w()._operator_order(op, order_id)
+    if denied is not None:
+        return denied
     prod = await q.get_product(pid)
     if not order or not prod:
         return _json({"ok": False, "error": "topilmadi"}, 404)
-    await q.add_stock_wait(pid, order["user_id"], order_id, op["id"])
+    if prod["in_stock"]:
+        return _json({"ok": False, "error": "Bu dori hozir mavjud — navbatga qo'shilmadi"})
+    user = await q.get_user(order["user_id"])
+    order_branch = order["branch_id"] or (user["branch_id"] if user else None)
+    product_branch = prod["branch_id"] if "branch_id" in prod.keys() else None
+    if product_branch and product_branch != order_branch:
+        return _json({"ok": False, "error": "Dori mijoz tanlagan filial katalogiga tegishli emas"}, 409)
+    added = await q.add_stock_wait(pid, order["user_id"], order_id, op["id"])
     from utils import cbot
     client = cbot()
     if client and body.get("tell_client", True):
@@ -125,7 +140,9 @@ async def api_stock_wait(request):
         except Exception:
             pass
     await q.audit(f"op:{op['name']}", "stock_wait", order_id, {"product": prod["name"]})
-    return _json({"ok": True, "info": "Dori kelganda mijozga xabar boradi"})
+    return _json({"ok": True, "queued": added,
+                  "info": "Dori kelganda mijozga xabar boradi" if added
+                          else "Mijoz bu dori uchun avval navbatga qo'yilgan"})
 
 
 async def notify_stock_arrived(pid):
@@ -133,7 +150,7 @@ async def notify_stock_arrived(pid):
     prod = await q.get_product(pid)
     if not prod or not prod["in_stock"]:
         return 0
-    rows = await q.pop_stock_waits(pid)
+    rows = await q.stock_waits_for_product(pid)
     if not rows:
         return 0
     from utils import cbot
@@ -151,11 +168,13 @@ async def notify_stock_arrived(pid):
             price = f"\n💰 Narxi: {_money(prod['price'])} so'm" if prod["price"] else ""
             txt = f"✅ Xushxabar! Siz so'ragan «<b>{nm}</b>» dorixonamizga keldi.{price}\n\nBuyurtma berish uchun shu yerga yozing 💊"
         try:
-            await client.send_message(w["user_id"], txt)
+            sent_msg = await client.send_message(w["user_id"], txt)
             sent += 1
+            await q.delete_stock_wait(w["id"])
             order = await q.get_order(w["order_id"]) if w["order_id"] else None
             if order and order["status"] in ("new", "in_progress"):
-                await q.add_message(order["id"], "operator", "text", txt, None, None)
+                await q.add_message(order["id"], "operator", "text", txt, None, None,
+                                    client_msg_id=sent_msg.message_id)
         except Exception:
             pass
     await q.audit("system", "stock_arrived", None, {"product": prod["name"], "notified": sent})
@@ -182,7 +201,7 @@ async def api_admin_products(request):
                   "items": [_prod_json(r, waits, bnames) for r in rows],
                   "waiting": sum(waits.values()),
                   "all_cnt": sum(counts.values()), "common_cnt": counts.get(0, 0),
-                  "ai": bool((await q.get_setting("gemini_api_key", "") or "").strip()),
+                  "ai": await _ai_enabled(),
                   "branches": [{"id": i, "name": n, "cnt": counts.get(i, 0)} for i, n in bnames.items()]})
 
 
@@ -426,56 +445,63 @@ async def api_admin_products_file(request):
 
 
 # ================================================================
-#                 GEMINI AI: Excel'ni tahlil qilib filiallarga taqsimlash
+#            AI (Gemini / Groq): Excel'ni tahlil qilib filiallarga taqsimlash
 # ================================================================
 async def api_admin_ai_settings(request):
     if not await _w()._auth_admin(request, request.query):
         return _json({"ok": False}, 401)
-    import gemini_ai
-    key, model = await gemini_ai.get_config()
-    return _json({"ok": True, "has_key": bool(key), "key_mask": gemini_ai.mask_key(key),
-                  "model": model, "default_model": gemini_ai.DEFAULT_MODEL})
+    import ai_catalog as ai
+    out = {}
+    for p in ai.PROVIDERS:
+        key = (await q.get_setting(f"{p}_api_key", "") or "").strip()
+        out[p] = {"has_key": bool(key), "key_mask": ai.mask_key(key),
+                  "model": (await q.get_setting(f"{p}_model", "") or "") if key else ""}
+    return _json({"ok": True, **out})
 
 
 async def api_admin_ai_settings_save(request):
+    """{provider: gemini|groq, key} — kalit tekshiriladi, model avtomatik tanlanadi. {provider, clear} — o'chirish."""
     body = await _body(request)
     tg = await _w()._auth_admin(request, body)
     if not tg:
         return _json({"ok": False}, 401)
-    import gemini_ai
+    import ai_catalog as ai
+    p = str(body.get("provider") or "")
+    if p not in ai.PROVIDERS:
+        return _json({"ok": False, "error": "provider"}, 400)
     if body.get("clear"):
-        await q.set_setting("gemini_api_key", "")
-        await q.audit(f"admin:{tg}", "settings", None, {"gemini_api_key": "o'chirildi"})
-        return _json({"ok": True, "info": "API kalit o'chirildi"})
+        await q.set_setting(f"{p}_api_key", "")
+        await q.set_setting(f"{p}_model", "")
+        await q.audit(f"admin:{tg}", "settings", None, {f"{p}_api_key": "o'chirildi"})
+        return _json({"ok": True, "info": f"{ai.LABEL[p]} kaliti o'chirildi"})
     key = str(body.get("key") or "").strip()
-    model = str(body.get("model") or "").strip()[:60] or gemini_ai.DEFAULT_MODEL
-    if key:
-        if len(key) < 20 or any(ch.isspace() for ch in key):
-            return _json({"ok": False, "error": "API kalit noto'g'ri ko'rinishda"})
-        try:
-            await gemini_ai.test_key(key, model)     # saqlashdan oldin tekshiramiz
-        except gemini_ai.AIError as e:
-            return _json({"ok": False, "error": str(e)})
-        await q.set_setting("gemini_api_key", key)
-    await q.set_setting("gemini_model", model)
-    await q.audit(f"admin:{tg}", "settings", None,
-                  {"gemini_model": model, **({"gemini_api_key": gemini_ai.mask_key(key)} if key else {})})
-    return _json({"ok": True, "info": "Saqlandi va tekshirildi ✅" if key else "Saqlandi"})
+    if len(key) < 20 or any(ch.isspace() for ch in key):
+        return _json({"ok": False, "error": "API kalit noto'g'ri ko'rinishda"})
+    try:
+        model = await ai.check_key(p, key)        # kalit ishlaydimi + eng mos model
+    except ai.AIError as e:
+        return _json({"ok": False, "error": str(e)})
+    await q.set_setting(f"{p}_api_key", key)
+    await q.set_setting(f"{p}_model", model)
+    await q.audit(f"admin:{tg}", "settings", None, {f"{p}_api_key": ai.mask_key(key), f"{p}_model": model})
+    return _json({"ok": True, "model": model, "info": f"{ai.LABEL[p]} ulandi ✅\nModel: {model}"})
 
 
 async def api_admin_ai_test(request):
     body = await _body(request)
     if not await _w()._auth_admin(request, body):
         return _json({"ok": False}, 401)
-    import gemini_ai
-    key, model = await gemini_ai.get_config()
+    import ai_catalog as ai
+    p = str(body.get("provider") or "")
+    key = (await q.get_setting(f"{p}_api_key", "") or "").strip() if p in ai.PROVIDERS else ""
     if not key:
         return _json({"ok": False, "error": "API kalit kiritilmagan"})
     try:
-        await gemini_ai.test_key(key, model)
-    except gemini_ai.AIError as e:
+        model = await ai.check_key(p, key)
+    except ai.AIError as e:
         return _json({"ok": False, "error": str(e)})
-    return _json({"ok": True, "info": f"Gemini ishlayapti ✅ ({model})"})
+    await q.set_setting(f"{p}_model", model)
+    return _json({"ok": True, "info": f"{ai.LABEL[p]} ishlayapti ✅\nModel: {model}"})
 
 
 async def api_admin_products_ai(request):
@@ -484,7 +510,7 @@ async def api_admin_products_ai(request):
     tg = await _w()._auth_admin(request, body)
     if not tg:
         return _json({"ok": False}, 401)
-    import gemini_ai
+    import ai_catalog as ai
     try:
         raw = base64.b64decode(str(body.get("data") or "").split(",")[-1])
     except Exception:
@@ -492,8 +518,8 @@ async def api_admin_products_ai(request):
     if len(raw) > 8 * 1024 * 1024:
         return _json({"ok": False, "error": "Fayl juda katta (maks 8 MB)"})
     try:
-        res = await gemini_ai.analyze_catalog_excel(raw)
-    except gemini_ai.AIError as e:
+        res = await ai.analyze_catalog_excel(raw)
+    except ai.AIError as e:
         return _json({"ok": False, "error": str(e)})
     except Exception:
         logger.exception("products ai")
@@ -614,11 +640,11 @@ async def api_pause(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order = await q.get_order(order_id)
-    if not order or order["status"] not in ("new", "in_progress"):
+    order, denied = await _w()._operator_order(op, order_id)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"})
-    if order["operator_id"] and order["operator_id"] != op["id"]:
-        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
     if body.get("resume"):
         mins = await q.resume_order(order_id, "operator")
         await q.audit(f"op:{op['name']}", "pause_end", order_id, {"minutes": round(mins)})
@@ -639,22 +665,9 @@ async def api_pause(request):
     if until:
         # vaqt kelganda operatorga botda eslatma (eslatmalar tizimi orqali, faqat ish vaqtida)
         await q.add_reminder(op["id"], order_id, until, f"⏸ Pauza tugadi: {reason}")
-    if body.get("tell_client"):
-        from utils import cbot
-        client = cbot()
-        if client:
-            lang = await q.get_lang(order["user_id"])
-            when = _fmt_until(until)
-            txt = (f"⏸ Suhbatimiz vaqtincha to'xtatildi" + (f" — {when} davom ettiramiz." if when else ".")
-                   + "\nSavolingiz bo'lsa, istalgan vaqtda shu yerga yozing 🙂") if lang != "ru" else (
-                   "⏸ Наш диалог временно приостановлен" + (f" — продолжим {when}." if when else ".")
-                   + "\nЕсли появятся вопросы — пишите сюда в любое время 🙂")
-            try:
-                # xabar bazaga yozilmaydi — aks holda pauza darhol tugab qoladi
-                await client.send_message(order["user_id"], txt)
-            except Exception:
-                pass
-    await q.audit(f"op:{op['name']}", "pause", order_id, {"reason": reason, "until": until})
+    # Pauza faqat ichki ish holati: mijozga xabar yuborilmaydi.
+    await q.audit(f"op:{op['name']}", "pause", order_id,
+                  {"reason": reason, "until": until, "client_notified": False})
     return _json({"ok": True, "info": "Suhbat pauzaga qo'yildi — bu vaqt statistikaga kirmaydi",
                   "until": until})
 

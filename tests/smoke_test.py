@@ -2,7 +2,8 @@
 
 Ishga tushirish:  python tests/smoke_test.py
 """
-import os, sys, asyncio, tempfile, json, time
+import os, sys, asyncio, tempfile, json, time, base64
+from types import SimpleNamespace
 TMP = tempfile.mkdtemp()
 os.environ["BOT_TOKEN"] = "123456:TESTTOKEN"
 os.environ["DB_PATH"] = os.path.join(TMP, "t.db")
@@ -83,6 +84,16 @@ async def main():
         check("sync yangi xabarni beradi", r["ok"] and [m["text"] for m in r["chat"]["messages"]] == ["yangi xabar"], r.get("chat"))
         check("sync media kaliti beradi", bool(r.get("mk")))
 
+        print("OPERATOR HUQUQLARI")
+        op2_login = await (await cli.post("/api/login", json={"login": "vali", "password": "9999"})).json()
+        A_OTHER = {"operator_id": op2, "token": op2_login["token"]}
+        resp = await cli.get("/api/messages", params={**A_OTHER, "order_id": oid})
+        check("boshqa operator yozishmani ko'ra olmaydi", resp.status == 403, resp.status)
+        resp = await cli.post("/api/send", json={**A_OTHER, "order_id": oid, "text": "begona"})
+        check("boshqa operator mijozga yoza olmaydi", resp.status == 403, resp.status)
+        resp = await cli.post("/api/order_tags", json={**A_OTHER, "order_id": oid, "tags": ["Begona"]})
+        check("boshqa operator tegni o'zgartira olmaydi", resp.status == 403, resp.status)
+
         print("CHAT STATE / TAGS / NOTES / PIN")
         r = await (await cli.post("/api/chat_state", json={**A, "order_id": oid, "pinned": True, "draft": "<b>qoralama</b>"})).json()
         r2 = await (await cli.get("/api/chats", params=A)).json()
@@ -117,9 +128,64 @@ async def main():
         r = await (await cli.post("/api/send", json={**A, "order_id": oid, "text": "x"})).json()
         check("bot yo'q bo'lsa tushunarli xato", not r["ok"] and "bot" in r["error"], r)
 
+        print("SEND / REPLY / MEDIA / EDIT")
+        import utils
+        class ChatBot:
+            def __init__(self): self.mid = 200; self.calls = []
+            def _sent(self, **kw):
+                self.mid += 1
+                return SimpleNamespace(message_id=self.mid, **kw)
+            async def send_message(self, *args, **kwargs):
+                self.calls.append(("text", args, kwargs)); return self._sent()
+            async def send_photo(self, *args, **kwargs):
+                self.calls.append(("photo", args, kwargs)); return self._sent(photo=[SimpleNamespace(file_id="photo-fid")])
+            async def send_document(self, *args, **kwargs):
+                self.calls.append(("document", args, kwargs)); return self._sent(document=SimpleNamespace(file_id="doc-fid", mime_type="text/plain"))
+            async def send_voice(self, *args, **kwargs):
+                self.calls.append(("voice", args, kwargs)); return self._sent(voice=SimpleNamespace(file_id="voice-fid"))
+            async def send_audio(self, *args, **kwargs):
+                return self._sent(audio=SimpleNamespace(file_id="audio-fid"))
+            async def send_sticker(self, *args, **kwargs):
+                self.calls.append(("sticker", args, kwargs)); return self._sent()
+            async def edit_message_text(self, *args, **kwargs):
+                self.calls.append(("edit", args, kwargs)); return True
+        chat_bot = ChatBot()
+        utils.cbot = lambda: chat_bot
+        r = await (await cli.post("/api/send", json={**A, "order_id": oid, "text": "javob",
+                                                       "reply_mid": m1})).json()
+        sent_mid = r.get("mid")
+        check("reply bilan matn yuborish", r["ok"] and chat_bot.calls[-1][2].get("reply_to_message_id") == 10, r)
+        r = await (await cli.post("/api/msg_edit", json={**A, "mid": sent_mid, "text": "tahrirlangan"})).json()
+        check("yuborilgan xabarni tahrirlash", r["ok"] and (await q.get_message(sent_mid))["text"] == "tahrirlangan", r)
+        raw64 = base64.b64encode(b"test-media").decode()
+        r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "photo",
+                                                       "media_data": raw64, "text": "rasm"})).json()
+        check("rasm yuborish", r["ok"] and r["message"]["type"] == "photo", r)
+        r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "document",
+                                                       "media_data": raw64, "media_name": "test.txt"})).json()
+        check("fayl yuborish", r["ok"] and r["message"]["type"] == "document", r)
+        r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "voice",
+                                                       "media_data": raw64, "media_mime": "audio/ogg"})).json()
+        check("ovoz yuborish", r["ok"] and r["message"]["type"] == "voice", r)
+        sticker_id = await q.add_template(None, "sticker-fid")
+        r = await (await cli.post("/api/send_sticker", json={**A, "order_id": oid,
+                                                              "sticker_id": sticker_id})).json()
+        check("sticker yuborish", r["ok"] and any(c[0] == "sticker" for c in chat_bot.calls), r)
+        utils.cbot = lambda: None
+
         print("TRANSFER / OPS")
         r = await (await cli.get("/api/ops_list", params=A)).json()
         check("operatorlar ro'yxati", r["ok"] and r["items"][0]["name"] == "Vali", r)
+        transfer_oid = await q.create_order(5001, None, "text")
+        await q.claim_order(transfer_oid, op_id)
+        r = await (await cli.post("/api/transfer", json={**A, "order_id": transfer_oid,
+                                                          "to_id": op2, "note": "Valiga"})).json()
+        check("operatorga o'tkazish", r["ok"] and (await q.get_order(transfer_oid))["operator_id"] == op2, r)
+        resp = await cli.post("/api/inote", json={**A, "order_id": transfer_oid, "text": "eski operator"})
+        check("o'tkazilgach eski operator o'zgartira olmaydi", resp.status == 403, resp.status)
+        r = await (await cli.post("/api/transfer", json={**A_OTHER, "order_id": transfer_oid,
+                                                          "to_id": op_id, "note": "qaytarildi"})).json()
+        check("murojaatni qayta o'tkazish", r["ok"] and (await q.get_order(transfer_oid))["operator_id"] == op_id, r)
 
         print("FILE / MEDIA KEY")
         r = await cli.get("/api/file", params={"fid": "x", "kind": "photo", "mk": "bad"})
@@ -191,8 +257,17 @@ async def main():
         print("PAUZA")
         import webapp_extra as webapp_extra_mod
         A2 = {"operator_id": op_id, "token": (await (await cli.post("/api/login", json={"login": "ali", "password": "1234"})).json())["token"]}
-        r = await (await cli.post("/api/pause", json={**A2, "order_id": oid, "reason": "Mijoz ertaga yozadi", "minutes": 600})).json()
+        class GuardBot:
+            def __init__(self): self.sent = []
+            async def send_message(self, *args, **kwargs):
+                self.sent.append((args, kwargs))
+                return type("Sent", (), {"message_id": 9001})()
+        guard_bot = GuardBot()
+        utils.cbot = lambda: guard_bot
+        r = await (await cli.post("/api/pause", json={**A2, "order_id": oid, "reason": "Mijoz ertaga yozadi", "minutes": 600, "tell_client": True})).json()
         check("pauzaga qo'yildi", r["ok"], r)
+        check("pauza mijozga xabar yubormaydi", len(guard_bot.sent) == 0, guard_bot.sent)
+        utils.cbot = lambda: None
         r = await (await cli.get("/api/chats", params=A2)).json()
         check("ro'yxatda pauza belgisi", r["chats"][0]["paused"], r["chats"][0])
         db = await q.get_db()
@@ -255,7 +330,12 @@ async def main():
         AT = {"admin_id": 111, "token": await webapp._admin_sign(111)}
         r = await (await cli.post("/api/admin/products_import", json={**AT, "data": _b64.b64encode(buf.getvalue()).decode()})).json()
         check("Excel import (yangilash + yangi)", r["ok"] and r["added"] == 1 and r["updated"] == 1, r)
-        check("kelgan dori navbatdan chiqdi", not (await q.stock_wait_counts()).get(vit["id"]))
+        check("bot ishlamasa kelgan dori navbati yo'qolmaydi", (await q.stock_wait_counts()).get(vit["id"]) == 1)
+        stock_bot = GuardBot()
+        utils.cbot = lambda: stock_bot
+        sent = await webapp_extra.notify_stock_arrived(vit["id"])
+        check("xabar yuborilgach dori navbatdan chiqdi", sent == 1 and not (await q.stock_wait_counts()).get(vit["id"]))
+        utils.cbot = lambda: None
 
         print("HISOBOT / MAQSAD")
         t = await webapp_extra.daily_report_text()
@@ -290,6 +370,8 @@ async def main():
         print("STATIC")
         r = await cli.get("/fmt.js")
         check("/fmt.js beriladi", r.status == 200 and "TGF" in await r.text())
+        r = await cli.get("/static/gulnora-farm-logo.jpg")
+        check("Gulnora Farm logosi beriladi", r.status == 200 and r.content_type == "image/jpeg" and len(await r.read()) > 1000)
     finally:
         await cli.close()
     print(f"\nNATIJA: {OK} o'tdi, {FAIL} xato")

@@ -194,6 +194,32 @@ async def _auth_op(request, data):
     return op, None
 
 
+async def _operator_order(op, order_id, *, allow_unassigned_new=False, claim_unassigned=False):
+    """Operatorning murojaatga kirish huquqini bitta joyda tekshiradi.
+
+    O'ziga biriktirilgan murojaat doim ruxsat etiladi. Hali hech kim olmagan yangi
+    murojaatni faqat aniq ruxsat berilgan oqimlar ko'rishi yoki atomar qabul qilishi
+    mumkin. Boshqa operatorning murojaati hech qachon ochilmaydi/o'zgartirilmaydi.
+    """
+    order = await q.get_order(order_id)
+    if not order:
+        return None, _json({"ok": False, "error": "Murojaat topilmadi"}, 404)
+    if order["operator_id"] == op["id"]:
+        return order, None
+    if (allow_unassigned_new and order["status"] == "new" and not order["operator_id"]):
+        if claim_unassigned:
+            if not await q.claim_order(order_id, op["id"]):
+                order = await q.get_order(order_id)
+                if not order or order["operator_id"] != op["id"]:
+                    return None, _json({"ok": False, "error": "Murojaatni boshqa operator qabul qildi"}, 409)
+            else:
+                order = await q.get_order(order_id)
+            await q.set_operator_active_order(op["id"], order_id)
+            await q.set_operator_availability(op["id"], "busy")
+        return order, None
+    return None, _json({"ok": False, "error": "Bu sizning suhbatingiz emas"}, 403)
+
+
 def _json(data, status=200):
     return web.json_response(data, status=status)
 
@@ -456,9 +482,9 @@ async def api_messages(request):
         order_id = int(request.query.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "not found"}, 404)
+    order, denied = await _operator_order(op, order_id, allow_unassigned_new=True)
+    if denied is not None:
+        return denied
     user = await q.get_user(order["user_id"])
     try:
         before = int(request.query.get("before") or 0) or None
@@ -506,8 +532,10 @@ async def api_sync(request):
     except ValueError:
         oid = 0
     if oid:
-        order = await q.get_order(oid)
-        if order:
+        order, denied = await _operator_order(op, oid, allow_unassigned_new=True)
+        if denied is not None:
+            res["chat_error"] = "Bu suhbat boshqa operatorga o'tkazilgan"
+        elif order:
             try:
                 after = int(qd.get("after") or 0)
             except ValueError:
@@ -727,17 +755,17 @@ async def api_send(request):
         return _json({"ok": False, "error": "order_id"}, 400)
     media_kind = body.get("media_kind")          # 'photo' | 'voice' | 'document' | None
     media_data = body.get("media_data")          # base64 (dataURL bo'lishi mumkin)
-    order = await q.get_order(order_id)
-    if not order or order["status"] not in ("new", "in_progress"):
+    order, denied = await _operator_order(
+        op, order_id, allow_unassigned_new=True, claim_unassigned=True)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"}, 200)
     text, html_text = await _prepare_text(body, order, op)
     if not text and not (media_kind and media_data):
         return _json({"ok": False, "error": "empty"}, 400)
 
     # yangi bo'lsa — avval qabul qilamiz (o'zimizga biriktiramiz)
-    if order["status"] == "new" and not order["operator_id"]:
-        if await q.claim_order(order_id, op["id"]):
-            await q.set_operator_availability(op["id"], "busy")
     await q.set_operator_active_order(op["id"], order_id)
 
     from utils import cbot, post_operator_to_channel
@@ -845,8 +873,10 @@ async def api_typing(request):
     if t - _TYPING.get(order_id, 0) < 4:
         return _json({"ok": True})
     _TYPING[order_id] = t
-    order = await q.get_order(order_id)
-    if not order or order["status"] not in ("new", "in_progress"):
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False})
     from utils import cbot
     client = cbot()
@@ -871,6 +901,9 @@ async def api_chat_state(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
+    _order, denied = await _operator_order(op, order_id, allow_unassigned_new=True)
+    if denied is not None:
+        return denied
     f = {}
     for k in ("pinned", "archived", "marked_unread"):
         if k in body:
@@ -900,6 +933,9 @@ async def api_pin(request):
         mid = int(body.get("mid") or 0)
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
+    _order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     if mid:
         row = await q.get_message(mid)
         if not row or row["order_id"] != order_id:
@@ -934,6 +970,9 @@ async def api_order_tags(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
+    _order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     tags = []
     for t in body.get("tags") or []:
         t = str(t).replace(",", " ").strip()[:40]
@@ -957,6 +996,9 @@ async def api_inote(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
+    _order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     text = str(body.get("text", "")).strip()[:2000]
     if not text:
         return _json({"ok": False, "error": "Matn bo'sh"})
@@ -971,9 +1013,11 @@ async def _transfer(order, new_op, actor: str, actor_label: str):
     prev_id = order["operator_id"]
     newop_id = new_op["id"]
     if order["status"] == "new":
-        await q.claim_order(order_id, newop_id)
+        moved = await q.claim_order(order_id, newop_id)
     else:
-        await q.assign_order(order_id, newop_id)
+        moved = await q.transfer_order(order_id, prev_id, newop_id)
+    if not moved:
+        return False
     await q.set_operator_active_order(newop_id, order_id)
     await q.set_operator_availability(newop_id, "busy")
     await q.unhide_chat(newop_id, order_id)
@@ -1006,6 +1050,7 @@ async def _transfer(order, new_op, actor: str, actor_label: str):
         except Exception:
             pass
     await q.audit(actor, "transfer", order_id, {"from": prev_id, "to": new_op["name"]})
+    return True
 
 
 async def api_ops_list(request):
@@ -1033,21 +1078,25 @@ async def api_transfer(request):
         return _json({"ok": False}, 401)
     try:
         order_id = int(body.get("order_id"))
-        newop_id = int(body.get("operator_id"))
+        # «to_id»: «operator_id» sessiya egasini bildiradi — uni ustidan yozib bo'lmaydi
+        newop_id = int(body.get("to_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order = await q.get_order(order_id)
+    if newop_id == op["id"]:
+        return _json({"ok": False, "error": "O'zingizga o'tkazib bo'lmaydi"})
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     new_op = await q.get_operator(newop_id)
     if not order or not new_op or new_op["status"] != "active":
         return _json({"ok": False, "error": "topilmadi"}, 404)
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"})
-    if order["operator_id"] and order["operator_id"] != op["id"]:
-        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
     note = str(body.get("note", "")).strip()[:500]
     if note:
         await q.add_internal_note(order_id, "operator", op["name"], f"↪️ O'tkazish izohi: {note}")
-    await _transfer(order, new_op, f"op:{op['name']}", f"Operator {_htm.escape(op['name'])}")
+    if not await _transfer(order, new_op, f"op:{op['name']}", f"Operator {_htm.escape(op['name'])}"):
+        return _json({"ok": False, "error": "Murojaat holati o'zgardi, qayta ochib ko'ring"}, 409)
     await q.hide_chat(op["id"], order_id)
     return _json({"ok": True, "info": f"#{order_id} → {new_op['name']} ga o'tkazildi"})
 
@@ -1084,13 +1133,11 @@ async def api_close(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "Murojaat topilmadi"})
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Bu murojaat allaqachon yopilgan"})
-    if order["operator_id"] and order["operator_id"] != op["id"]:
-        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
     from utils import cbot
     from handlers.operator import _finish_with_rating
     try:
@@ -1116,11 +1163,11 @@ async def api_cancel(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order or order["status"] not in ("new", "in_progress"):
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Bu murojaat allaqachon yopilgan"})
-    if order["operator_id"] and order["operator_id"] != op["id"]:
-        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
     await q.set_order_status(order_id, "canceled", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], None)
     await q.set_operator_availability(op["id"], "free")
@@ -1154,9 +1201,11 @@ async def api_reject(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "Murojaat topilmadi"})
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Murojaat yopilgan"})
     try:
         from utils import post_canceled_to_channel
         await post_canceled_to_channel(order_id, op_name=op["name"])
@@ -1180,6 +1229,9 @@ async def api_hide(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
+    _order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     await q.hide_chat(op["id"], order_id)
     await q.audit(f"op:{op['name']}", "hide_chat", order_id)
     q.bump()
@@ -1389,9 +1441,11 @@ async def api_cmd(request):
         return _json({"ok": False, "error": "order_id"}, 400)
     cmd = body.get("cmd")
     arg = body.get("arg")
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "topilmadi"}, 404)
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
+    if order["status"] not in ("new", "in_progress"):
+        return _json({"ok": False, "error": "Murojaat yopilgan"})
     from utils import cbot, post_operator_to_channel
     import keyboards as kb
     client = cbot()
@@ -1646,15 +1700,15 @@ async def api_send_sticker(request):
         order_id = int(body.get("order_id")); tid = int(body.get("sticker_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "arg"}, 400)
-    order = await q.get_order(order_id)
+    order, denied = await _operator_order(
+        op, order_id, allow_unassigned_new=True, claim_unassigned=True)
+    if denied is not None:
+        return denied
     tpl = await q.get_template(tid)
     if not order or not tpl or not tpl["sticker"]:
         return _json({"ok": False, "error": "topilmadi"}, 404)
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "yopilgan"})
-    if order["status"] == "new" and not order["operator_id"]:
-        if await q.claim_order(order_id, op["id"]):
-            await q.set_operator_availability(op["id"], "busy")
     await q.set_operator_active_order(op["id"], order_id)
     from utils import cbot, post_operator_to_channel
     client = cbot()
@@ -1689,9 +1743,9 @@ async def api_msg_del(request):
     row = await q.get_message(mid)
     if not row or row["sender"] != "operator":
         return _json({"ok": False, "error": "Bu xabarni o'chirib bo'lmaydi"})
-    order = await q.get_order(row["order_id"])
-    if not order or (order["operator_id"] and order["operator_id"] != op["id"]):
-        return _json({"ok": False, "error": "Bu sizning suhbatingiz emas"})
+    order, denied = await _operator_order(op, row["order_id"])
+    if denied is not None:
+        return denied
     ids = [row["client_msg_id"]] if row["client_msg_id"] else []
     extra = row["extra_cmids"] if "extra_cmids" in row.keys() else None
     ids += [int(x) for x in (extra or "").split(",") if x.strip().isdigit()]
@@ -1781,6 +1835,9 @@ async def api_remind(request):
         minutes = int(body.get("minutes"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
+    _order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     minutes = max(1, min(minutes, 7 * 24 * 60))
     from datetime import timedelta
     from config import now_local
@@ -1816,9 +1873,9 @@ async def api_client_info(request):
         order_id = int(request.query.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False}, 404)
+    order, denied = await _operator_order(op, order_id, allow_unassigned_new=True)
+    if denied is not None:
+        return denied
     u = await q.user_full(order["user_id"])
     if not u:
         return _json({"ok": False, "error": "topilmadi"}, 404)
@@ -1832,7 +1889,10 @@ async def api_client_info(request):
                              "note": note},
                   "orders": [{"id": o["id"], "status": o["status"],
                               "date": (o["created_at"] or "")[:10],
-                              "rating": o["rating"] or 0} for o in orders[:12]]})
+                              "rating": o["rating"] or 0,
+                              "can_open": o["operator_id"] == op["id"] or
+                                          (o["status"] == "new" and not o["operator_id"])}
+                             for o in orders[:12]]})
 
 
 # ---------------- API: yakunlangan murojaatni davom ettirish ----------------
@@ -1849,9 +1909,9 @@ async def api_reopen(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "topilmadi"}, 404)
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     if order["status"] in ("new", "in_progress"):
         return _json({"ok": True, "info": "allaqachon ochiq"})   # allaqachon ochiq
     await q.reopen_order(order_id, op["id"])
@@ -1915,9 +1975,9 @@ async def api_note(request):
         order_id = int(request.query.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "topilmadi"}, 404)
+    order, denied = await _operator_order(op, order_id, allow_unassigned_new=True)
+    if denied is not None:
+        return denied
     return _json({"ok": True, "note": await q.get_client_note(order["user_id"])})
 
 
@@ -1933,9 +1993,9 @@ async def api_note_save(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order = await q.get_order(order_id)
-    if not order:
-        return _json({"ok": False, "error": "topilmadi"}, 404)
+    order, denied = await _operator_order(op, order_id)
+    if denied is not None:
+        return denied
     await q.set_client_note(order["user_id"], str(body.get("note", "")).strip())
     await q.audit(f"op:{op['name']}", "client_note", order_id)
     return _json({"ok": True})
@@ -2724,7 +2784,8 @@ async def api_admin_transfer(request):
         return _json({"ok": False, "error": "topilmadi"}, 404)
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False, "error": "Murojaat yopilgan"})
-    await _transfer(order, new_op, f"admin:{tg}", "Admin")
+    if not await _transfer(order, new_op, f"admin:{tg}", "Admin"):
+        return _json({"ok": False, "error": "Murojaat holati o'zgardi, qayta ochib ko'ring"}, 409)
     return _json({"ok": True, "info": f"#{order_id} → {new_op['name']} ga o'tkazildi"})
 
 

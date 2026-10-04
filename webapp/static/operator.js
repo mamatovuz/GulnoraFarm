@@ -359,6 +359,7 @@ function applySync(r){
   ST.newcount = r.newcount; ST.v = r.v; ST.inited = true;
   if(ring) beep();
   renderChatList(); updateBadges();
+  if(r.chat_error && CUR){ toast(r.chat_error, 3200); backToList(); return; }
   if(r.chat && CH && r.chat.order_id === CUR) mergeChat(r.chat, r.server_ts);
   flushQueue();
 }
@@ -1636,7 +1637,7 @@ async function openTransfer(){
       <div class="lbl">${esc(o.name)}<div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot(o.state)};margin-right:5px"></span>${lbl(o.state)} · ${o.load} ta ochiq suhbat</div></div></div>`).join("") || `<div class="empty" style="padding:24px">Boshqa faol operator yo'q</div>`),
     el=>el.addEventListener("click", e=>{ const it=e.target.closest("[data-to]"); if(!it) return;
       TGF.prompt(`${it.dataset.tn} ga o'tkazish`, [{ph:"Izoh (ixtiyoriy): nima kelishildi"}], async ([note])=>{
-        const r2 = await POST("/api/transfer", { order_id: CUR, operator_id: +it.dataset.to, note }).catch(()=>null);
+        const r2 = await POST("/api/transfer", { order_id: CUR, to_id: +it.dataset.to, note }).catch(()=>null);
         if(r2 && r2.ok){ closeSheet(); toast(r2.info||"O'tkazildi"); backToList(); } else alert2((r2&&r2.error)||"Xatolik");
       }); }));
 }
@@ -1658,7 +1659,7 @@ async function clientCard(){
       ${c.note?`<div class="item" data-act="openNote"><svg class="ic ic-orange" viewBox="0 0 24 24" style="width:30px;height:30px;padding:5px;border-radius:8px;color:#fff"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/></svg><div class="lbl" style="white-space:pre-wrap">${esc(c.note)}<div class="sub">Izoh</div></div></div>`:""}
     </div>
     <h3 style="font-size:14px;color:var(--hint);margin:12px 16px 4px">Murojaatlari</h3>
-    ${r.orders.map(o=>`<div class="item" data-ord="${o.id}"><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span></div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
+    ${r.orders.map(o=>`<div class="item" ${o.can_open?`data-ord="${o.id}"`:'style="opacity:.72;cursor:default"'}><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span>${o.can_open?"":`<div class="sub">${esc(T("Boshqa operator murojaati — faqat qisqa tarix"))}</div>`}</div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
     el=>el.addEventListener("click", e=>{
       const o = e.target.closest("[data-ord]"); if(o){ closeSheet(); openChat(+o.dataset.ord, c.name); return; }
       const p = e.target.closest("[data-prof]"); if(p){ try{ tg.openTelegramLink("https://t.me/"+p.dataset.prof); }catch(err){} }
@@ -2064,7 +2065,7 @@ function openPause(){
     <div class="tagpick" id="pz-time"><button data-m="60">${esc(T("1 soat"))}</button><button data-m="180">${esc(T("3 soat"))}</button><button data-m="${tm()}" class="on">${esc(T("Ertaga 09:00"))}</button><button data-m="0">${esc(T("Muddatsiz"))}</button></div>
     <div class="sublbl">🔔 ${esc(T("Eslatma (faqat ish vaqtimda)"))}</div>
     <div class="tagpick" id="pz-rem"><button data-r2="30">${esc(T("har 30 daqiqa"))}</button><button data-r2="60" class="on">${esc(T("har 1 soat"))}</button><button data-r2="120">${esc(T("har 2 soat"))}</button><button data-r2="1440">${esc(T("har 1 kun"))}</button><button data-r2="0">${esc(T("kerak emas"))}</button></div>
-    <label class="chk"><input type="checkbox" id="pz-tell" checked> ${esc(T("Mijozga «suhbat vaqtincha to'xtatildi» deb xabar berish"))}</label>
+    <div class="phint" style="margin:8px 0">${esc(T("Pauza ichki holat: mijozga bu haqda xabar yuborilmaydi."))}</div>
     <button class="sbtn" data-pzgo>⏸ ${esc(T("Pauzaga qo'yish"))}</button>`,
     el=>el.addEventListener("click", async e=>{
       const r = e.target.closest("#pz-reasons [data-r]"), t = e.target.closest("#pz-time [data-m]"), rm = e.target.closest("#pz-rem [data-r2]");
@@ -2078,7 +2079,7 @@ function openPause(){
         const reason = (el.querySelector("#pz-reasons .on")||{}).dataset?.r || "Pauza";
         const minutes = +((el.querySelector("#pz-time .on")||{}).dataset?.m || 0);
         const remind = +((el.querySelector("#pz-rem .on")||{}).dataset?.r2 || 0);
-        const res = await POST("/api/pause", { order_id: CUR, reason, minutes, remind, tell_client: $("pz-tell").checked }).catch(()=>null);
+        const res = await POST("/api/pause", { order_id: CUR, reason, minutes, remind }).catch(()=>null);
         if(!res || !res.ok){ alert2((res&&res.error)||"Xatolik"); return; }
         closeSheet(); toast(res.info || "Pauza"); haptic("medium"); kickSync();
       }

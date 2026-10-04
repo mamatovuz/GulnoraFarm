@@ -535,3 +535,57 @@ html[data-scheme="dark"] #pauseresume .pr-t{color:#fbbf24}
 #viewer img{transition:transform .18s ease-out}
 /* To'liq ekran tugmasi */
 .fsbtn.hide{display:none}
+
+/* ===== Gulnora Farm UI: professional operator ish joyi ===== */
+:root{
+  --bg:#ffffff;--sec:#f3f6f4;--text:#17211c;--hint:#6f7d75;--link:#14734f;
+  --accent:#14734f;--accent-text:#fff;--sep:#dfe6e1;--green:#21835e;
+  --b-in:#ffffff;--b-in-t:#17211c;--b-out:#e2f2e9;--b-out-t:#17211c;
+  --meta-in:#78877f;--meta-out:#367f5f;--q-in:#14734f;--q-out:#287c59;
+}
+html[data-theme="light"]{--bg:#ffffff;--sec:#f3f6f4;--text:#17211c;--hint:#6f7d75;--link:#14734f;--accent:#14734f;--sep:#dfe6e1}
+html[data-theme="dark"],html[data-scheme="dark"]{
+  --bg:#15211b;--sec:#0e1712;--text:#eef5f1;--hint:#91a198;--link:#68c69c;
+  --accent:#46aa7c;--accent-text:#07150e;--sep:#293a31;--b-in:#1d2c24;--b-in-t:#eef5f1;
+  --b-out:#20543d;--b-out-t:#fff;--meta-in:#91a198;--meta-out:#a1d9bd;--q-in:#68c69c;--q-out:#a1d9bd;
+}
+html,body{letter-spacing:-.005em}
+.topbar{min-height:58px;padding:7px 10px;box-shadow:none}
+.topbar .t{font-weight:680;letter-spacing:-.015em}
+#login .logo{background:var(--accent);border-radius:18px;box-shadow:none}
+#login .logo.brand-logo{width:148px;height:148px;padding:0;overflow:hidden;border-radius:24px;background:#808080}
+#login .logo.brand-logo img{display:block;width:100%;height:100%;object-fit:cover}
+.btn,.sbtn{border-radius:10px;box-shadow:none}
+.field input{border:1px solid var(--sep);border-radius:10px;background:var(--sec)}
+.saved-card,.list,.cards .card{border:1px solid var(--sep);box-shadow:none;border-radius:12px}
+.list{margin:10px 12px}
+.searchbox .in{border-radius:10px;border:1px solid var(--sep);background:var(--sec)}
+.folders{gap:5px;padding:4px 10px 5px}
+.folders button{padding:8px 10px;border-radius:8px;font-size:13.5px}
+.folders button.on{background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+.folders button.on::after{display:none}
+.cfront{padding:9px 12px}.cfront .mid{padding:3px 0}.l1 .nm{font-size:15.5px}.l2 .pv{font-size:14px}
+.tabbar{padding:4px 4px var(--safe-b);background:var(--bg)}
+.tabbar button{border-radius:9px;padding:6px 0 7px}
+.tabbar button.on{background:color-mix(in srgb,var(--accent) 9%,var(--bg))}
+.tabbar button.on .ic{stroke-width:2.2}
+.sheet{border-radius:16px 16px 0 0;box-shadow:0 -16px 42px rgba(16,43,32,.17)}
+.item{padding:12px 15px}.item .ic{stroke-width:1.8}
+.prow .pi{border-radius:9px;background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+.prow .mini{border-radius:8px}.prow .mini:hover{background:var(--sec)}
+.composer{gap:4px;padding:7px 8px;background:var(--bg)}
+.composer .inwrap{border:1px solid var(--sep);border-radius:18px;background:var(--sec)}
+.bub{border-radius:14px;box-shadow:0 1px 1px rgba(16,43,32,.12)}
+#pauseresume{background:#fff8e8;border-color:#e5c57c;box-shadow:none}
+html[data-scheme="dark"] #pauseresume{background:#302717;border-color:#665126}
+#pauseresume button{background:var(--accent);border-radius:9px;box-shadow:none}
+#pane-empty .pe-ic{width:58px;height:58px;margin:0 auto 14px;border-radius:16px;background:color-mix(in srgb,var(--accent) 11%,var(--sec));
+  display:flex;align-items:center;justify-content:center;font-size:28px}
+
+@media (min-width:900px){
+  body.wide #app{width:408px;background:var(--bg)}
+  body.wide #chat,body.wide #channel,body.wide #listview{left:408px}
+  body.wide .overlay,body.wide #mediamodal,body.wide #viewer{left:408px}
+  #pane-empty{left:408px}
+  body.wide .tabbar{margin:8px;border:1px solid var(--sep);border-radius:11px;padding-bottom:4px}
+}

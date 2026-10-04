@@ -317,6 +317,20 @@ async def assign_order(order_id, operator_id):
     bump()
 
 
+async def transfer_order(order_id, expected_operator_id, new_operator_id):
+    """Atomar transfer: murojaat orada boshqa operatorga o'tgan bo'lsa ustidan yozmaydi."""
+    db = await get_db()
+    cur = await db.execute(
+        "UPDATE orders SET operator_id=? WHERE id=? AND operator_id IS ? "
+        "AND status='in_progress'",
+        (new_operator_id, order_id, expected_operator_id))
+    await db.commit()
+    moved = bool(cur.rowcount and cur.rowcount > 0)
+    if moved:
+        bump()
+    return moved
+
+
 async def reopen_order(order_id, operator_id):
     """Yakunlangan/bekor qilingan murojaatni qayta ochadi (operator davom ettiradi).
     Status -> in_progress, operatorga biriktiriladi, closed_at tozalanadi.
@@ -343,7 +357,7 @@ async def claim_order(order_id, operator_id):
     stamp = now()
     cur = await db.execute(
         "UPDATE orders SET status='in_progress', operator_id=?, accepted_at=?, "
-        "last_operator_reminder_at=? WHERE id=? AND status='new'",
+        "last_operator_reminder_at=? WHERE id=? AND status='new' AND operator_id IS NULL",
         (operator_id, stamp, stamp, order_id))
     await db.commit()
     if cur.rowcount and cur.rowcount > 0:
@@ -1198,8 +1212,9 @@ async def get_template(template_id):
 
 async def add_template(text, sticker=None):
     db = await get_db()
-    await db.execute("INSERT INTO templates (text, sticker) VALUES (?, ?)", (text, sticker))
+    cur = await db.execute("INSERT INTO templates (text, sticker) VALUES (?, ?)", (text, sticker))
     await db.commit()
+    return cur.lastrowid
 
 
 async def delete_template(template_id):
@@ -2413,8 +2428,22 @@ async def import_products(items, replace=False, branch_id=None):
 
 async def add_stock_wait(product_id, user_id, order_id, operator_id):
     db = await get_db()
-    await db.execute("INSERT OR IGNORE INTO stock_waits (product_id, user_id, order_id, operator_id, created_at) "
-                     "VALUES (?, ?, ?, ?, ?)", (product_id, user_id, order_id, operator_id, now()))
+    cur = await db.execute("INSERT OR IGNORE INTO stock_waits (product_id, user_id, order_id, operator_id, created_at) "
+                           "VALUES (?, ?, ?, ?, ?)", (product_id, user_id, order_id, operator_id, now()))
+    await db.commit()
+    return bool(cur.rowcount and cur.rowcount > 0)
+
+
+async def stock_waits_for_product(product_id):
+    """Xabar muvaffaqiyatli yuborilmaguncha navbatni o'chirmasdan qaytaradi."""
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM stock_waits WHERE product_id=? ORDER BY id", (product_id,))
+    return await cur.fetchall()
+
+
+async def delete_stock_wait(wait_id):
+    db = await get_db()
+    await db.execute("DELETE FROM stock_waits WHERE id=?", (wait_id,))
     await db.commit()
 
 
