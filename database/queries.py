@@ -1821,6 +1821,36 @@ async def op_chats(operator_id):
     return await cur.fetchall()
 
 
+async def op_general_chats(viewer_operator_id):
+    """Barcha operatorlarga biriktirilgan, hozir jarayondagi chatlar.
+
+    O'qilgan/qoralama kabi shaxsiy UI holati chat egasiniki emas, ro'yxatni
+    ko'rayotgan operatorniki olinadi. Shu sababli umumiy bo'limda bir operator
+    chatni ochishi boshqalarning o'qilmagan belgisini o'zgartirmaydi.
+    """
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
+        "o.paused_at, o.paused_until, o.rejected_at, o.auto_close_at, op.name AS operator_name, "
+        "u.full_name, u.phone, u.username, "
+        "(SELECT b.name FROM branches b WHERE b.id=COALESCE(o.branch_id, u.branch_id)) AS branch, "
+        "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
+        "lm.created_at AS last_at, lm.sender AS last_sender, "
+        "cs.pinned AS pinned, cs.archived AS archived, cs.marked_unread AS marked_unread, "
+        "cs.draft AS draft, cs.last_read_mid AS last_read_mid, "
+        "(SELECT COUNT(*) FROM messages m2 WHERE m2.order_id=o.id AND m2.sender='client' "
+        " AND m2.id > COALESCE(cs.last_read_mid, (SELECT MAX(m3.id) FROM messages m3 "
+        "   WHERE m3.order_id=o.id AND m3.sender='operator'), 0)) AS unread "
+        "FROM orders o LEFT JOIN users u ON u.telegram_id=o.user_id "
+        "LEFT JOIN operators op ON op.id=o.operator_id "
+        "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
+        "LEFT JOIN op_chat_state cs ON cs.operator_id=? AND cs.order_id=o.id "
+        "WHERE o.status='in_progress' AND o.operator_id IS NOT NULL "
+        "ORDER BY COALESCE(lm.created_at, o.created_at) DESC LIMIT 500",
+        (viewer_operator_id,))
+    return await cur.fetchall()
+
+
 async def new_count():
     db = await get_db()
     cur = await db.execute("SELECT COUNT(*) FROM orders WHERE status='new'")

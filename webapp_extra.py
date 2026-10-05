@@ -85,7 +85,9 @@ async def api_products(request):
     except ValueError:
         oid = 0
     if oid:
-        order, denied = await _w()._operator_order(op, oid, allow_unassigned_new=True)
+        shared = bool(request.query.get("shared"))
+        order, denied = await _w()._operator_order(op, oid, allow_unassigned_new=not shared,
+                                                   allow_shared=shared)
         if denied is not None:
             return denied
         user = await q.get_user(order["user_id"])
@@ -112,7 +114,8 @@ async def api_stock_wait(request):
         pid = int(body.get("product_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order, denied = await _w()._operator_order(op, order_id)
+    order, denied = await _w()._operator_order(op, order_id,
+                                               allow_shared=bool(body.get("shared")))
     if denied is not None:
         return denied
     prod = await q.get_product(pid)
@@ -640,7 +643,8 @@ async def api_pause(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    order, denied = await _w()._operator_order(op, order_id)
+    order, denied = await _w()._operator_order(op, order_id,
+                                               allow_shared=bool(body.get("shared")))
     if denied is not None:
         return denied
     if order["status"] not in ("new", "in_progress"):
@@ -710,7 +714,7 @@ async def _send_pause_reminder(r):
     since = _fmt_until(r["paused_at"])
     text = (f"⏸ <b>Eslatma: suhbat pauzada</b> — #{r['id']} ({_htm.escape(r['full_name'] or 'mijoz')})\n"
             f"📝 {_htm.escape(r['reason'] or 'Pauza')}\n"
-            f"🕐 Pauza: {since}" + (f" · {_fmt_until(r['paused_until'])} gacha" if r["paused_until"] else "") + "\n\n"
+            f"🕐 Pauza: {since}" + (f" · {_fmt_until(r['paused_until'])} ga eslatma" if r["paused_until"] else "") + "\n\n"
             f"Davom ettirish uchun mini app'da chatni oching. Keyingi eslatma {_rem_label(r['pause_remind_min'])}dan keyin.")
     await q.add_operator_notification(
         op["id"], "pause", f"Murojaat #{r['id']} pauzada",
@@ -725,12 +729,15 @@ async def _send_pause_reminder(r):
 
 
 async def _pause_expiry_loop():
-    """Har daqiqa: muddati tugagan pauzalarni davom ettiradi va pauza eslatmalarini yuboradi."""
+    """Har daqiqa pauza eslatmalarini yuboradi.
+
+    Pauza muddati avtomatik yakunlanmaydi: operator uni qo'lda davom ettiradi
+    yoki mijoz yangi xabar yozganda mavjud oqim pauzani yopadi. Shunda belgilangan
+    bir soat o'tgani uchun chat ro'yxatlardan yo'qolib qolmaydi.
+    """
     while True:
         await asyncio.sleep(60)
         try:
-            for r in await q.expired_pauses():
-                await q.resume_order(r["id"], "time")
             for r in await q.due_pause_reminders():
                 await _send_pause_reminder(r)
         except Exception:

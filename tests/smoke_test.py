@@ -91,6 +91,13 @@ async def main():
         check("boshqa operator yozishmani ko'ra olmaydi", resp.status == 403, resp.status)
         resp = await cli.post("/api/send", json={**A_OTHER, "order_id": oid, "text": "begona"})
         check("boshqa operator mijozga yoza olmaydi", resp.status == 403, resp.status)
+        r = await (await cli.get("/api/general_chats", params=A_OTHER)).json()
+        check("umumiyda barcha jarayondagi chatlar ko'rinadi",
+              r["ok"] and any(x["order_id"] == oid and x["operator_name"] == "Ali" for x in r["chats"]), r)
+        r = await (await cli.get("/api/messages", params={**A_OTHER, "order_id": oid,
+                                                           "shared": 1})).json()
+        check("umumiy bo'limdan boshqa operator yozishmasi ko'rinadi",
+              r["ok"] and r["operator_name"] == "Ali", r)
         resp = await cli.post("/api/order_tags", json={**A_OTHER, "order_id": oid, "tags": ["Begona"]})
         check("boshqa operator tegni o'zgartira olmaydi", resp.status == 403, resp.status)
 
@@ -157,6 +164,28 @@ async def main():
                                                        "reply_mid": m1})).json()
         sent_mid = r.get("mid")
         check("reply bilan matn yuborish", r["ok"] and chat_bot.calls[-1][2].get("reply_to_message_id") == 10, r)
+        r = await (await cli.post("/api/send", json={**A_OTHER, "order_id": oid, "shared": 1,
+                                                       "text": "umumiydan yordam"})).json()
+        shared_call = chat_bot.calls[-1]
+        check("umumiydan javob chat egasi nomidan yuboriladi",
+              r["ok"] and "Ali" in shared_call[1][1] and "Vali" not in shared_call[1][1]
+              and (await q.get_order(oid))["operator_id"] == op_id, (r, shared_call))
+        help_oid = await q.create_order(5001, None, "text")
+        await q.claim_order(help_oid, op_id)
+        r = await (await cli.post("/api/order_tags", json={**A_OTHER, "order_id": help_oid,
+                                                             "shared": 1, "tags": ["Yordam"]})).json()
+        check("umumiy chatda teg tugmasi ishlaydi", r["ok"] and "Yordam" in r["tags"], r)
+        r = await (await cli.post("/api/pause", json={**A_OTHER, "order_id": help_oid,
+                                                        "shared": 1, "reason": "Tekshiruv",
+                                                        "minutes": 60})).json()
+        check("umumiy chatda pauza tugmasi ishlaydi",
+              r["ok"] and (await q.get_order(help_oid))["paused_at"], r)
+        r = await (await cli.post("/api/close", json={**A_OTHER, "order_id": help_oid,
+                                                        "shared": 1})).json()
+        help_order = await q.get_order(help_oid)
+        check("umumiy chatda yakunlash tugmasi ishlaydi va egasi o'zgarmaydi",
+              r["ok"] and help_order["status"] == "done" and help_order["operator_id"] == op_id,
+              (r, dict(help_order)))
         r = await (await cli.post("/api/msg_edit", json={**A, "mid": sent_mid, "text": "tahrirlangan"})).json()
         check("yuborilgan xabarni tahrirlash", r["ok"] and (await q.get_message(sent_mid))["text"] == "tahrirlangan", r)
         raw64 = base64.b64encode(b"test-media").decode()
