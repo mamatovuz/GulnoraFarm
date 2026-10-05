@@ -396,6 +396,13 @@ $("folders").addEventListener("click", e=>{
   else if(ST.folder==="operators") loadOperatorPeers();
   else renderChatList();
 });
+$("folders").addEventListener("wheel", e=>{
+  const box=e.currentTarget;
+  if(box.scrollWidth<=box.clientWidth)return;
+  e.preventDefault();
+  const delta=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+  box.scrollBy({left:delta,behavior:"smooth"});
+}, {passive:false});
 function toggleSearch(){
   const box = $("chsearch"); const open = box.classList.contains("hide");
   box.classList.toggle("hide", !open);
