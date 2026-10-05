@@ -360,14 +360,17 @@ function applySync(r){
       }
     });
     if(r.newcount > ST.newcount) ring = true;
+    if((r.notify_unread||0)>ST.notifyUnread) ring = true;
   }
   ST.chats = r.chats; ST.chatMap = {}; r.chats.forEach(c=>ST.chatMap[c.order_id]=c);
   if(r.general_chats){ ST.general=r.general_chats; ST.generalMap={}; ST.general.forEach(c=>ST.generalMap[c.order_id]=c); renderGeneralChats(); }
   ST.newcount = r.newcount; ST.notifyUnread = r.notify_unread||0; ST.operatorUnread = r.operator_unread||0; ST.v = r.v; ST.inited = true;
   if(ring) beep();
   renderChatList(); updateBadges();
+  if(ST.folder==="operators"&&Date.now()-_opPeersAt>8000) loadOperatorPeers();
   if(r.chat_error && CUR){ toast(r.chat_error, 3200); backToList(); return; }
   if(r.chat && CH && r.chat.order_id === CUR) mergeChat(r.chat, r.server_ts);
+  if(CH && CUR) setPeerTyping(r.typing||[]);
   flushQueue();
 }
 function updateBadges(){
@@ -418,7 +421,9 @@ async function loadDoneChats(){
   if(ST.folder !== kind) return;
   ST.done = r && r.ok ? r.chats : []; renderChatList();
 }
+let _opPeersAt=0;
 async function loadOperatorPeers(){
+  _opPeersAt=Date.now();
   $("chatlist").innerHTML = '<div class="spinner"></div>';
   const r = await GET("/api/operator_peers").catch(()=>null);
   if(ST.folder!=="operators") return;
@@ -427,10 +432,12 @@ async function loadOperatorPeers(){
   renderChatList(); updateBadges();
 }
 function operatorRowHtml(o){
-  const state = (o.availability==="busy" ? "Band" : "Bo'sh") + ` · ${o.open_count||0} ta murojaat`;
+  const live=o.online?"Onlayn":"Oflayn";
+  const state = `${live} · ${o.availability==="busy" ? "Band" : "Bo'sh"} · ${o.open_count||0} ta murojaat`;
+  const viewing=o.viewing_order_id?`#${o.viewing_order_id} · ${esc(o.viewing_client||"Mijoz")} chatini ko'ryapti`:(o.last_text||"Ichki xabar yozish");
   return `<div class="crow oprow-chat" data-opid="${o.id}" data-name="${esc(o.name)}"><div class="cfront">${avaHtml(o.name)}
-    <div class="mid"><div class="l1"><span class="nm">${esc(o.name)}</span><span class="opstate">${esc(state)}</span><span class="tm">${esc((o.last_at||"").slice(11,16))}</span></div>
-    <div class="l2"><span class="pv">${esc(o.last_text||"Ichki xabar yozish")}</span>${o.unread?`<span class="badge">${o.unread}</span>`:""}</div></div></div></div>`;
+    <div class="mid"><div class="l1"><span class="op-presence-dot ${o.online?"online":"offline"}"></span><span class="nm">${esc(o.name)}</span><span class="opstate">${esc(state)}</span><span class="tm">${esc((o.last_at||"").slice(11,16))}</span></div>
+    <div class="l2"><span class="pv ${o.viewing_order_id?"op-viewing":""}">${viewing}</span>${o.unread?`<span class="badge">${o.unread}</span>`:""}</div></div></div></div>`;
 }
 function chanRowHtml(){
   const n = ST.newcount;
@@ -438,6 +445,13 @@ function chanRowHtml(){
     <div class="chanava"><svg class="ic" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="M3 11l18-5v13L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg></div>
     <div class="mid"><div class="l1"><span class="nm">Yangi murojaatlar</span></div>
       <div class="l2"><span class="pv">${n ? `<span class="me">${n} ta murojaat qabul qilinishini kutyapti</span>` : "Yangi murojaatlar shu yerda paydo bo'ladi"}</span>${n?`<span class="badge">${n}</span>`:""}</div></div></div></div>`;
+}
+function waitInfo(c){
+  const m=+c.waiting_min||0;
+  if(!c.reply||c.paused||m<5)return {cls:"",html:""};
+  const cls=m>=20?" wait-danger":" wait-warn";
+  const label=m>=60?`${Math.floor(m/60)}s ${m%60}d`: `${m} daq`;
+  return {cls,html:`<span class="wait-pill">⏳ ${label}</span>`};
 }
 function chatRowHtml(c, done){
   const draft = !done && c.draft ? TGF.toPlain(c.draft).trim() : "";
@@ -451,11 +465,12 @@ function chatRowHtml(c, done){
   const st = (done ? (c.status==="canceled" ? "🔴 " : "") : "") + (c.rejected ? "🚫 " : "");
   const tags = (c.branch ? `<span class="brc">📍${esc(c.branch)}</span>` : "") + (c.tags||[]).slice(0,2).map(t=>`<span class="chip" style="font-size:10.5px;padding:1px 6px">${esc(t)}</span>`).join(" ");
   const close = !done && c.auto_close_at ? `<span class="autoclose-pill" data-close="${esc(c.auto_close_at)}">⏱ ${remainingLabel(c.auto_close_at)}</span>` : "";
-  return `<div class="crow${c.pinned&&!done?" pinned":""}${c.order_id===CUR?" sel":""}" data-oid="${c.order_id}" data-name="${esc(c.name)}" ${done?'data-done="1"':""}>
+  const wait = done ? {cls:"",html:""} : waitInfo(c);
+  return `<div class="crow${c.pinned&&!done?" pinned":""}${c.order_id===CUR?" sel":""}${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}" ${done?'data-done="1"':""}>
     ${done?"":`<div class="cacts"><button class="a1" data-sw="pin">${c.pinned?"Olib<br>tashlash":"Qadash"}</button><button class="a2" data-sw="read">${unread?"O'qilgan":"O'qilmagan"}</button><button class="a3" data-sw="arch">${c.archived?"Arxivdan":"Arxiv"}</button></div>`}
     <div class="cfront">${avaHtml(c.name)}
       <div class="mid"><div class="l1"><span class="nm">${st}${esc(c.name)}</span>${tags}<span class="tm">${tm}</span></div>
-        <div class="l2"><span class="pv">${pv}</span>${close}${done && c.rating?`<span style="color:var(--orange);font-size:13px">${c.rating}★</span>`:""}${right}</div></div></div></div>`;
+        <div class="l2"><span class="pv">${pv}</span>${wait.html}${close}${done && c.rating?`<span style="color:var(--orange);font-size:13px">${c.rating}★</span>`:""}${right}</div></div></div></div>`;
 }
 function remainingLabel(ts){
   if(!ts) return "";
@@ -594,9 +609,10 @@ function generalRowHtml(c){
   const pv=(c.paused?`<span class="pzl">⏸ ${esc(T("Pauzada"))}</span> `:"")+
     (c.last_sender==="operator"?`<span class="me">Javob: </span>`:"")+esc(c.preview||"");
   const unread=c.unread||(c.marked_unread?1:0);
-  return `<div class="crow" data-oid="${c.order_id}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
+  const wait=waitInfo(c);
+  return `<div class="crow${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
     <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span><span class="tm">${esc(c.time||"")}</span></div>
-    <div class="l2"><span class="pv">${pv}</span>${unread?`<span class="badge">${c.unread||""}</span>`:""}</div></div></div></div>`;
+    <div class="l2"><span class="pv">${pv}</span>${wait.html}${unread?`<span class="badge">${c.unread||""}</span>`:""}</div></div></div></div>`;
 }
 function renderGeneralChats(){
   const box=$("general-list"); if(!box)return;
@@ -687,6 +703,22 @@ function updateSub(){
   const st = CH.status==="done" ? T("yakunlangan") : CH.status==="canceled" ? T("bekor qilingan") : "";
   s.textContent = [CH.operatorName ? T("Operator")+": "+CH.operatorName : "", CH.branch ? "📍 " + CH.branch : "", CH.phone,
     CH.autoCloseAt ? "⏱ "+remainingLabel(CH.autoCloseAt) : "", st, CH.rejected ? "🚫 " + T("Otkaz") : "", "#"+CH.oid].filter(Boolean).join(" · ");
+}
+let peerTypingTimer=null;
+function setPeerTyping(names){
+  if(!CH)return;
+  clearTimeout(peerTypingTimer);
+  const oid=CH.oid, list=[...new Set(names||[])];
+  const s=$("c-sub");
+  if(list.length){
+    s.textContent=(list.length===1?list[0]:list.join(", "))+" yozmoqda…";
+    s.classList.add("typing");
+    peerTypingTimer=setTimeout(()=>{
+      if(CH&&CH.oid===oid){ s.classList.remove("typing"); updateSub(); }
+    },8500);
+  }else{
+    s.classList.remove("typing"); updateSub();
+  }
 }
 function mergeChat(meta, serverTs){
   const notesChanged = applyMeta(meta);
@@ -1542,6 +1574,10 @@ function renderViewer(){
   $("v-cap").innerHTML = m.text ? TGF.render(m.html, m.text) : "";
   document.querySelector("#viewer .nav.l").classList.toggle("hide", VW.i<=0);
   document.querySelector("#viewer .nav.r").classList.toggle("hide", VW.i>=VW.list.length-1);
+  const thumbs=$("v-thumbs");
+  thumbs.classList.toggle("hide",VW.list.length<2);
+  thumbs.innerHTML=VW.list.map((x,i)=>`<button class="vthumb ${i===VW.i?"on":""}" data-vi="${i}" title="${i+1} / ${VW.list.length}">${x.type==="photo"?`<img loading="lazy" src="${esc(fileUrl(x.file_id,"photo"))}">`:`<span>▶</span>`}</button>`).join("");
+  requestAnimationFrame(()=>{ const on=thumbs.querySelector(".vthumb.on"); if(on)on.scrollIntoView({block:"nearest",inline:"center"}); });
   document.querySelectorAll("#viewer .vimg").forEach(b=>b.classList.toggle("hide", m.type!=="photo"));
   const el = st.firstElementChild;
   if(el){ el.addEventListener(el.tagName==="IMG" ? "load" : "loadedmetadata", vTransform, { once: true }); vTransform(); }
@@ -1570,6 +1606,9 @@ function vRotate(){ const m = VW.list[VW.i]; if(!m) return;
   VW.rot = (VW.rot + 90) % 360; VW.rots[m.mid] = VW.rot; VW.tx = VW.ty = 0; vTransform(); haptic("sel"); }
 (function(){
   const st = $("v-stage"); let x0=0,y0=0,t0=0,lastTap=0,moved=false;
+  const thumbs=$("v-thumbs");
+  thumbs.addEventListener("click",e=>{ const b=e.target.closest("[data-vi]"); if(!b)return; VW.i=+b.dataset.vi; renderViewer(); });
+  thumbs.addEventListener("wheel",e=>{ e.preventDefault(); e.stopPropagation(); thumbs.scrollLeft+=(Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY); },{passive:false});
   let pinch = null;
   const dist = t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
   st.addEventListener("touchstart", e=>{
@@ -2323,20 +2362,34 @@ async function openNotifications(){
   const r=await GET("/api/notifications").catch(()=>null);
   if(!r||!r.ok){ toast("Bildirishnomalarni yuklab bo'lmadi"); return; }
   const icons={reminder:"⏰",unfinished:"⌛",new_orders:"📥",pause:"⏸",rating:"⭐",auto_close:"⏱",operator_message:"💬"};
-  const html=`<div class="shead"><b>${esc(T("Bildirishnomalar"))}</b><button data-close>✕</button></div><div class="notify-list">${r.items.length?r.items.map(n=>`
-    <div class="notify-row ${n.read?"read":"unread"}" data-notify="${n.id}" ${n.order_id?`data-order="${n.order_id}"`:""}>
-      <span class="notify-dot"></span><div style="flex:1;min-width:0"><div class="nt">${icons[n.kind]||"•"} ${esc(n.title)}</div>
-      ${n.body?`<div class="nb">${esc(n.body)}</div>`:""}<div class="ntime">${esc((n.created_at||"").slice(0,16))}</div></div></div>`).join(""):
-      `<div class="empty"><div class="big">✓</div>Yangi bildirishnoma yo'q</div>`}</div>`;
+  const unread=r.items.filter(n=>!n.read).length;
+  const when=s=>{ if(!s)return ""; const d=s.slice(8,10)+"."+s.slice(5,7)+" · "+s.slice(11,16); return d; };
+  const html=`<div class="shead notify-head"><div class="notify-head-icon">🔔</div><div><b>${esc(T("Bildirishnomalar"))}</b><div class="notify-summary">${unread?`${unread} ta yangi bildirishnoma`:"Hammasi o'qilgan"}</div></div><button data-close>✕</button></div>
+    <div class="notify-tools"><button data-notify-all ${unread?"":"disabled"}>✓ Barchasini o'qilgan qilish</button><button data-notify-refresh>↻ Yangilash</button></div>
+    <div class="notify-list">${r.items.length?r.items.map(n=>`
+    <div class="notify-row ${n.read?"read":"unread"}" data-notify="${n.id}" data-kind="${esc(n.kind)}" ${n.order_id?`data-order="${n.order_id}"`:""}>
+      <div class="notify-kind k-${esc(n.kind)}">${icons[n.kind]||"🔔"}</div><div class="notify-main"><div class="nt">${esc(n.title)}</div>
+      ${n.body?`<div class="nb">${esc(n.body)}</div>`:""}<div class="ntime"><span class="notify-dot"></span>${esc(when(n.created_at))}${n.order_id?`<span> · #${n.order_id}</span>`:""}</div></div><span class="notify-chev">›</span></div>`).join(""):
+      `<div class="empty"><div class="big">🔕</div>Bildirishnoma yo'q</div>`}</div>`;
   openSheet(html,el=>{
     el.querySelector("[data-close]").onclick=closeSheet;
-    el.addEventListener("click",e=>{ const row=e.target.closest("[data-notify]"); if(!row)return;
-      const oid=+row.dataset.order||0; if(oid){ closeSheet(); openChat(oid,"Murojaat #"+oid); }
+    el.querySelector("[data-notify-refresh]").onclick=()=>openNotifications();
+    el.querySelector("[data-notify-all]").onclick=async e=>{
+      if(e.currentTarget.disabled)return;
+      const rr=await POST("/api/notifications/read",{}).catch(()=>null); if(!rr||!rr.ok)return toast("Saqlanmadi");
+      el.querySelectorAll(".notify-row.unread").forEach(x=>{x.classList.remove("unread");x.classList.add("read");});
+      e.currentTarget.disabled=true; const s=el.querySelector(".notify-summary"); if(s)s.textContent="Hammasi o'qilgan";
+      ST.notifyUnread=0; updateBadges();
+    };
+    el.addEventListener("click",async e=>{ const row=e.target.closest("[data-notify]"); if(!row)return;
+      if(row.classList.contains("unread")){
+        row.classList.remove("unread");row.classList.add("read"); ST.notifyUnread=Math.max(0,ST.notifyUnread-1);updateBadges();POST("/api/notifications/read",{id:+row.dataset.notify}).catch(()=>{});
+        const left=el.querySelectorAll(".notify-row.unread").length, s=el.querySelector(".notify-summary"), all=el.querySelector("[data-notify-all]");
+        if(s)s.textContent=left?`${left} ta yangi bildirishnoma`:"Hammasi o'qilgan"; if(all)all.disabled=!left;
+      }
+      const oid=+row.dataset.order||0; if(oid){ closeSheet(); openChat(oid,"Murojaat #"+oid,true); }
     });
   });
-  if(r.items.some(n=>!n.read)){
-    ST.notifyUnread=0; updateBadges(); POST("/api/notifications/read",{}).catch(()=>null);
-  }
 }
 
 /* ============================================================

@@ -42,6 +42,9 @@ async def main():
     await q.claim_order(oid, op_id)
     m1 = await q.add_message(oid, "client", "text", "Salom, dori bormi?", None, 10)
     m2 = await q.add_message(oid, "client", "text", "qalin", None, 11, html="<b>qalin</b>")
+    old_wait = (webapp.now_local() - webapp.timedelta(minutes=25)).strftime("%Y-%m-%d %H:%M:%S")
+    await db.execute("UPDATE messages SET created_at=? WHERE id=?", (old_wait, m2))
+    await db.commit()
 
     cli = TestClient(TestServer(webapp.build_app()))
     await cli.start_server()
@@ -67,6 +70,8 @@ async def main():
         r = await (await cli.get("/api/chats", params=A)).json()
         check("chatlar ro'yxati", r["ok"] and r["chats"][0]["name"] == "Ra'no O'g'iloy", r)
         check("o'qilmagan = 2", r["chats"][0]["unread"] == 2, r["chats"][0])
+        check("20 daqiqadan oshgan javobsiz chat qizil ogohlantirishga tayyor",
+              r["chats"][0]["waiting_min"] >= 20, r["chats"][0])
         r = await (await cli.get("/api/messages", params={**A, "order_id": oid, "mark": 1})).json()
         check("xabarlar + html", r["ok"] and r["messages"][1]["html"] == "<b>qalin</b>", r)
         check("last_read_mid qaytadi", "last_read_mid" in r)
@@ -98,6 +103,15 @@ async def main():
                                                            "shared": 1})).json()
         check("umumiy bo'limdan boshqa operator yozishmasi ko'rinadi",
               r["ok"] and r["operator_name"] == "Ali", r)
+        r = await (await cli.post("/api/typing", json={**A_OTHER, "order_id": oid,
+                                                        "shared": 1})).json()
+        rs = await (await cli.get("/api/sync", params={**A, "v": 0, "order_id": oid})).json()
+        check("umumiy chatda boshqa operator yozayotgani ko'rinadi",
+              r["ok"] and "Vali" in rs.get("typing", []), rs.get("typing"))
+        peers = await (await cli.get("/api/operator_peers", params=A)).json()
+        vali = next(x for x in peers["operators"] if x["id"] == op2)
+        check("operator faolligi va ochib turgan chati ko'rinadi",
+              vali["online"] and vali["viewing_order_id"] == oid and vali["viewing_client"], vali)
         resp = await cli.post("/api/order_tags", json={**A_OTHER, "order_id": oid, "tags": ["Begona"]})
         check("boshqa operator tegni o'zgartira olmaydi", resp.status == 403, resp.status)
 

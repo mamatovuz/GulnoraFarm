@@ -13,7 +13,7 @@ import hashlib
 import asyncio
 import logging
 import mimetypes
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, quote
 
 from aiohttp import web
@@ -348,6 +348,13 @@ def _short_time(ts: str) -> str:
 def _chat_json(r, op_id):
     preview = r["last_text"] or (_ct_label(r["last_ct"]) if r["last_ct"] else "")
     keys = r.keys()
+    waiting_min = 0
+    if r["last_sender"] == "client" and not (r["paused_at"] if "paused_at" in keys else None):
+        try:
+            last_dt = datetime.strptime((r["last_at"] or "")[:19], "%Y-%m-%d %H:%M:%S")
+            waiting_min = max(0, int((now_local().replace(tzinfo=None) - last_dt).total_seconds() // 60))
+        except (TypeError, ValueError):
+            waiting_min = 0
     return {
         "order_id": r["id"],
         "name": r["full_name"] or "—",
@@ -369,6 +376,7 @@ def _chat_json(r, op_id):
         "paused_until": (r["paused_until"] or "") if "paused_until" in keys else "",
         "auto_close_at": (r["auto_close_at"] or "") if "auto_close_at" in keys else "",
         "operator_name": (r["operator_name"] or "") if "operator_name" in keys else "",
+        "waiting_min": waiting_min,
         "preview": (preview or "")[:90],
         "time": _short_time(r["last_at"] or r["created_at"] or ""),
         "ts": r["last_at"] or r["created_at"] or "",
@@ -532,6 +540,23 @@ async def api_messages(request):
     return _json(meta)
 
 
+_OP_PRESENCE = {}  # operator_id -> {at, order_id}; mini-appdagi real faollik
+_OP_TYPING = {}    # (order_id, operator_id) -> {at, name}
+
+
+def _touch_presence(op, order_id=0):
+    _OP_PRESENCE[op["id"]] = {"at": time.time(), "order_id": int(order_id or 0)}
+
+
+def _active_typers(order_id, viewer_id):
+    now_ts = time.time()
+    stale = [k for k, v in _OP_TYPING.items() if now_ts - v["at"] > 8]
+    for k in stale:
+        _OP_TYPING.pop(k, None)
+    return [v["name"] for (oid, op_id), v in _OP_TYPING.items()
+            if oid == order_id and op_id != viewer_id and now_ts - v["at"] <= 8]
+
+
 async def api_sync(request):
     """Long-poll: o'zgarish bo'lmasa 20 soniyagacha kutadi, bo'lsa darhol javob beradi.
     Bitta so'rov: chatlar ro'yxati + yangi murojaatlar soni + ochiq chatdagi yangi/tahrirlangan xabarlar."""
@@ -539,6 +564,11 @@ async def api_sync(request):
     op, _ = await _auth_op(request, qd)
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
+    try:
+        oid = int(qd.get("order_id") or 0)
+    except ValueError:
+        oid = 0
+    _touch_presence(op, oid)
     try:
         v = int(qd.get("v") or 0)
     except ValueError:
@@ -554,10 +584,7 @@ async def api_sync(request):
     tok = _fresh_op_token(op, qd.get("token", ""))
     if tok:
         res["token"] = tok
-    try:
-        oid = int(qd.get("order_id") or 0)
-    except ValueError:
-        oid = 0
+    res["typing"] = _active_typers(oid, op["id"]) if oid else []
     if oid:
         shared = bool(qd.get("shared"))
         order, denied = await _operator_order(op, oid, allow_unassigned_new=not shared,
@@ -613,12 +640,25 @@ async def api_operator_peers(request):
     if not op:
         return _json({"ok": False}, 401)
     rows = await q.operator_peers(op["id"])
-    return _json({"ok": True, "operators": [
-        {"id": r["id"], "name": r["name"] or "Operator",
-         "availability": r["availability"] or "free", "last_active": r["last_active"] or "",
-         "open_count": r["open_count"] or 0,
-         "last_text": r["last_text"] or "", "last_at": r["last_at"] or "",
-         "unread": r["unread"] or 0} for r in rows]})
+    now_ts = time.time()
+    items = []
+    for r in rows:
+        presence = _OP_PRESENCE.get(r["id"]) or {}
+        online = bool(presence and now_ts - presence.get("at", 0) <= 50)
+        viewing_id = int(presence.get("order_id") or 0) if online else 0
+        viewing_client = ""
+        if viewing_id:
+            order = await q.get_order(viewing_id)
+            user = await q.get_user(order["user_id"]) if order else None
+            viewing_client = (user["full_name"] or user["phone"] or "Mijoz") if user else ""
+        items.append({"id": r["id"], "name": r["name"] or "Operator",
+                      "availability": r["availability"] or "free",
+                      "last_active": r["last_active"] or "", "online": online,
+                      "viewing_order_id": viewing_id, "viewing_client": viewing_client,
+                      "open_count": r["open_count"] or 0,
+                      "last_text": r["last_text"] or "", "last_at": r["last_at"] or "",
+                      "unread": r["unread"] or 0})
+    return _json({"ok": True, "operators": items})
 
 
 async def api_operator_messages(request):
@@ -984,6 +1024,7 @@ async def api_send(request):
         return _json({"ok": False, "error": "mijozga yuborilmadi (bloklagan bo'lishi mumkin)"}, 200)
     await q.set_chat_state(op["id"], order_id, draft=None)
     await q.mark_read(op["id"], order_id)
+    _OP_TYPING.pop((order_id, op["id"]), None)
     if send_op["id"] != op["id"]:
         await q.audit(f"op:{op['name']}", "shared_reply", order_id,
                       {"as_operator_id": send_op["id"], "as_operator": send_op["name"],
@@ -1009,15 +1050,18 @@ async def api_typing(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False}, 400)
-    t = time.time()
-    if t - _TYPING.get(order_id, 0) < 4:
-        return _json({"ok": True})
-    _TYPING[order_id] = t
     order, denied = await _operator_order(op, order_id, allow_shared=bool(body.get("shared")))
     if denied is not None:
         return denied
     if order["status"] not in ("new", "in_progress"):
         return _json({"ok": False})
+    t = time.time()
+    _OP_TYPING[(order_id, op["id"])] = {"at": t, "name": op["name"] or "Operator"}
+    _touch_presence(op, order_id)
+    q.bump()  # boshqa operatorlarning long-poll so'rovini uyg'otadi
+    if t - _TYPING.get(order_id, 0) < 4:
+        return _json({"ok": True})
+    _TYPING[order_id] = t
     from utils import cbot
     client = cbot()
     if client:
