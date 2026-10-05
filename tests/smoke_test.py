@@ -103,6 +103,17 @@ async def main():
                                                            "shared": 1})).json()
         check("umumiy bo'limdan boshqa operator yozishmasi ko'rinadi",
               r["ok"] and r["operator_name"] == "Ali", r)
+        await cli.get("/api/messages", params={**A_OTHER, "order_id": oid,
+                                                "shared": 1, "mark": 1})
+        await q.add_message(oid, "client", "text", "birinchi yangi", None, 14)
+        await q.add_message(oid, "client", "text", "ikkinchi yangi", None, 15)
+        r = await (await cli.get("/api/general_chats", params=A_OTHER)).json()
+        gc = next(x for x in r["chats"] if x["order_id"] == oid)
+        check("umumiy chatda 2 ta yangi xabar badge'i 2 bo'ladi", gc["unread"] == 2, gc)
+        r = await (await cli.get("/api/general_clients", params=A_OTHER)).json()
+        check("umumiy mijozlarda barcha operatorlar mijozlari ko'rinadi",
+              r["ok"] and any(x["tg"] == 5001 and x["operator_name"] == "Ali"
+                              for x in r["clients"]), r)
         r = await (await cli.post("/api/typing", json={**A_OTHER, "order_id": oid,
                                                         "shared": 1})).json()
         rs = await (await cli.get("/api/sync", params={**A, "v": 0, "order_id": oid})).json()
@@ -194,12 +205,22 @@ async def main():
                                                         "minutes": 60})).json()
         check("umumiy chatda pauza tugmasi ishlaydi",
               r["ok"] and (await q.get_order(help_oid))["paused_at"], r)
+        gp = await (await cli.get("/api/general_chats",
+                                  params={**A_OTHER, "kind": "paused"})).json()
+        check("umumiy Pauzada papkasi", any(x["order_id"] == help_oid for x in gp["chats"]), gp)
         r = await (await cli.post("/api/close", json={**A_OTHER, "order_id": help_oid,
                                                         "shared": 1})).json()
         help_order = await q.get_order(help_oid)
         check("umumiy chatda yakunlash tugmasi ishlaydi va egasi o'zgarmaydi",
               r["ok"] and help_order["status"] == "done" and help_order["operator_id"] == op_id,
               (r, dict(help_order)))
+        gd = await (await cli.get("/api/general_chats",
+                                  params={**A_OTHER, "kind": "done"})).json()
+        check("umumiy Yakunlangan papkasi",
+              any(x["order_id"] == help_oid and x["operator_name"] == "Ali" for x in gd["chats"]), gd)
+        gh = await (await cli.get("/api/messages", params={**A_OTHER, "order_id": help_oid,
+                                                            "shared": 1})).json()
+        check("umumiy yakunlangan chat yozishmasi ochiladi", gh["ok"], gh)
         r = await (await cli.post("/api/msg_edit", json={**A, "mid": sent_mid, "text": "tahrirlangan"})).json()
         check("yuborilgan xabarni tahrirlash", r["ok"] and (await q.get_message(sent_mid))["text"] == "tahrirlangan", r)
         raw64 = base64.b64encode(b"test-media").decode()
@@ -438,6 +459,9 @@ async def main():
         check("bekor qilindi", r["ok"] and o["status"] == "canceled", r)
         r = await (await cli.get("/api/done_chats", params={**A2, "kind": "canceled"})).json()
         check("Bekor qilingan papkasi", any(c["order_id"] == oid3 for c in r["chats"]), r)
+        r = await (await cli.get("/api/general_chats",
+                                 params={**A_OTHER, "kind": "canceled"})).json()
+        check("umumiy Bekor qilingan papkasi", any(c["order_id"] == oid3 for c in r["chats"]), r)
         r = await (await cli.get("/api/done_chats", params={**A2, "kind": "done"})).json()
         check("Yakunlangan papkasida bekor qilingan yo'q", all(c["status"] == "done" for c in r["chats"]), r)
 

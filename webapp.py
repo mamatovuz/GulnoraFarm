@@ -201,7 +201,7 @@ async def _operator_order(op, order_id, *, allow_unassigned_new=False, claim_una
 
     O'ziga biriktirilgan murojaat doim ruxsat etiladi. Hali hech kim olmagan yangi
     murojaatni faqat aniq ruxsat berilgan oqimlar ko'rishi yoki atomar qabul qilishi
-    mumkin. ``allow_shared`` faqat Umumiy bo'limdagi biriktirilgan, jarayondagi
+    mumkin. ``allow_shared`` Umumiy bo'limdagi boshqa operatorga biriktirilgan
     chatni ko'rish/javoblash oqimida ishlatiladi; chat egasi o'zgarmaydi.
     """
     order = await q.get_order(order_id)
@@ -209,7 +209,7 @@ async def _operator_order(op, order_id, *, allow_unassigned_new=False, claim_una
         return None, _json({"ok": False, "error": "Murojaat topilmadi"}, 404)
     if order["operator_id"] == op["id"]:
         return order, None
-    if (allow_shared and order["status"] == "in_progress" and order["operator_id"]):
+    if allow_shared and order["operator_id"]:
         return order, None
     if (allow_unassigned_new and order["status"] == "new" and not order["operator_id"]):
         if claim_unassigned:
@@ -387,8 +387,8 @@ async def _chat_list(op):
     return [_chat_json(r, op["id"]) for r in await q.op_chats(op["id"])]
 
 
-async def _general_chat_list(op):
-    return [_chat_json(r, op["id"]) for r in await q.op_general_chats(op["id"])]
+async def _general_chat_list(op, kind="active"):
+    return [_chat_json(r, op["id"]) for r in await q.op_general_chats(op["id"], kind)]
 
 
 async def api_chats(request):
@@ -403,7 +403,11 @@ async def api_general_chats(request):
     op, _ = await _auth_op(request, request.query)
     if not op:
         return _json({"ok": False, "error": "auth"}, 401)
-    return _json({"ok": True, "chats": await _general_chat_list(op)})
+    kind = request.query.get("kind") or "active"
+    if kind not in ("active", "paused", "done", "canceled"):
+        kind = "active"
+    return _json({"ok": True, "kind": kind,
+                  "chats": await _general_chat_list(op, kind)})
 
 
 async def api_done_chats(request):
@@ -1499,6 +1503,22 @@ async def api_clients(request):
     rows = await q.my_clients(op["id"], search)
     out = [{"tg": r["telegram_id"], "name": r["full_name"] or r["phone"] or "Mijoz",
             "phone": r["phone"] or "", "cnt": r["cnt"], "last_order": r["last_order"]} for r in rows]
+    return _json({"ok": True, "total": len(out), "clients": out})
+
+
+async def api_general_clients(request):
+    """Barcha operatorlar ishlagan mijozlar ro'yxati."""
+    op, _ = await _auth_op(request, request.query)
+    if not op:
+        return _json({"ok": False}, 401)
+    rows = await q.general_clients(request.query.get("q") or None)
+    out = [{"tg": r["telegram_id"],
+            "name": r["full_name"] or r["phone"] or "Mijoz",
+            "phone": r["phone"] or "", "username": r["username"] or "",
+            "cnt": r["cnt"], "last_order": r["last_order"],
+            "last_status": r["last_status"] or "",
+            "operator_name": r["operator_name"] or "Operator",
+            "last_at": r["last_at"] or ""} for r in rows]
     return _json({"ok": True, "total": len(out), "clients": out})
 
 
@@ -4218,6 +4238,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/avatar", api_avatar)
     app.router.add_post("/api/avatar", api_avatar_upload)
     app.router.add_get("/api/clients", api_clients)
+    app.router.add_get("/api/general_clients", api_general_clients)
     app.router.add_get("/api/client_open", api_client_open)
     app.router.add_get("/api/branches", api_branches)
     app.router.add_post("/api/cmd", api_cmd)

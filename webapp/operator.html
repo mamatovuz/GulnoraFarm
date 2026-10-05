@@ -62,7 +62,15 @@
       <svg class="ic" viewBox="0 0 24 24" style="width:19px;height:19px;color:var(--hint)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="general-search" placeholder="Mijoz, telefon yoki operator" autocomplete="off">
     </div></div>
-    <div class="general-hint">Barcha operatorlarning jarayondagi murojaatlari</div>
+    <div class="folders general-folders" id="general-folders">
+      <button class="on" data-g="active">Jarayonda <span class="fc hide" id="gfc-active"></span></button>
+      <button data-g="unread">Javobsiz <span class="fc hide" id="gfc-unread"></span></button>
+      <button data-g="paused">Pauzada <span class="fc hide" id="gfc-paused"></span></button>
+      <button data-g="done">Yakunlangan</button>
+      <button data-g="canceled">Bekor qilingan</button>
+      <button data-g="clients">Mijozlar</button>
+    </div>
+    <div class="general-hint" id="general-hint">Barcha operatorlarning jarayondagi murojaatlari</div>
     <div id="general-list" class="body"></div>
   </div>
   <!-- MIJOZLAR -->

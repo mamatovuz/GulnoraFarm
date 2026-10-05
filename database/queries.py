@@ -1821,14 +1821,20 @@ async def op_chats(operator_id):
     return await cur.fetchall()
 
 
-async def op_general_chats(viewer_operator_id):
-    """Barcha operatorlarga biriktirilgan, hozir jarayondagi chatlar.
+async def op_general_chats(viewer_operator_id, kind="active"):
+    """Barcha operatorlarga biriktirilgan umumiy chatlar.
 
     O'qilgan/qoralama kabi shaxsiy UI holati chat egasiniki emas, ro'yxatni
     ko'rayotgan operatorniki olinadi. Shu sababli umumiy bo'limda bir operator
     chatni ochishi boshqalarning o'qilmagan belgisini o'zgartirmaydi.
     """
     db = await get_db()
+    where = {
+        "active": "o.status='in_progress'",
+        "paused": "o.status='in_progress' AND o.paused_at IS NOT NULL",
+        "done": "o.status='done'",
+        "canceled": "o.status='canceled'",
+    }.get(kind, "o.status='in_progress'")
     cur = await db.execute(
         "SELECT o.id, o.status, o.user_id, o.operator_id, o.created_at, o.rating, o.tags, "
         "o.paused_at, o.paused_until, o.rejected_at, o.auto_close_at, op.name AS operator_name, "
@@ -1845,9 +1851,32 @@ async def op_general_chats(viewer_operator_id):
         "LEFT JOIN operators op ON op.id=o.operator_id "
         "LEFT JOIN messages lm ON lm.id=(SELECT MAX(id) FROM messages m WHERE m.order_id=o.id) "
         "LEFT JOIN op_chat_state cs ON cs.operator_id=? AND cs.order_id=o.id "
-        "WHERE o.status='in_progress' AND o.operator_id IS NOT NULL "
+        f"WHERE {where} AND o.operator_id IS NOT NULL "
         "ORDER BY COALESCE(lm.created_at, o.created_at) DESC LIMIT 500",
         (viewer_operator_id,))
+    return await cur.fetchall()
+
+
+async def general_clients(search=None):
+    """Barcha operatorlar ishlagan umumiy mijozlar ro'yxati."""
+    db = await get_db()
+    args = []
+    extra = ""
+    if search:
+        s = f"%{search.strip()}%"
+        extra = " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.username LIKE ?)"
+        args.extend((s, s, s))
+    cur = await db.execute(
+        "SELECT u.telegram_id, u.full_name, u.phone, u.username, COUNT(o.id) AS cnt, "
+        "MAX(o.id) AS last_order, MAX(o.created_at) AS last_at, "
+        "(SELECT o2.status FROM orders o2 WHERE o2.user_id=u.telegram_id "
+        " AND o2.operator_id IS NOT NULL ORDER BY o2.id DESC LIMIT 1) AS last_status, "
+        "(SELECT op.name FROM orders o3 LEFT JOIN operators op ON op.id=o3.operator_id "
+        " WHERE o3.user_id=u.telegram_id AND o3.operator_id IS NOT NULL "
+        " ORDER BY o3.id DESC LIMIT 1) AS operator_name "
+        "FROM orders o JOIN users u ON u.telegram_id=o.user_id "
+        "WHERE o.operator_id IS NOT NULL" + extra + " GROUP BY u.telegram_id "
+        "ORDER BY last_at DESC LIMIT 300", args)
     return await cur.fetchall()
 
 

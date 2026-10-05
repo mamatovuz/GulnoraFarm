@@ -54,7 +54,7 @@ const Store = {
 };
 
 /* ---------- holat ---------- */
-const ST = { op:{}, mk:LS.get("op_mk")||"", v:0, kick:false, chats:[], chatMap:{}, general:[], generalMap:{}, done:null, operators:[], folder:"all", q:"",
+const ST = { op:{}, mk:LS.get("op_mk")||"", v:0, kick:false, chats:[], chatMap:{}, general:[], generalActive:[], generalClients:[], generalMap:{}, generalKind:"active", done:null, operators:[], folder:"all", q:"",
              newcount:0, notifyUnread:0, operatorUnread:0, inited:false, online:true };
 let CUR = null, CH = null;
 let SELM = null;   // tanlash rejimi: belgilangan xabarlar (Set) yoki null
@@ -363,7 +363,12 @@ function applySync(r){
     if((r.notify_unread||0)>ST.notifyUnread) ring = true;
   }
   ST.chats = r.chats; ST.chatMap = {}; r.chats.forEach(c=>ST.chatMap[c.order_id]=c);
-  if(r.general_chats){ ST.general=r.general_chats; ST.generalMap={}; ST.general.forEach(c=>ST.generalMap[c.order_id]=c); renderGeneralChats(); }
+  if(r.general_chats){
+    ST.generalActive=r.general_chats;
+    if(["active","unread","paused"].includes(ST.generalKind)) ST.general=r.general_chats;
+    ST.generalMap={}; [...ST.generalActive,...ST.general].forEach(c=>ST.generalMap[c.order_id]=c);
+    renderGeneralChats();
+  }
   ST.newcount = r.newcount; ST.notifyUnread = r.notify_unread||0; ST.operatorUnread = r.operator_unread||0; ST.v = r.v; ST.inited = true;
   if(ring) beep();
   renderChatList(); updateBadges();
@@ -377,12 +382,15 @@ function updateBadges(){
   const unread = ST.chats.filter(c=>!c.archived && (c.unread>0 || c.marked_unread)).length;
   const tot = unread + ST.newcount;
   const e = $("tb-badge"); e.textContent = tot>99?"99+":tot; e.classList.toggle("hide", !tot);
-  const gu = ST.general.filter(c=>c.unread>0 || c.marked_unread).length;
+  const gu = ST.generalActive.reduce((n,c)=>n+(+c.unread||(+!!c.marked_unread)),0);
   const gb = $("tb-general-badge"); if(gb){ gb.textContent=gu>99?"99+":gu; gb.classList.toggle("hide",!gu); }
   const nb = $("notify-badge"); if(nb){ nb.textContent=ST.notifyUnread>99?"99+":ST.notifyUnread; nb.classList.toggle("hide",!ST.notifyUnread); }
   const all = ST.chats.filter(c=>!c.archived).length, rep = ST.chats.filter(c=>!c.archived && !c.paused && c.reply).length, arc = ST.chats.filter(c=>c.archived).length;
   const pz = ST.chats.filter(c=>c.paused).length;
   [["fc-all",unread],["fc-unread",rep],["fc-archived",arc],["fc-paused",pz],["fc-operators",ST.operatorUnread]].forEach(([id,n])=>{ const x=$(id); x.textContent=n; x.classList.toggle("hide",!n); });
+  [["gfc-active",ST.generalActive.length],["gfc-unread",gu],["gfc-paused",ST.generalActive.filter(c=>c.paused).length]].forEach(([id,n])=>{
+    const x=$(id); if(x){ x.textContent=n>99?"99+":n; x.classList.toggle("hide",!n); }
+  });
   void all;
 }
 
@@ -594,31 +602,90 @@ CL.addEventListener("touchend", ()=>{
 });
 
 /* ============================================================
-   UMUMIY: BARCHA OPERATORLARNING JARAYONDAGI MUROJAATLARI
+   UMUMIY: BARCHA OPERATORLARNING MUROJAATLARI VA MIJOZLARI
    ============================================================ */
+const GENERAL_HINTS={
+  active:"Barcha operatorlarning jarayondagi murojaatlari",
+  unread:"Javob kutayotgan umumiy murojaatlar",
+  paused:"Barcha operatorlarning pauzadagi murojaatlari",
+  done:"Barcha operatorlarning yakunlangan murojaatlari",
+  canceled:"Barcha operatorlarning bekor qilingan murojaatlari",
+  clients:"Barcha operatorlar ishlagan umumiy mijozlar"
+};
+const GENERAL_EMPTY={
+  active:"Jarayondagi umumiy murojaat yo'q", unread:"Javobsiz murojaat yo'q",
+  paused:"Pauzadagi murojaat yo'q", done:"Yakunlangan murojaat yo'q",
+  canceled:"Bekor qilingan murojaat yo'q", clients:"Umumiy mijozlar hozircha yo'q"
+};
 let _generalT=null;
-$("general-search").addEventListener("input", ()=>{ clearTimeout(_generalT); _generalT=setTimeout(renderGeneralChats,180); });
+$("general-search").addEventListener("input", ()=>{
+  clearTimeout(_generalT);
+  _generalT=setTimeout(()=>ST.generalKind==="clients"?loadGeneralChats():renderGeneralChats(),220);
+});
+$("general-folders").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-g]"); if(!b)return;
+  ST.generalKind=b.dataset.g;
+  document.querySelectorAll("#general-folders button").forEach(x=>x.classList.toggle("on",x===b));
+  haptic("sel"); loadGeneralChats();
+});
+$("general-folders").addEventListener("wheel",e=>{
+  const box=e.currentTarget; if(box.scrollWidth<=box.clientWidth)return;
+  e.preventDefault();
+  const delta=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+  box.scrollBy({left:delta,behavior:"smooth"});
+},{passive:false});
 async function loadGeneralChats(){
-  if(!ST.general.length) $("general-list").innerHTML='<div class="spinner"></div>';
-  const r=await GET("/api/general_chats").catch(()=>null);
-  if(!r||!r.ok)return;
-  ST.general=r.chats||[]; ST.generalMap={}; ST.general.forEach(c=>ST.generalMap[c.order_id]=c);
+  const kind=ST.generalKind;
+  $("general-hint").textContent=GENERAL_HINTS[kind]||GENERAL_HINTS.active;
+  if((kind==="clients"?!ST.generalClients.length:!ST.general.length)) $("general-list").innerHTML='<div class="spinner"></div>';
+  if(kind==="clients"){
+    const r=await GET("/api/general_clients",{q:$("general-search").value.trim()}).catch(()=>null);
+    if(ST.generalKind!==kind||!r||!r.ok)return;
+    ST.generalClients=r.clients||[]; renderGeneralChats(); return;
+  }
+  const apiKind=kind==="unread"?"active":kind;
+  const r=await GET("/api/general_chats",{kind:apiKind}).catch(()=>null);
+  if(ST.generalKind!==kind||!r||!r.ok)return;
+  ST.general=r.chats||[];
+  if(apiKind==="active") ST.generalActive=ST.general;
+  ST.generalMap={}; [...ST.generalActive,...ST.general].forEach(c=>ST.generalMap[c.order_id]=c);
   renderGeneralChats(); updateBadges();
 }
 function generalRowHtml(c){
-  const pv=(c.paused?`<span class="pzl">⏸ ${esc(T("Pauzada"))}</span> `:"")+
+  const closed=c.status==="done"||c.status==="canceled";
+  const status=c.status==="done"?`<span class="me">Yakunlangan · </span>`:
+    (c.status==="canceled"?`<span class="pzl">Bekor qilingan · </span>`:"");
+  const pv=(c.paused?`<span class="pzl">⏸ ${esc(T("Pauzada"))}</span> `:"")+status+
     (c.last_sender==="operator"?`<span class="me">Javob: </span>`:"")+esc(c.preview||"");
-  const unread=c.unread||(c.marked_unread?1:0);
-  const wait=waitInfo(c);
+  const unread=+c.unread||(c.marked_unread?1:0);
+  const wait=closed?{cls:"",html:""}:waitInfo(c);
   return `<div class="crow${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
     <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span><span class="tm">${esc(c.time||"")}</span></div>
-    <div class="l2"><span class="pv">${pv}</span>${wait.html}${unread?`<span class="badge">${c.unread||""}</span>`:""}</div></div></div></div>`;
+    <div class="l2"><span class="pv">${pv}</span>${wait.html}${unread?`<span class="badge">${unread>99?"99+":unread}</span>`:""}</div></div></div></div>`;
+}
+function generalClientRowHtml(c){
+  const labels={in_progress:"Jarayonda",done:"Yakunlangan",canceled:"Bekor qilingan",new:"Yangi"};
+  const uname=c.username?` · @${esc(c.username)}`:"";
+  return `<div class="crow" data-oid="${c.last_order}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
+    <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span></div>
+    <div class="l2"><span class="pv">${esc(c.phone||"")}${uname} · ${c.cnt||0} murojaat · ${labels[c.last_status]||""}</span></div></div></div></div>`;
 }
 function renderGeneralChats(){
   const box=$("general-list"); if(!box)return;
-  const qv=$("general-search").value.trim().toLowerCase();
-  const list=ST.general.filter(c=>!qv||(c.name||"").toLowerCase().includes(qv)||(c.phone||"").includes(qv)||(c.operator_name||"").toLowerCase().includes(qv)||(c.preview||"").toLowerCase().includes(qv));
-  const st=box.scrollTop; box.innerHTML=list.map(generalRowHtml).join("")||`<div class="empty"><div class="big">👥</div>Jarayondagi umumiy murojaat yo'q</div>`; box.scrollTop=st;
+  const kind=ST.generalKind, qv=$("general-search").value.trim().toLowerCase();
+  $("general-hint").textContent=GENERAL_HINTS[kind]||GENERAL_HINTS.active;
+  let list;
+  if(kind==="clients"){
+    list=ST.generalClients;
+  }else{
+    list=ST.general;
+    if(kind==="unread") list=list.filter(c=>(+c.unread||c.marked_unread));
+    else if(kind==="paused") list=list.filter(c=>c.paused);
+    list=list.filter(c=>!qv||(c.name||"").toLowerCase().includes(qv)||(c.phone||"").includes(qv)||(c.operator_name||"").toLowerCase().includes(qv)||(c.preview||"").toLowerCase().includes(qv));
+  }
+  const st=box.scrollTop;
+  box.innerHTML=list.map(kind==="clients"?generalClientRowHtml:generalRowHtml).join("")||`<div class="empty"><div class="big">👥</div>${GENERAL_EMPTY[kind]||GENERAL_EMPTY.active}</div>`;
+  box.scrollTop=st;
 }
 $("general-list").addEventListener("click",e=>{ const r=e.target.closest(".crow[data-oid]"); if(r)openChat(+r.dataset.oid,r.dataset.name,true); });
 
