@@ -1942,6 +1942,17 @@ async def last_order_of(tg):
     return r["id"] if r else None
 
 
+async def open_order_of(tg):
+    """Mijozning ochiq (new/in_progress) murojaati — avval active_order_id, bo'lmasa eng oxirgisi.
+    Yangi retsept/xabar shu murojaatga qo'shiladi, alohida murojaat ochilmaydi."""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT o.* FROM orders o JOIN users u ON u.telegram_id = o.user_id "
+        "WHERE o.user_id=? AND o.status IN ('new','in_progress') "
+        "ORDER BY (o.id = u.active_order_id) DESC, o.id DESC LIMIT 1", (tg,))
+    return await cur.fetchone()
+
+
 async def unhide_chat(operator_id, order_id):
     db = await get_db()
     await db.execute("DELETE FROM hidden_chats WHERE operator_id=? AND order_id=?", (operator_id, order_id))

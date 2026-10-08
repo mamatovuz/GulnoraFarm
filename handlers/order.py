@@ -35,7 +35,28 @@ async def ask_order(message: Message, state: FSMContext):
     if await ensure_branch(message, message.from_user.id, lang):
         return   # filial tanlanmagan -> avval filialni tanlaydi
     await state.set_state(OrderFlow.waiting_content)
-    await message.answer(loc.t("order_ask", lang), reply_markup=kb.cancel_inline("cancel_order", lang))
+    text = loc.t("order_ask", lang)
+    open_order = await q.open_order_of(message.from_user.id)
+    if open_order:
+        text += "\n\n" + loc.t("order_ask_open", lang, id=open_order["id"])
+    await message.answer(text, reply_markup=kb.cancel_inline("cancel_order", lang))
+
+
+async def _merge_into_open(message: Message, state: FSMContext, bot: Bot, messages) -> bool:
+    """Mijozning ochiq murojaati bo'lsa — yangi retsept/xabar YANGI murojaat ochmaydi,
+    o'sha murojaatga qo'shiladi (operatorda ham bitta chat bo'lib qoladi)."""
+    order = await q.open_order_of(message.from_user.id)
+    if not order:
+        return False
+    lang = await q.get_lang(message.from_user.id)
+    await q.set_user_active_order(message.from_user.id, order["id"])
+    for m in messages:
+        await save_message_from_message(order["id"], "client", m)
+        await forward_client_to_operator(bot, order, m)
+    await state.clear()
+    await message.answer(loc.t("order_merged", lang, id=order["id"]) + await _hours_suffix(lang),
+                         reply_markup=await main_kb(message.from_user.id))
+    return True
 
 
 async def _notify_operators_rating(bot, order_id, rating, feedback):
@@ -156,6 +177,7 @@ async def _collect_album(message: Message, state: FSMContext, bot: Bot):
     doc = message.document if ct == "document" else None
     data["items"].append((ct, fid, caption, message.message_id,
                           doc.file_name if doc else None, doc.mime_type if doc else None))
+    data.setdefault("msgs", []).append(message)
     if data["task"]:
         data["task"].cancel()
     data["task"] = asyncio.create_task(_finalize_album(gid, message, state, bot))
@@ -171,6 +193,8 @@ async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
         return
     lang = await q.get_lang(message.from_user.id)
     await q.set_user_username(message.from_user.id, message.from_user.username)
+    if await _merge_into_open(message, state, bot, data.get("msgs") or [message]):
+        return
     user = await q.get_user(message.from_user.id)
     items = data["items"]
     first_ct = items[0][0]
@@ -339,6 +363,9 @@ async def _create_order(message, state, bot, content_type):
         return
     if await _pending_branch_blocked(message, lang):
         return
+    # Ochiq murojaat bo'lsa — yangisini ochmaymiz, eskisiga qo'shamiz
+    if await _merge_into_open(message, state, bot, [message]):
+        return
     if await _flood_blocked(message, lang):
         return
     order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
@@ -366,15 +393,16 @@ async def client_proxy(message: Message, state: FSMContext, bot: Bot):
     # Majburiy filial tanlash — operator so'ragan bo'lsa, tanlamaguncha bloklanadi
     if await _pending_branch_blocked(message, lang):
         return
-    active = user["active_order_id"]
-    if active:
-        order = await q.get_order(active)
-        if order and order["status"] in ("new", "in_progress"):
-            await save_message_from_message(active, "client", message)
-            await forward_client_to_operator(bot, order, message)
-            await message.answer(loc.t("proxy_sent", lang))
-            # Ish vaqtidan tashqarida — kuniga bir marta avto-javob
-            await _night_autoreply(message, lang)
-            return
+    order = await q.open_order_of(message.from_user.id)
+    if order:
+        active = order["id"]
+        if active != user["active_order_id"]:
+            await q.set_user_active_order(message.from_user.id, active)
+        await save_message_from_message(active, "client", message)
+        await forward_client_to_operator(bot, order, message)
+        await message.answer(loc.t("proxy_sent", lang))
+        # Ish vaqtidan tashqarida — kuniga bir marta avto-javob
+        await _night_autoreply(message, lang)
+        return
     # ochiq murojaat yo'q
     await message.answer(loc.t("use_menu", lang), reply_markup=await main_kb(message.from_user.id))

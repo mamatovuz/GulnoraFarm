@@ -215,7 +215,7 @@ let _authFailShown = false;
 function onAuthFail(){
   if(_authFailShown) return; _authFailShown = true;
   logout(true);
-  $("login-err").textContent = "Sessiya tugadi yoki ish vaqti tugadi. Qayta kiring.";
+  $("login-err").textContent = "Sessiya tugadi. Qayta kiring.";
   setTimeout(()=>_authFailShown=false, 3000);
 }
 function logout(silent){
@@ -1602,17 +1602,135 @@ function sendDocFile(f){
 }
 /* rasm(lar) oldindan ko'rish + izoh (formatlash bilan) */
 let pendingMedia = null;
+const ME={i:0,original:[],history:[],work:null,mode:"none",crop:null,drag:false,drawing:false,last:null,cssW:0,cssH:0,seq:0};
 const MMC = TGF.Composer($("mm-cap"), { placeholder: T("Izoh qo'shing..."), onEnter: ()=>sendMedia() });
 function openMedia(datas){
-  pendingMedia = datas; MMC.clear();
-  $("mm-title").textContent = datas.length>1 ? datas.length+" ta rasm" : "Rasm yuborish";
-  $("mm-stage").innerHTML = datas.map(d=>`<img src="${d}" style="max-width:${datas.length>1?"46%":"100%"};max-height:${datas.length>1?"40vh":"100%"};border-radius:12px;object-fit:contain">`).join("");
+  pendingMedia=datas.slice(); ME.original=datas.slice(); ME.history=datas.map(()=>[]); ME.i=0; ME.mode="none"; ME.crop=null; MMC.clear();
   $("mediamodal").classList.remove("hide"); updateBackBtn();
+  refreshMediaThumbs(); loadMediaEditor(0);
   if(!isTouch()) setTimeout(()=>MMC.focus(), 100);
 }
-function closeMedia(){ pendingMedia=null; $("mediamodal").classList.add("hide"); updateBackBtn(); }
+function mediaEditorTitle(){
+  if(!pendingMedia)return;
+  const base=pendingMedia.length>1?`${ME.i+1} / ${pendingMedia.length} rasm`:"Rasm yuborish";
+  $("mm-title").textContent=base+(ME.mode==="crop"?" · Qirqish":ME.mode==="draw"?" · Qalam":"");
+}
+function refreshMediaThumbs(){
+  const box=$("mm-thumbs"); if(!pendingMedia)return;
+  box.classList.toggle("hide",pendingMedia.length<2);
+  box.innerHTML=pendingMedia.map((d,i)=>`<button class="mm-thumb ${i===ME.i?"on":""}" data-mi="${i}" title="${i+1}-rasm"><img src="${d}"></button>`).join("");
+}
+$("mm-thumbs").addEventListener("click",e=>{ const b=e.target.closest("[data-mi]"); if(b)loadMediaEditor(+b.dataset.mi); });
+function loadMediaEditor(i){
+  if(!pendingMedia||!pendingMedia[i])return;
+  ME.i=i; ME.mode="none"; ME.crop=null; ME.drag=false; ME.drawing=false; ME.last=null;
+  const seq=++ME.seq, img=new Image(); $("mm-loading").classList.remove("hide");
+  img.onload=()=>{
+    if(seq!==ME.seq||!pendingMedia)return;
+    const c=document.createElement("canvas"); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height); ME.work=c;
+    $("mm-loading").classList.add("hide"); refreshMediaThumbs(); updateMediaTools(); layoutMediaEditor();
+  };
+  img.onerror=()=>{ if(seq===ME.seq){ $("mm-loading").textContent="Rasmni ochib bo'lmadi"; toast("Rasmni ochib bo'lmadi"); } };
+  img.src=pendingMedia[i]; mediaEditorTitle(); updateMediaTools();
+}
+function layoutMediaEditor(){
+  if(!ME.work||$("mediamodal").classList.contains("hide"))return;
+  const st=$("mm-stage"), maxW=Math.max(80,st.clientWidth-16), maxH=Math.max(80,st.clientHeight-16);
+  const scale=Math.min(maxW/ME.work.width,maxH/ME.work.height);
+  ME.cssW=Math.max(1,Math.round(ME.work.width*scale)); ME.cssH=Math.max(1,Math.round(ME.work.height*scale));
+  const c=$("mm-canvas"), d=Math.min(2,devicePixelRatio||1);
+  c.style.width=ME.cssW+"px"; c.style.height=ME.cssH+"px"; c.width=Math.round(ME.cssW*d); c.height=Math.round(ME.cssH*d);
+  renderMediaCanvas();
+}
+function renderMediaCanvas(){
+  if(!ME.work)return;
+  const c=$("mm-canvas"), x=c.getContext("2d"), d=c.width/ME.cssW;
+  x.clearRect(0,0,c.width,c.height); x.drawImage(ME.work,0,0,c.width,c.height);
+  if(ME.crop){
+    const a=normalCrop(), x1=a.x*d,y1=a.y*d,w=a.w*d,h=a.h*d;
+    x.save(); x.fillStyle="rgba(0,0,0,.55)";
+    x.fillRect(0,0,c.width,y1); x.fillRect(0,y1,x1,h); x.fillRect(x1+w,y1,c.width-x1-w,h); x.fillRect(0,y1+h,c.width,c.height-y1-h);
+    x.strokeStyle="#fff"; x.lineWidth=Math.max(1,1.5*d); x.setLineDash([7*d,5*d]); x.strokeRect(x1,y1,w,h); x.restore();
+  }
+}
+function mediaPoint(e){
+  const r=$("mm-canvas").getBoundingClientRect();
+  return {x:Math.max(0,Math.min(ME.cssW,(e.clientX-r.left)*ME.cssW/r.width)),y:Math.max(0,Math.min(ME.cssH,(e.clientY-r.top)*ME.cssH/r.height))};
+}
+function normalCrop(){
+  const c=ME.crop||{x1:0,y1:0,x2:0,y2:0};
+  return {x:Math.min(c.x1,c.x2),y:Math.min(c.y1,c.y2),w:Math.abs(c.x2-c.x1),h:Math.abs(c.y2-c.y1)};
+}
+function mediaSnapshot(){
+  const h=ME.history[ME.i]||(ME.history[ME.i]=[]); h.push(pendingMedia[ME.i]); if(h.length>10)h.shift(); updateMediaTools();
+}
+function saveMediaWork(){
+  if(!ME.work||!pendingMedia)return;
+  pendingMedia[ME.i]=ME.work.toDataURL("image/jpeg",.9); refreshMediaThumbs(); updateMediaTools();
+}
+function drawMediaLine(a,b){
+  const x=ME.work.getContext("2d"), sx=ME.work.width/ME.cssW, sy=ME.work.height/ME.cssH;
+  x.strokeStyle=$("mm-color").value; x.fillStyle=x.strokeStyle; x.lineWidth=(+$("mm-size").value||6)*((sx+sy)/2); x.lineCap="round"; x.lineJoin="round";
+  x.beginPath(); x.moveTo(a.x*sx,a.y*sy); x.lineTo(b.x*sx,b.y*sy); x.stroke();
+  if(a.x===b.x&&a.y===b.y){ x.beginPath(); x.arc(a.x*sx,a.y*sy,x.lineWidth/2,0,Math.PI*2); x.fill(); }
+}
+function setMediaMode(mode){
+  ME.mode=ME.mode===mode?"none":mode; ME.crop=null; ME.drag=false; ME.drawing=false;
+  updateMediaTools(); renderMediaCanvas();
+}
+function mediaCrop(){ setMediaMode("crop"); }
+function mediaDraw(){ setMediaMode("draw"); }
+function updateMediaTools(){
+  const canvas=$("mm-canvas"); canvas.classList.toggle("crop",ME.mode==="crop"); canvas.classList.toggle("draw",ME.mode==="draw");
+  $("mm-crop").classList.toggle("on",ME.mode==="crop"); $("mm-draw").classList.toggle("on",ME.mode==="draw");
+  const cr=normalCrop(); $("mm-apply").classList.toggle("hide",ME.mode!=="crop"||cr.w<6||cr.h<6);
+  $("mm-undo").disabled=!pendingMedia||!(ME.history[ME.i]||[]).length; mediaEditorTitle();
+}
+function mediaApplyCrop(){
+  if(!ME.work||!ME.crop)return false;
+  const a=normalCrop(); if(a.w<6||a.h<6)return false;
+  mediaSnapshot();
+  const sx=ME.work.width/ME.cssW,sy=ME.work.height/ME.cssH,x=Math.round(a.x*sx),y=Math.round(a.y*sy);
+  const w=Math.max(1,Math.min(ME.work.width-x,Math.round(a.w*sx))),h=Math.max(1,Math.min(ME.work.height-y,Math.round(a.h*sy)));
+  const out=document.createElement("canvas"); out.width=w;out.height=h;out.getContext("2d").drawImage(ME.work,x,y,w,h,0,0,w,h);
+  ME.work=out; ME.crop=null; ME.mode="none"; saveMediaWork(); layoutMediaEditor(); return true;
+}
+function mediaUndo(){
+  if(!pendingMedia)return; const h=ME.history[ME.i]||[]; if(!h.length)return;
+  pendingMedia[ME.i]=h.pop(); refreshMediaThumbs(); loadMediaEditor(ME.i);
+}
+function mediaReset(){
+  if(!pendingMedia||pendingMedia[ME.i]===ME.original[ME.i])return;
+  mediaSnapshot(); pendingMedia[ME.i]=ME.original[ME.i]; refreshMediaThumbs(); loadMediaEditor(ME.i);
+}
+const MMCAN=$("mm-canvas");
+MMCAN.addEventListener("pointerdown",e=>{
+  if(!ME.work||ME.mode==="none")return; e.preventDefault(); MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
+  const p=mediaPoint(e);
+  if(ME.mode==="crop"){ME.crop={x1:p.x,y1:p.y,x2:p.x,y2:p.y};ME.drag=true;renderMediaCanvas();updateMediaTools();}
+  else{mediaSnapshot();ME.drawing=true;ME.last=p;drawMediaLine(p,p);renderMediaCanvas();}
+});
+MMCAN.addEventListener("pointermove",e=>{
+  if(ME.drag&&ME.mode==="crop"){const p=mediaPoint(e);ME.crop.x2=p.x;ME.crop.y2=p.y;renderMediaCanvas();updateMediaTools();}
+  else if(ME.drawing&&ME.mode==="draw"){const p=mediaPoint(e);drawMediaLine(ME.last,p);ME.last=p;renderMediaCanvas();}
+});
+function finishMediaPointer(){
+  if(ME.drawing){ME.drawing=false;saveMediaWork();}
+  if(ME.drag){ME.drag=false;updateMediaTools();} ME.last=null;
+}
+MMCAN.addEventListener("pointerup",finishMediaPointer); MMCAN.addEventListener("pointercancel",finishMediaPointer);
+$("mm-color").addEventListener("input",e=>{ document.querySelector(".mm-color span").style.background=e.target.value; if(ME.mode!=="draw")setMediaMode("draw"); });
+window.addEventListener("resize",()=>{ if(pendingMedia)layoutMediaEditor(); });
+function closeMedia(){
+  pendingMedia=null; ME.seq++; ME.work=null; ME.crop=null; ME.mode="none"; ME.history=[]; ME.original=[];
+  $("mm-canvas").width=0; $("mm-canvas").height=0; $("mm-thumbs").innerHTML="";
+  $("mediamodal").classList.add("hide"); updateBackBtn();
+}
 async function sendMedia(){
   if(!pendingMedia || !CUR) return;
+  if(ME.drawing)finishMediaPointer();
+  if(ME.mode==="crop"&&ME.crop)mediaApplyCrop();
   const capH = MMC.isEmpty() ? "" : MMC.getHTML(), cap = TGF.toPlain(capH).trim(), datas = pendingMedia; closeMedia();
   if(pendingBill){ exitBill(); const r=await POST("/api/cmd",{order_id:CUR,cmd:"bill",arg:cap,media_kind:"photo",media_data:datas[0]}).catch(()=>null); toast(r&&r.ok?r.info:((r&&r.error)||"Xatolik")); kickSync(); return; }
   const rep = CH.replyTo||0; clearReply();
@@ -2513,7 +2631,9 @@ WIDE_MQ.addEventListener && WIDE_MQ.addEventListener("change", ()=>{ if(CURSCREE
 const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout:()=>confirm2("Hisobdan chiqasizmi?").then(ok=>ok&&logout()),
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
-  cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill, closeMedia, sendMedia, closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
+  cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
+  closeMedia, sendMedia, mediaCrop, mediaDraw, mediaApplyCrop, mediaUndo, mediaReset,
+  closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
   openNotifications, closeOperatorChat, sendOperator };
 document.addEventListener("click", e=>{
   const t = e.target.closest("[data-act]"); if(!t) return;

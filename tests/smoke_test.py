@@ -466,10 +466,45 @@ async def main():
         check("Yakunlangan papkasida bekor qilingan yo'q", all(c["status"] == "done" for c in r["chats"]), r)
 
         print("STATIC")
+        r = await cli.get("/operator")
+        page = await r.text()
+        check("rasm muharririda qirqish va qalam boshqaruvlari bor",
+              r.status == 200 and 'id="mm-canvas"' in page
+              and 'data-act="mediaCrop"' in page and 'data-act="mediaDraw"' in page)
+        r = await cli.get("/static/operator.js")
+        operator_js = await r.text()
+        check("rasm faqat muharrirdan keyin yuboriladi",
+              r.status == 200 and "mediaApplyCrop" in operator_js
+              and "drawMediaLine" in operator_js and "pendingMedia" in operator_js)
         r = await cli.get("/fmt.js")
         check("/fmt.js beriladi", r.status == 200 and "TGF" in await r.text())
         r = await cli.get("/static/gulnora-farm-logo.jpg")
         check("Gulnora Farm logosi beriladi", r.status == 200 and r.content_type == "image/jpeg" and len(await r.read()) > 1000)
+
+        print("ISH VAQTIDAN TASHQARIDA KIRISH")
+        await db.execute("UPDATE operators SET work_start='00:00', work_end='00:01' WHERE id=?", (op_id,))
+        await db.commit()
+        r = await (await cli.post("/api/login", json={"login": "ali", "password": "1234"})).json()
+        check("ish vaqtidan tashqarida ham login bo'ladi", r.get("ok"), r)
+        r2 = await (await cli.get("/api/profile", params={"operator_id": op_id, "token": r.get("token", "")})).json()
+        check("ish vaqtidan tashqarida API ishlaydi", r2.get("ok"), r2)
+        await db.execute("UPDATE operators SET work_start='00:00', work_end='23:59' WHERE id=?", (op_id,))
+        await db.commit()
+
+        print("OCHIQ MUROJAATGA QO'SHILISH")
+        await db.execute("INSERT INTO users (telegram_id, full_name, phone, registered_at) VALUES (5077, 'Merge', '+998900000077', '2026-01-01 10:00:00')")
+        await db.commit()
+        check("ochiq murojaat yo'q", await q.open_order_of(5077) is None)
+        m1 = await q.create_order(5077, None, "photo")
+        await q.set_user_active_order(5077, m1)
+        oo = await q.open_order_of(5077)
+        check("ochiq murojaat topiladi", oo and oo["id"] == m1, oo)
+        await db.execute("UPDATE users SET active_order_id=NULL WHERE telegram_id=5077")
+        await db.commit()
+        oo = await q.open_order_of(5077)
+        check("active_order_id bo'lmasa ham topiladi", oo and oo["id"] == m1, oo)
+        await q.set_order_status(m1, "done", "test")
+        check("yopilgan murojaat ochiq emas", await q.open_order_of(5077) is None)
     finally:
         await cli.close()
     print(f"\nNATIJA: {OK} o'tdi, {FAIL} xato")

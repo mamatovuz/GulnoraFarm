@@ -184,14 +184,7 @@ async def _auth_op(request, data):
         return None, None
     if not _op_token_exp(op, token):
         return None, None
-    # Ish vaqti tekshiruvi: vaqt tugagach mini app sessiyasi ham yopiladi
-    try:
-        from utils import operator_in_hours
-        within, _ws, _we = operator_in_hours(op)
-        if not within:
-            return None, None
-    except Exception:
-        pass
+    # Ish vaqtidan tashqarida ham mini app ishlaydi (botdagi /operator kabi).
     return op, None
 
 
@@ -301,13 +294,16 @@ async def api_login(request):
     if q.password_needs_upgrade(op["password_hash"]):
         await q.set_password_hash_raw(op["id"], q.hash_password(password))
         op = await q.get_operator(op["id"])
-    # Ish vaqtidan tashqarida mini appga kirib bo'lmaydi
-    from utils import operator_in_hours
-    within, ws, we = operator_in_hours(op)
-    if not within:
-        return _json({"ok": False, "error": f"Hozir ish vaqtingiz emas.\n"
-                                            f"Ish vaqtingiz: {ws}–{we}. "
-                                            f"Faqat shu oraliqda kira olasiz."}, 200)
+    # Ish vaqtidan tashqarida ham kira oladi — avto-logout uni qayta chiqarib yubormasin
+    try:
+        from utils import operator_in_hours
+        from handlers.operator import _offhours_ok
+        if operator_in_hours(op)[0]:
+            _offhours_ok.discard(op["id"])
+        else:
+            _offhours_ok.add(op["id"])
+    except Exception:
+        pass
     # Telegram foydalanuvchisini (imzo to'g'ri bo'lsa) operatorga bog'laymiz — online bo'ladi
     user = await _auth_user(request, body)
     if user:

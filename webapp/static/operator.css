@@ -421,6 +421,27 @@ textarea.inp:focus,input.inp:focus{border-color:var(--accent)}
 .ccard .accept:active{transform:scale(.98)}
 
 /* media ko'ruvchi */
+#mediamodal .mm-topbar{flex-shrink:0}
+#mediamodal .mm-textbtn{border:0;background:none;color:#fff;padding:8px 7px;font-size:13px;font-weight:650;cursor:pointer;opacity:.9}
+#mediamodal .mm-textbtn:disabled{opacity:.32;cursor:default}
+#mm-stage{flex:1;min-height:120px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;padding:8px;background:#090909}
+#mm-canvas{display:block;max-width:100%;max-height:100%;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.35);touch-action:none;cursor:default}
+#mm-canvas.draw{cursor:crosshair}#mm-canvas.crop{cursor:crosshair}
+.mm-loading{position:absolute;color:rgba(255,255,255,.7);font-size:14px;pointer-events:none}
+.mm-thumbs{height:66px;display:flex;gap:7px;padding:7px 10px;overflow-x:auto;background:#101010;flex-shrink:0;scrollbar-width:none}
+.mm-thumbs::-webkit-scrollbar{display:none}.mm-thumbs.hide{display:none}
+.mm-thumb{width:50px;height:50px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:#222;flex:0 0 auto;cursor:pointer;opacity:.6}
+.mm-thumb img{width:100%;height:100%;object-fit:cover;display:block}.mm-thumb.on{border-color:#fff;opacity:1}
+.mm-tools{display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 9px;background:#111;color:#fff;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.mm-tools::-webkit-scrollbar{display:none}
+.mm-tools button{height:38px;border:0;border-radius:10px;background:#242424;color:#fff;padding:0 11px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap}
+.mm-tools button .ic{width:18px;height:18px}.mm-tools button.on{background:var(--accent)}.mm-tools button.apply{background:var(--green)}
+.mm-color{width:32px;height:32px;border-radius:50%;background:#fff;display:grid;place-items:center;flex:0 0 auto;cursor:pointer}
+.mm-color input{position:absolute;opacity:0;width:1px;height:1px}.mm-color span{width:24px;height:24px;border-radius:50%;background:#ff3b30;border:2px solid rgba(255,255,255,.8)}
+.mm-size{width:72px;display:flex;align-items:center;flex:0 0 auto}.mm-size input{width:100%;accent-color:#fff}
+@media (max-width:420px){.mm-tools{justify-content:flex-start}.mm-tools button{padding:0 9px}.mm-tools button span{font-size:12px}}
+
+/* media ko'ruvchi */
 #viewer{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.96);display:flex;flex-direction:column;animation:fadeIn .15s;touch-action:none}
 #viewer .vtop{display:flex;align-items:center;gap:6px;padding:calc(8px + var(--fs-top,0px)) 8px 8px;color:#fff;z-index:2}
 #viewer .vtop .iconbtn{color:#fff}

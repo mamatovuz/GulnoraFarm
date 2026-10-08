@@ -286,6 +286,16 @@ T = {
         "uz": "✅ Xabaringiz operatorga yuborildi.",
         "ru": "✅ Ваше сообщение отправлено оператору.",
     },
+    "order_merged": {
+        "uz": "✅ Qabul qilindi!\n\nSizda ochiq murojaat bor — <b>#{id}</b>. "
+              "Yuborganingiz shu murojaatga qo'shildi, operator ko'rib chiqadi ⏳",
+        "ru": "✅ Принято!\n\nУ вас есть открытое обращение — <b>#{id}</b>. "
+              "Отправленное добавлено в него, оператор рассмотрит ⏳",
+    },
+    "order_ask_open": {
+        "uz": "ℹ️ Sizda ochiq murojaat bor — <b>#{id}</b>. Yuborganingiz shu murojaatga qo'shiladi.",
+        "ru": "ℹ️ У вас есть открытое обращение — <b>#{id}</b>. Отправленное будет добавлено в него.",
+    },
     "cancel_done": {
         "uz": "Bekor qilindi.",
         "ru": "Отменено.",

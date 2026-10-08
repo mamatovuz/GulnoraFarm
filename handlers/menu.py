@@ -1,4 +1,5 @@
 """Asosiy menyu bo'limlari: FAQ, Filiallar, Bog'lanish."""
+import html
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -480,14 +481,35 @@ async def contact_send(call: CallbackQuery, state: FSMContext, bot: Bot):
         await call.message.edit_text(loc.t("need_register", lang))
         await call.answer()
         return
+    within, ws, we = await work_hours()
+    suffix = "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
+    # Ochiq murojaat bo'lsa — yangisini ochmaymiz, xabar o'sha murojaatga qo'shiladi
+    open_order = await q.open_order_of(call.from_user.id)
+    if open_order:
+        oid = open_order["id"]
+        await q.add_message(oid, "client", data["c_type"], data["c_text"],
+                            data["c_file"], data["c_msgid"],
+                            file_name=data.get("c_fname"), mime_type=data.get("c_mime"))
+        await q.set_user_active_order(call.from_user.id, oid)
+        await state.clear()
+        await call.message.edit_text(loc.t("order_merged", lang, id=oid) + suffix)
+        await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
+        op = await q.get_operator(open_order["operator_id"]) if open_order["operator_id"] else None
+        if op and op["telegram_id"]:
+            ob = (botreg.get_operator_bot(op["bot_id"]) if op["bot_id"] else bot) or bot
+            note = html.escape(data["c_text"] or "") or "📎 (media)"
+            try:
+                await ob.send_message(op["telegram_id"], f"💬 Mijoz (#{oid}):\n{note}")
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+        await call.answer()
+        return
     order_id = await q.create_order(call.from_user.id, user["branch_id"], data["c_type"])
     await q.add_message(order_id, "client", data["c_type"], data["c_text"],
                         data["c_file"], data["c_msgid"],
                         file_name=data.get("c_fname"), mime_type=data.get("c_mime"))
     await q.set_user_active_order(call.from_user.id, order_id)
     await state.clear()
-    within, ws, we = await work_hours()
-    suffix = "" if within else "\n\n" + loc.t("out_of_hours", lang, start=ws, end=we)
     await call.message.edit_text(loc.t("contact_sent", lang, id=order_id) + suffix)
     await call.message.answer(loc.t("main_menu", lang), reply_markup=await main_kb(call.from_user.id))
     await deliver_order_to_operators(bot, order_id, data["c_type"], data["c_file"], data["c_text"],
