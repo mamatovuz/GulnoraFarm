@@ -491,6 +491,23 @@ async def main():
         await db.execute("UPDATE operators SET work_start='00:00', work_end='23:59' WHERE id=?", (op_id,))
         await db.commit()
 
+        print("REAKSIYALAR")
+        A3 = {"operator_id": op_id, "token": r["token"]}
+        rx_oid = await q.create_order(5001, None, "text")
+        await q.claim_order(rx_oid, op_id)
+        rx_mid = await q.add_message(rx_oid, "client", "text", "reaksiya uchun", None, 77)
+        rr = await (await cli.post("/api/react", json={**A3, "mid": rx_mid, "emoji": "❤️"})).json()
+        check("reaksiya qo'yiladi (❤️ -> ❤)", rr.get("ok") and rr.get("reaction") == "❤", rr)
+        rm = await (await cli.get("/api/messages", params={**A3, "order_id": rx_oid})).json()
+        check("xabarda reaksiya qaytadi",
+              any(m["mid"] == rx_mid and m["reaction"] == "❤" for m in rm.get("messages", [])), rm)
+        resp = await cli.post("/api/react", json={**A3, "mid": rx_mid, "emoji": "💩"})
+        check("ruxsat etilmagan reaksiya rad etiladi", resp.status == 400, resp.status)
+        resp = await cli.post("/api/react", json={**A_OTHER, "mid": rx_mid, "emoji": "👍"})
+        check("boshqa operator reaksiya qo'ya olmaydi", resp.status == 403, resp.status)
+        rr = await (await cli.post("/api/react", json={**A3, "mid": rx_mid, "emoji": ""})).json()
+        check("reaksiya olib tashlanadi", rr.get("ok") and (await q.get_message(rx_mid))["reaction"] is None, rr)
+
         print("OCHIQ MUROJAATGA QO'SHILISH")
         await db.execute("INSERT INTO users (telegram_id, full_name, phone, registered_at) VALUES (5077, 'Merge', '+998900000077', '2026-01-01 10:00:00')")
         await db.commit()

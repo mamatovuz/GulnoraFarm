@@ -399,6 +399,10 @@ async def init_db():
     if "mime_type" not in cols:
         await db.execute("ALTER TABLE messages ADD COLUMN mime_type TEXT")
         await db.commit()
+    if "reaction" not in cols:
+        # operator qo'ygan reaksiya (Telegramdek: 👍 ❤ 🔥 ...)
+        await db.execute("ALTER TABLE messages ADD COLUMN reaction TEXT")
+        await db.commit()
 
     # Migratsiya: orders.rating ustuni
     cur = await db.execute("PRAGMA table_info(orders)")

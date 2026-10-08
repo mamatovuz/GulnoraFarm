@@ -547,6 +547,13 @@ async def get_message(mid):
     return await cur.fetchone()
 
 
+async def set_message_reaction(mid, emoji):
+    db = await get_db()
+    await db.execute("UPDATE messages SET reaction = ? WHERE id = ?", (emoji or None, mid))
+    await db.commit()
+    bump()
+
+
 async def file_meta(file_id):
     """Telegram file_id uchun saqlangan asl fayl nomi va MIME turini qaytaradi."""
     db = await get_db()

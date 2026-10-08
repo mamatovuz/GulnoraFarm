@@ -445,6 +445,7 @@ def _msg_json(m):
         "cmid": m["client_msg_id"] or 0,     # mijoz chatidagi ID — o'chirish/tahrirlash mumkin
         "reply_to": g("reply_to_mid") or 0,
         "edited": bool(g("edited_at")),
+        "reaction": g("reaction") or "",
         "ts": m["created_at"] or "",
         "time": (m["created_at"] or "")[11:16],
     }
@@ -951,6 +952,8 @@ async def api_send(request):
     uid = order["user_id"]
     clang = await q.get_lang(uid)
     rkw, reply_mid = await _reply_kwargs(body, order_id)
+    if body.get("silent"):
+        rkw["disable_notification"] = True      # «Ovozsiz yuborish» — mijozga tovushsiz boradi
     body_html = html_text or _htm.escape(text, quote=False)
     mid = None
     try:
@@ -2057,6 +2060,49 @@ async def api_msg_delete_many(request):
     return _json({"ok": True, "deleted": deleted, "skipped": skipped,
                   "info": f"{len(deleted)} ta xabar o'chirildi" +
                           (f", {len(skipped)} tasi o'tkazib yuborildi" if skipped else "")})
+
+
+# Telegram ruxsat bergan reaksiyalar (setMessageReaction faqat shu ro'yxatdan qabul qiladi)
+REACTIONS = ("👍", "❤", "🔥", "🙏", "👌", "😁", "🤝", "👏")
+
+
+async def api_react(request):
+    """Xabarga reaksiya qo'yish/olib tashlash. Mijoz xabari bo'lsa — Telegramda ham ko'rinadi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    op, _ = await _auth_op(request, body)
+    if not op:
+        return _json({"ok": False}, 401)
+    try:
+        mid = int(body.get("mid"))
+    except (TypeError, ValueError):
+        return _json({"ok": False}, 400)
+    emoji = str(body.get("emoji") or "").replace("️", "")  # U+FE0F (❤️ -> ❤)
+    if emoji and emoji not in REACTIONS:
+        return _json({"ok": False, "error": "Bu reaksiya qo'llab-quvvatlanmaydi"}, 400)
+    row = await q.get_message(mid)
+    if not row:
+        return _json({"ok": False, "error": "Xabar topilmadi"}, 404)
+    order, denied = await _operator_order(op, row["order_id"], allow_shared=bool(body.get("shared")))
+    if denied is not None:
+        return denied
+    synced = False
+    if row["sender"] == "client" and row["tg_msg_id"]:
+        from utils import cbot
+        from aiogram.types import ReactionTypeEmoji
+        client = cbot()
+        if client:
+            try:
+                await client.set_message_reaction(
+                    chat_id=order["user_id"], message_id=row["tg_msg_id"],
+                    reaction=[ReactionTypeEmoji(emoji=emoji)] if emoji else [])
+                synced = True
+            except Exception:
+                logger.info("reaction not synced #%s", mid)
+    await q.set_message_reaction(mid, emoji)
+    return _json({"ok": True, "reaction": emoji, "synced": synced})
 
 
 async def api_msg_edit(request):
@@ -4253,6 +4299,7 @@ def build_app() -> web.Application:
     app.router.add_post("/api/msg_del", api_msg_del)
     app.router.add_post("/api/msg_delete_many", api_msg_delete_many)
     app.router.add_post("/api/msg_edit", api_msg_edit)
+    app.router.add_post("/api/react", api_react)
     app.router.add_post("/api/remind", api_remind)
     app.router.add_get("/api/mystats", api_mystats)
     app.router.add_get("/api/client_info", api_client_info)

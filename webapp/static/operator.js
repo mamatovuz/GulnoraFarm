@@ -120,6 +120,12 @@ function setTheme(mode){
   applyScheme(); applyWallpaper();
 }
 try{ tg.onEvent("themeChanged", applyScheme); }catch(e){}
+/* Uslub: «tg» — Telegram ranglari (standart), «mono» — Gulnora monoxrom */
+function setSkin(v){
+  v = v==="mono" ? "mono" : "tg"; LS.set("skin", v);
+  if(v==="mono") document.documentElement.setAttribute("data-skin","mono"); else document.documentElement.removeAttribute("data-skin");
+  document.querySelectorAll("#skinseg button").forEach(b=>b.classList.toggle("on",b.dataset.sk===v));
+}
 function setSnd(v){ LS.set("snd",v); document.querySelectorAll("#sndseg button").forEach(b=>b.classList.toggle("on",b.dataset.v===v)); }
 
 /* ---------- fon (wallpaper) naqshi ---------- */
@@ -524,7 +530,18 @@ function renderChatList(){
   }
   if(qq) html += `<div id="cl-found"></div>`;
   const st = box.scrollTop; box.innerHTML = html; box.scrollTop = st;
-  if(qq) searchClientsInList();
+  if(qq){ box.querySelectorAll(".crow .nm,.crow .pv").forEach(el=>markMatches(el, qq)); searchClientsInList(); }
+}
+/* qidiruvda topilgan so'zni ajratib ko'rsatish (Telegramdek) */
+function markMatches(el, qq){
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const hits = [];
+  while(w.nextNode()){ const n = w.currentNode; if(n.nodeValue.toLowerCase().includes(qq)) hits.push(n); }
+  hits.forEach(n=>{
+    const v = n.nodeValue, i = v.toLowerCase().indexOf(qq);
+    const mk = document.createElement("mark"); mk.textContent = v.slice(i, i+qq.length);
+    const after = document.createTextNode(v.slice(i+qq.length));
+    n.nodeValue = v.slice(0, i); n.after(mk, after);
+  });
 }
 async function searchClientsInList(){
   const qq = ST.q; const slot = $("cl-found"); if(!qq || !slot) return;
@@ -708,8 +725,16 @@ $("clrows").addEventListener("click", e=>{ const r=e.target.closest(".crow"); if
    CHAT
    ============================================================ */
 const MSGS = $("msgs");
+/* har chatda qayerda qolganingizni eslab qoladi (Telegramdek) */
+const SCROLLMEM = {};
+function rememberScroll(){
+  if(!CH || !CUR || MSGS.querySelector(".spinner")) return;
+  const fromBottom = MSGS.scrollHeight - MSGS.scrollTop - MSGS.clientHeight;
+  SCROLLMEM[CUR] = fromBottom > 200 ? MSGS.scrollHeight - MSGS.scrollTop : 0;
+}
 async function openChat(oid, name, shared=false){
   if(!oid) return;
+  rememberScroll();
   if(recActive()) finishRec(false);
   if(SELM) endSelect();
   saveDraftNow(); clearTimeout(_draftT);
@@ -736,6 +761,7 @@ async function openChat(oid, name, shared=false){
   CH.since = r.server_ts;
   loadPendingFromQueue();
   renderTimeline({ toUnread: true });
+  if(!$("unsep") && SCROLLMEM[oid]){ MSGS.scrollTop = MSGS.scrollHeight - SCROLLMEM[oid]; $("fab").classList.remove("hide"); }
   _lastDraft[oid] = r.draft || "";
   if(r.draft && !CH.editMid) CMP.setHTML(r.draft); else if(!isTouch()) CMP.focus();
   CH.draftReady = true;
@@ -910,7 +936,7 @@ const ERRI = '<svg class="ck" viewBox="0 0 16 16" style="width:14px;height:14px"
 const CK2 = '<svg class="ck ck2" viewBox="0 0 20 11"><path d="M1.2 5.8l3.2 3.2L14.2 1M8.6 8.6l.6.4L19 1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function isReadByClient(m){ return !!(CH && m.mid && m.mid < (CH.lastClientMid||0)); }
 function metaHtml(m){
-  return `<span class="meta">${m.edited?'<span class="ed">tahrirlangan</span> ':""}${esc(m.time||"")}${m.own?(isReadByClient(m)?CK2:CK1):""}</span>`;
+  return `<span class="meta">${m.reaction?`<span class="rxc" data-rx="${m.mid}">${esc(rxNorm(m.reaction))}</span>`:""}${m.edited?'<span class="ed">tahrirlangan</span> ':""}${esc(m.time||"")}${m.own?(isReadByClient(m)?CK2:CK1):""}</span>`;
 }
 // Mijoz yangi xabar yozganda — oldingi xabarlarimiz ✓✓ bo'ladi
 function refreshTicks(){
@@ -1019,6 +1045,7 @@ MSGS.addEventListener("click", e=>{
   const v = e.target.closest("[data-view]"); if(v){ e.stopPropagation(); return openViewer(+v.dataset.view); }
   const d = e.target.closest("[data-doc]"); if(d){ e.stopPropagation(); return openDoc(+d.dataset.doc); }
   const rt = e.target.closest("[data-retry]"); if(rt){ e.stopPropagation(); return pendingMenu(rt.dataset.retry, e.clientX, e.clientY); }
+  const rx = e.target.closest("[data-rx]"); if(rx && CH && (CH.status==="new"||CH.status==="in_progress")){ e.stopPropagation(); return reactMsg(+rx.dataset.rx, ""); }
   if(e.target.closest("a,.vp,.tgf-sp")) return;
   const row = e.target.closest(".mrow[data-mid]");
   if(row && isTouch() && !getSelection().toString()) msgMenu(+row.dataset.mid, e.clientX, e.clientY);
@@ -1061,7 +1088,9 @@ function msgMenu(mid, x, y){
   const canEdit = m.own && m.cmid && m.type==="text" && !String(m.text||"").startsWith("👨‍💼 Admin");
   const media = m.file_id && ["photo","video","animation","document","voice","audio"].includes(m.type);
   const isPinned = CH.pinned && CH.pinned.mid === mid;
-  TGF.menu(x, y, [
+  const row = $("m"+mid); if(row) row.classList.add("menu-on");
+  const mm = TGF.menu(x, y, [
+    open && {reactions: REACTIONS, active: rxNorm(m.reaction), onPick: em=>reactMsg(mid, em)},
     {header: (m.own ? T("Siz") : (CH.name||T("Mijoz"))) + " · " + (m.ts||"").slice(0,16)},
     open && {label:"Javob berish", icon:"<svg viewBox='0 0 24 24'><path d='M9 17l-5-5 5-5M4 12h12a4 4 0 0 1 4 4v4'/></svg>", onClick:()=>setReply(mid)},
     (m.text && m.type!=="location") && {label: m.type==="text" ? "Nusxa olish" : "Izohni nusxalash", icon:"copy", onClick:()=>copyText(m.text)},
@@ -1074,6 +1103,22 @@ function msgMenu(mid, x, y){
     m.own && "sep",
     m.own && {label: m.cmid ? "O'chirish (mijozdan ham)" : "O'chirish (faqat yozishmadan)", danger:true, icon:"<svg viewBox='0 0 24 24'><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6'/></svg>", onClick:()=>deleteMsg(mid)},
   ]);
+  if(mm) mm.onClose = ()=>{ const n=$("m"+mid); if(n) n.classList.remove("menu-on"); };
+}
+/* ---------- reaksiyalar (mijoz xabariga qo'yilsa — Telegramda ham ko'rinadi) ---------- */
+const REACTIONS = ["👍","❤️","🔥","🙏","👌","😁","🤝","👏"];
+// serverda ❤ (U+FE0F'siz) saqlanadi — ekranda rangli ❤️ ko'rinsin
+function rxNorm(e){ e = String(e||""); return e==="❤" ? "❤️" : e; }
+function redrawMsg(mid){
+  const m = CH && CH.msgs.get(mid), n = $("m"+mid); if(!m || !n) return;
+  n.outerHTML = rowHtml(m, prevOf(mid), nextOf(mid), false); initVoicePlayers(); bindMediaLoad(); markPicked();
+}
+async function reactMsg(mid, em){
+  const m = CH && CH.msgs.get(mid); if(!m) return;
+  const old = m.reaction || ""; m.reaction = em; redrawMsg(mid); haptic("light");
+  const n = $("m"+mid); const c = n && n.querySelector(".rxc"); if(c) c.classList.add("pop");
+  const r = await POST("/api/react", { mid, emoji: em, shared: CH.shared?1:0 }).catch(()=>null);
+  if(!r || !r.ok){ m.reaction = old; redrawMsg(mid); toast((r&&r.error)||"Reaksiya qo'yilmadi"); }
 }
 function mediaUrl(m){
   return fileUrl(m.file_id, m.type==="voice"||m.type==="audio" ? "voice" : m.type==="document" ? "document" : m.type==="photo" ? "photo" : "video", m.file_name, m.mime_type);
@@ -1258,6 +1303,19 @@ const CMP = TGF.Composer($("ed"), {
   onPasteImage: async f=>{ if(!CUR) return; openMedia([await compressImage(f,1600,.8)]); },
   onDropFiles: files=>handleFiles(files),
 });
+/* Yuborish tugmasini bosib turish / o'ng tugma — «Ovozsiz yuborish» (Telegramdek) */
+function sendMenu(x, y){
+  if(CMP.isEmpty() || (CH && CH.editMid)) return;
+  TGF.menu(x, y, [
+    {label:"Ovozsiz yuborish", icon:"<svg viewBox='0 0 24 24'><path d='M13.7 21a2 2 0 0 1-3.4 0M18.6 13A17.9 17.9 0 0 1 18 8M6.3 6.3A5.9 5.9 0 0 0 6 8c0 7-3 9-3 9h14M18 8a6 6 0 0 0-9.3-5M2 2l20 20'/></svg>", onClick:()=>send(true)},
+  ]);
+}
+$("sendbtn").addEventListener("contextmenu", e=>{ e.preventDefault(); const r=e.currentTarget.getBoundingClientRect(); sendMenu(r.left-180, r.top-60); });
+let _sendLP = null;
+$("sendbtn").addEventListener("touchstart", e=>{ const r=e.currentTarget.getBoundingClientRect();
+  _sendLP = setTimeout(()=>{ _sendLP = "fired"; haptic("medium"); sendMenu(r.left-180, r.top-60); }, 480); }, {passive:true});
+$("sendbtn").addEventListener("touchend", e=>{ if(_sendLP==="fired"){ e.preventDefault(); } else clearTimeout(_sendLP); _sendLP = null; });
+$("sendbtn").addEventListener("touchmove", ()=>{ if(_sendLP!=="fired") clearTimeout(_sendLP); }, {passive:true});
 let _lastDraft = {};
 function saveDraftNow(){
   if(!CUR || !CH || CH.editMid || !CH.draftReady) return;
@@ -1282,7 +1340,8 @@ const QKEY = () => "pq_" + (ST.op.id||"");
 function loadQueue(){ try{ return JSON.parse(LS.get(QKEY())||"[]"); }catch(e){ return []; } }
 function saveQueue(q){ LS.set(QKEY(), JSON.stringify(q)); }
 function loadPendingFromQueue(){ if(!CH) return; loadQueue().filter(p=>p.order_id===CUR).forEach(p=>{ if(!CH.pending.find(x=>x.lid===p.lid)) CH.pending.push(Object.assign({}, p, {state:"queued"})); }); }
-async function send(){
+async function send(silent){
+  silent = silent === true;
   if(recActive() || !CUR) return;
   if(CMP.isEmpty()) return;
   const html = CMP.getHTML(), text = TGF.toPlain(html).trim();
@@ -1316,7 +1375,7 @@ async function send(){
     toast(r && r.ok ? r.info : ((r&&r.error)||"Xatolik")); kickSync(); return;
   }
   const p = { lid: Date.now().toString(36)+Math.random().toString(36).slice(2,6), order_id: CUR, shared:!!CH.shared, html, text,
-              reply_mid: CH.replyTo || 0, time: new Date().toTimeString().slice(0,5), state: "sending" };
+              reply_mid: CH.replyTo || 0, time: new Date().toTimeString().slice(0,5), state: "sending", silent };
   CMP.clear(); clearReply(); hidePanels();
   _lastDraft[CUR] = ""; const c = ST.chatMap[CUR]; if(c) c.draft = "";
   CH.pending.push(p);
@@ -1326,7 +1385,7 @@ async function send(){
 }
 async function doSend(p){
   let r;
-  try{ r = await POST("/api/send", { order_id: p.order_id, shared:p.shared?1:0, html: p.html, text: p.text, reply_mid: p.reply_mid }); }
+  try{ r = await POST("/api/send", { order_id: p.order_id, shared:p.shared?1:0, html: p.html, text: p.text, reply_mid: p.reply_mid, silent: p.silent?1:0 }); }
   catch(e){
     // internet yo'q — navbatda qoladi
     p.state = "queued"; const q = loadQueue(); if(!q.find(x=>x.lid===p.lid)){ q.push(p); saveQueue(q); }
@@ -1544,14 +1603,38 @@ async function openMyTpls(){
       const d = e.target.closest("[data-mdel]"); if(d){ await POST("/api/tpl_del",{id:+d.dataset.mdel}); openMyTpls(); }
     }));
 }
+/* Emoji + stikerlar paneli (Telegramdek ikki bo'lim) */
+const EMOJI_SETS = {
+  "Ko'p ishlatiladigan": "👍 🙏 😊 ✅ 👌 ❤️ 🤝 🔥 😁 🙂 👏 💊 🏥 🚚 📍 ⏳ ☎️ 📞 💬 ✍️",
+  "Yuzlar": "😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😇 🥰 😍 😘 😋 😎 🤗 🤔 😐 😑 😶 🙄 😏 😌 😔 😴 😷 🤒 🤕 🥲 😢 😭 😤 😡 🥺 😳 😱 🤯",
+  "Qo'llar": "👍 👎 👌 ✌️ 🤞 👋 🤙 👏 🙌 🙏 🤝 💪 ✍️ 👆 👇 👉 👈 ☝️ ✋",
+  "Belgilar": "❤️ 🧡 💛 💚 💙 💜 🤍 💯 ✅ ☑️ ❌ ⚠️ ❗ ❓ ⭐ 🌟 ✨ 🎉 🎁 💰 💵 🕐 📅 📌 📎 📄 📦 🛒 🏷️ 🔔 ℹ️",
+  "Tibbiyot": "💊 💉 🩺 🩹 🌡️ 🧴 🧪 🦷 👁️ 🫁 🫀 🧠 🤧 🤰 👶 🍼 🍎 🥗 💧 🏥 🚑",
+};
+let STK_TAB = LS.get("stkTab") || "emoji";
+async function renderStickerPanel(){
+  const p = $("stickerpanel");
+  let body = "";
+  if(STK_TAB === "emoji"){
+    body = Object.entries(EMOJI_SETS).map(([t, l])=>`<div class="emh">${esc(T(t))}</div><div class="emg">${l.split(" ").map(x=>`<button type="button" data-emo="${x}">${x}</button>`).join("")}</div>`).join("");
+  } else {
+    const r = await GET("/api/stickers").catch(()=>null);
+    body = (!r || !r.ok || !r.items.length)
+      ? `<div class="empty" style="padding:24px 10px">${esc(T("Stiker yo'q. Admin panel → Tayyor javoblar → stiker qo'shing."))}</div>`
+      : `<div class="stkg">${r.items.map(s=>`<img class="stk" loading="lazy" data-stk="${s.id}" src="${esc(fileUrl(s.file_id,"sticker"))}">`).join("")}</div>`;
+  }
+  p.innerHTML = `<div class="emtabs"><button type="button" data-stab="emoji" class="${STK_TAB==="emoji"?"on":""}">😊 Emoji</button><button type="button" data-stab="stk" class="${STK_TAB==="stk"?"on":""}">🎭 ${esc(T("Stikerlar"))}</button></div><div class="embody">${body}</div>`;
+}
 async function toggleStickers(){
   const p = $("stickerpanel"); const was = !p.classList.contains("hide"); hidePanels(); if(was) return;
-  const r = await GET("/api/stickers").catch(()=>null);
-  if(!r || !r.ok || !r.items.length){ toast("Stiker yo'q. Admin panel → Tayyor javoblar → stiker qo'shing."); return; }
-  p.innerHTML = r.items.map(s=>`<img class="stk" loading="lazy" data-stk="${s.id}" src="${esc(fileUrl(s.file_id,"sticker"))}">`).join("");
-  p.classList.remove("hide");
+  await renderStickerPanel();
+  p.classList.remove("hide"); updateBackBtn();
 }
+// panel tugmalari fokusni muharrirdan olmasin (kursor joyida qoladi)
+$("stickerpanel").addEventListener("mousedown", e=>{ if(e.target.closest("[data-emo],[data-stab]")) e.preventDefault(); });
 $("stickerpanel").addEventListener("click", async e=>{
+  const tb = e.target.closest("[data-stab]"); if(tb){ STK_TAB = tb.dataset.stab; LS.set("stkTab", STK_TAB); haptic("sel"); return renderStickerPanel(); }
+  const em = e.target.closest("[data-emo]"); if(em){ CMP.insertText(em.dataset.emo); haptic("sel"); return; }
   const s = e.target.closest("[data-stk]"); if(!s) return; hidePanels(); const id = +s.dataset.stk;
   if(pendingBill){ exitBill(); const r=await POST("/api/cmd",{order_id:CUR,cmd:"bill",sticker_id:id}).catch(()=>null); toast(r&&r.ok?r.info:((r&&r.error)||"Xatolik")); kickSync(); return; }
   const r = await POST("/api/send_sticker",{order_id:CUR,sticker_id:id,shared:CH.shared?1:0}).catch(()=>null);
@@ -1888,6 +1971,7 @@ async function hideOrder(oid){
   if(oid===CUR) backToList(); ST.chats = ST.chats.filter(c=>c.order_id!==oid); delete ST.chatMap[oid]; renderChatList(); updateBadges();
 }
 function backToList(){
+  rememberScroll();
   if(recActive()) finishRec(false);
   if(SELM) endSelect();
   saveDraftNow();
@@ -2313,6 +2397,7 @@ async function loadMyChart(){
 }
 document.querySelectorAll("#sndseg button").forEach(b=>b.onclick=()=>{ setSnd(b.dataset.v); haptic("sel"); });
 document.querySelectorAll("#themeseg button").forEach(b=>b.onclick=()=>{ setTheme(b.dataset.th); haptic("sel"); });
+document.querySelectorAll("#skinseg button").forEach(b=>b.onclick=()=>{ setSkin(b.dataset.sk); haptic("sel"); });
 document.querySelectorAll("#langseg button").forEach(b=>{ b.classList.toggle("on", b.dataset.l===LANG);
   b.onclick=()=>{ if(b.dataset.l!==LANG){ haptic("sel"); I18N.setLang(b.dataset.l); } }; });
 
@@ -2636,6 +2721,7 @@ const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logou
   closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
   openNotifications, closeOperatorChat, sendOperator };
 document.addEventListener("click", e=>{
+  if(e.button) return;   // faqat chap tugma (o'ng tugma — kontekst menyu)
   const t = e.target.closest("[data-act]"); if(!t) return;
   const f = ACTS[t.dataset.act]; if(!f) return;
   if(t.dataset.act==="unpin") e.stopPropagation();
@@ -2647,10 +2733,24 @@ document.querySelectorAll(".tabbar button").forEach(b=>b.onclick=()=>showTab(b.d
 document.addEventListener("keydown", e=>{
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="c" && SELM && CURSCREEN==="chat" && !getSelection().toString()){ e.preventDefault(); copySel(); return; }
   if(e.key==="Escape" && SELM){ e.preventDefault(); endSelect(); return; }
+  if(e.altKey && (e.key==="ArrowUp" || e.key==="ArrowDown")){
+    const rows = [...document.querySelectorAll("#chatlist .crow[data-oid]")]; if(!rows.length) return;
+    e.preventDefault();
+    let i = rows.findIndex(r=>+r.dataset.oid===CUR);
+    i = i<0 ? 0 : Math.max(0, Math.min(rows.length-1, i + (e.key==="ArrowUp" ? -1 : 1)));
+    const r = rows[i]; if(+r.dataset.oid!==CUR) openChat(+r.dataset.oid, r.dataset.name);
+    return;
+  }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="k"){
+    e.preventDefault(); if(CURSCREEN==="chat" && !isWide()) backToList(); showTab("chats");
+    if($("chsearch").classList.contains("hide")) toggleSearch(); else $("ch-q").focus();
+    return;
+  }
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="f" && CURSCREEN==="chat"){ e.preventDefault(); if($("csearch").classList.contains("hide")) chatSearch(); else $("cs-q").focus(); }
 });
 
 /* ---------- start ---------- */
+setSkin(LS.get("skin")||"tg");
 setTheme(LS.get("theme")||"auto");
 setPattern();
 applyInsets();

@@ -140,7 +140,8 @@ const RU = {
   "Hozircha yangi murojaat yo'q":"Новых обращений пока нет","Boshqa operator qabul qildi":"Другой оператор уже принял",
   // profil
   "Qabul":"Принято","Yakun":"Завершено","Baho":"Оценка","Holatim":"Мой статус","Ovoz":"Звук","Baland":"Громко","Past":"Тихо",
-  "O'chiq":"Выкл","Mavzu":"Тема","Avto":"Авто","Yorug'":"Светлая","Tungi":"Тёмная","Til":"Язык",
+  "O'chiq":"Выкл","Mavzu":"Тема","Uslub":"Стиль","Ovozsiz yuborish":"Отправить без звука","Reaksiya qo'yilmadi":"Реакция не поставлена",
+  "Ko'p ishlatiladigan":"Часто используемые","Yuzlar":"Смайлы","Qo'llar":"Жесты","Belgilar":"Символы","Tibbiyot":"Медицина","Stikerlar":"Стикеры","Avto":"Авто","Yorug'":"Светлая","Tungi":"Тёмная","Til":"Язык",
   "Chat foni":"Фон чата","Tayyor fonlar yoki o'z rasmingiz":"Готовые фоны или своё фото",
   "Mening haftam":"Моя неделя","kunlik yakunlar":"завершения по дням",
   "Bu hafta hali yakunlangan murojaat yo'q.":"На этой неделе ещё нет завершённых обращений.","Birinchisini yakunlang 💪":"Завершите первое 💪",

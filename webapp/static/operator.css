@@ -314,7 +314,7 @@ html[data-scheme="dark"] .note .nb{background:#3d3418;color:#f0dc9a}
 #ed{flex:1;min-width:0;max-height:160px;padding:11px 0;font-size:16px;line-height:1.35}
 .inwrap .cbtn{width:36px;height:44px}
 #sendbtn{color:var(--accent)}
-#sendbtn svg{transform:rotate(45deg) translate(-2px,1px)}
+#sendbtn svg{transform:translateX(1px)}   /* Telegram: samolyot o'ngga qaraydi */
 #mic{touch-action:none}
 .composer.rec .inwrap,.composer.rec #attachbtn{display:none}
 #recui{flex:1;display:none;align-items:center;gap:10px;height:44px;padding-left:10px;min-width:0}
@@ -569,8 +569,8 @@ html[data-scheme="dark"] #pauseresume .pr-t{color:#fbbf24}
 /* To'liq ekran tugmasi */
 .fsbtn.hide{display:none}
 
-/* ===== Gulnora Farm — logotipga mos monoxrom operator ish joyi ===== */
-:root{
+/* ===== Gulnora Farm — logotipga mos monoxrom skin (Profil → Uslub → Gulnora) ===== */
+html[data-skin="mono"]{
   --bg:#ffffff;--sec:#f5f5f3;--text:#232323;--hint:#747474;--link:#555555;
   --accent:#686868;--accent-text:#fff;--sep:#e3e3df;--green:#4f7864;--brand:#808080;
   --b-in:#ffffff;--b-in-t:#232323;--b-out:#e9e9e6;--b-out-t:#232323;
@@ -578,55 +578,56 @@ html[data-scheme="dark"] #pauseresume .pr-t{color:#fbbf24}
 }
 .general-hint{padding:8px 13px;color:var(--hint);font-size:12px;background:var(--sec);border-bottom:1px solid var(--sep)}
 .op-owner{display:inline-flex;align-items:center;max-width:130px;padding:2px 7px;border-radius:9px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html[data-theme="light"]{--bg:#ffffff;--sec:#f5f5f3;--text:#232323;--hint:#747474;--link:#555555;--accent:#686868;--sep:#e3e3df}
-html[data-theme="dark"],html[data-scheme="dark"]{
+html[data-skin="mono"][data-theme="light"]{--bg:#ffffff;--sec:#f5f5f3;--text:#232323;--hint:#747474;--link:#555555;--accent:#686868;--sep:#e3e3df}
+html[data-skin="mono"][data-theme="dark"],html[data-skin="mono"][data-scheme="dark"]{
   --bg:#202020;--sec:#171717;--text:#f4f4f2;--hint:#a0a09c;--link:#d1d1cd;
   --accent:#b9b9b4;--accent-text:#1c1c1c;--sep:#383836;--b-in:#292929;--b-in-t:#f4f4f2;
   --b-out:#444442;--b-out-t:#fff;--meta-in:#a0a09c;--meta-out:#d0d0cc;--q-in:#bbb;--q-out:#d0d0cc;--chat-bg:#181818;
 }
-html,body{letter-spacing:-.005em}
-.topbar{min-height:60px;padding:7px 10px;box-shadow:none}
-.topbar .t{font-weight:680;letter-spacing:-.015em}
-.opbrand{display:flex;align-items:center;gap:8px;flex:0 0 auto;color:var(--text);font-size:12px;font-weight:700}
-.opbrand img{width:38px;height:38px;object-fit:cover;border-radius:10px;background:var(--brand)}
-.opbrand span{display:none}
-.notifybtn{position:relative}.headbadge{position:absolute;right:1px;top:1px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+html[data-skin="mono"],html[data-skin="mono"] body{letter-spacing:-.005em}
+html[data-skin="mono"] .topbar{min-height:60px;padding:7px 10px;box-shadow:none}
+html[data-skin="mono"] .topbar .t{font-weight:680;letter-spacing:-.015em}
+html[data-skin="mono"] .opbrand{display:flex;align-items:center;gap:8px;flex:0 0 auto;color:var(--text);font-size:12px;font-weight:700}
+html[data-skin="mono"] .opbrand img{width:38px;height:38px;object-fit:cover;border-radius:10px;background:var(--brand)}
+html[data-skin="mono"] .opbrand span{display:none}
+html[data-skin="mono"] .notifybtn{position:relative}html[data-skin="mono"] .headbadge{position:absolute;right:1px;top:1px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
   display:flex;align-items:center;justify-content:center;background:#333;color:#fff;border:2px solid var(--bg);font-size:9px;font-weight:750}
-#login .logo{background:var(--accent);border-radius:18px;box-shadow:none}
-#login .logo.brand-logo{width:148px;height:148px;padding:0;overflow:hidden;border-radius:24px;background:#808080}
-#login .logo.brand-logo img{display:block;width:100%;height:100%;object-fit:cover}
-#login{background:var(--sec)}
-#login h2{font-size:24px;font-weight:720;letter-spacing:-.025em}
-#login-form{max-width:390px;background:var(--bg);border:1px solid var(--sep);border-radius:16px;padding:18px}
-.btn,.sbtn{border-radius:10px;box-shadow:none}
-.field input{border:1px solid var(--sep);border-radius:10px;background:var(--bg)}
-.saved-card,.list,.cards .card{border:1px solid var(--sep);box-shadow:none;border-radius:12px}
-.list{margin:10px 12px}
-.searchbox .in{border-radius:10px;border:1px solid var(--sep);background:var(--sec)}
-.folders{gap:5px;padding:4px 10px 5px}
-.folders button{padding:8px 10px;border-radius:8px;font-size:13.5px}
-.folders button.on{background:var(--text);color:var(--bg)}
-.folders button.on .fc{background:var(--bg);color:var(--text)}
-.folders button.on::after{display:none}
-.cfront{padding:10px 12px}.cfront .mid{padding:3px 0}.l1 .nm{font-size:15.5px}.l2 .pv{font-size:14px}
-.crow.sel .cfront{background:color-mix(in srgb,var(--text) 6%,var(--bg))}
-.tabbar{padding:4px 4px var(--safe-b);background:var(--bg)}
-.tabbar button{border-radius:9px;padding:6px 0 7px}
-.tabbar button.on{background:color-mix(in srgb,var(--text) 7%,var(--bg));color:var(--text)}
-.tabbar button.on .ic{stroke-width:2.2}
-.sheet{border-radius:16px 16px 0 0;box-shadow:0 -16px 42px rgba(0,0,0,.17)}
-.item{padding:12px 15px}.item .ic{stroke-width:1.8}
-.prow .pi{border-radius:9px;background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
-.prow .mini{border-radius:8px}.prow .mini:hover{background:var(--sec)}
-.composer{gap:4px;padding:7px 8px;background:var(--bg)}
-.composer .inwrap{border:1px solid var(--sep);border-radius:18px;background:var(--sec)}
-.bub{border-radius:14px;box-shadow:0 1px 1px rgba(0,0,0,.1)}
-#pauseresume{background:#fff8e8;border-color:#e5c57c;box-shadow:none}
-html[data-scheme="dark"] #pauseresume{background:#302717;border-color:#665126}
-#pauseresume button{background:var(--accent);border-radius:9px;box-shadow:none}
-#pane-empty .pe-logo{display:block;width:126px;height:126px;object-fit:cover;margin:0 auto 22px;border-radius:24px;background:var(--brand)}
-#pane-empty .pe-t{font-size:20px;font-weight:720;letter-spacing:-.02em}
-#pane-empty .pe-s{max-width:360px}
+html[data-skin="mono"] #login .logo{background:var(--accent);border-radius:18px;box-shadow:none}
+html[data-skin="mono"] #login .logo.brand-logo{width:148px;height:148px;padding:0;overflow:hidden;border-radius:24px;background:#808080}
+html[data-skin="mono"] #login .logo.brand-logo img{display:block;width:100%;height:100%;object-fit:cover}
+html[data-skin="mono"] #login{background:var(--sec)}
+html[data-skin="mono"] #login h2{font-size:24px;font-weight:720;letter-spacing:-.025em}
+html[data-skin="mono"] #login-form{max-width:390px;background:var(--bg);border:1px solid var(--sep);border-radius:16px;padding:18px}
+html[data-skin="mono"] .btn,html[data-skin="mono"] .sbtn{border-radius:10px;box-shadow:none}
+html[data-skin="mono"] .field input{border:1px solid var(--sep);border-radius:10px;background:var(--bg)}
+html[data-skin="mono"] .saved-card,html[data-skin="mono"] .list,html[data-skin="mono"] .cards .card{border:1px solid var(--sep);box-shadow:none;border-radius:12px}
+html[data-skin="mono"] .list{margin:10px 12px}
+html[data-skin="mono"] .searchbox .in{border-radius:10px;border:1px solid var(--sep);background:var(--sec)}
+html[data-skin="mono"] .folders{gap:5px;padding:4px 10px 5px}
+html[data-skin="mono"] .folders button{padding:8px 10px;border-radius:8px;font-size:13.5px}
+html[data-skin="mono"] .folders button.on{background:var(--text);color:var(--bg)}
+html[data-skin="mono"] .folders button.on .fc{background:var(--bg);color:var(--text)}
+html[data-skin="mono"] .folders button.on::after{display:none}
+html[data-skin="mono"] .cfront{padding:10px 12px}html[data-skin="mono"] .cfront .mid{padding:3px 0}html[data-skin="mono"] .l1 .nm{font-size:15.5px}html[data-skin="mono"] .l2 .pv{font-size:14px}
+html[data-skin="mono"] .crow.sel .cfront{background:color-mix(in srgb,var(--text) 6%,var(--bg))}
+html[data-skin="mono"] .tabbar{padding:4px 4px var(--safe-b);background:var(--bg)}
+html[data-skin="mono"] .tabbar button{border-radius:9px;padding:6px 0 7px}
+html[data-skin="mono"] .tabbar button.on{background:color-mix(in srgb,var(--text) 7%,var(--bg));color:var(--text)}
+html[data-skin="mono"] .tabbar button.on .ic{stroke-width:2.2}
+html[data-skin="mono"] .sheet{border-radius:16px 16px 0 0;box-shadow:0 -16px 42px rgba(0,0,0,.17)}
+html[data-skin="mono"] .item{padding:12px 15px}html[data-skin="mono"] .item .ic{stroke-width:1.8}
+html[data-skin="mono"] .prow .pi{border-radius:9px;background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+html[data-skin="mono"] .prow .mini{border-radius:8px}html[data-skin="mono"] .prow .mini:hover{background:var(--sec)}
+html[data-skin="mono"] .composer{gap:4px;padding:7px 8px;background:var(--bg)}
+html[data-skin="mono"] .composer .inwrap{border:1px solid var(--sep);border-radius:18px;background:var(--sec)}
+html[data-skin="mono"] .bub{box-shadow:0 1px 1px rgba(0,0,0,.1)}
+html[data-skin="mono"] .bub{border-radius:14px}
+html[data-skin="mono"] #pauseresume{background:#fff8e8;border-color:#e5c57c;box-shadow:none}
+html[data-skin="mono"][data-scheme="dark"] #pauseresume{background:#302717;border-color:#665126}
+html[data-skin="mono"] #pauseresume button{background:var(--accent);border-radius:9px;box-shadow:none}
+html[data-skin="mono"] #pane-empty .pe-logo{display:block;width:126px;height:126px;object-fit:cover;margin:0 auto 22px;border-radius:24px;background:var(--brand)}
+html[data-skin="mono"] #pane-empty .pe-t{font-size:20px;font-weight:720;letter-spacing:-.02em}
+html[data-skin="mono"] #pane-empty .pe-s{max-width:360px}
 
 /* Tanlangan xabarlar va operatorlararo chat */
 #selbar .seldelete{display:flex;align-items:center;gap:6px;border:1px solid #d9a6a6;border-radius:10px;padding:8px 13px;
@@ -661,8 +662,299 @@ html[data-scheme="dark"] .autoclose-pill{background:#352b18;border-color:#665229
   body.wide #chat,body.wide #channel,body.wide #listview,body.wide #opchat{left:420px}
   body.wide .overlay,body.wide #mediamodal,body.wide #viewer{left:420px}
   #pane-empty{left:420px}
-  body.wide .tabbar{margin:8px;border:1px solid var(--sep);border-radius:11px;padding-bottom:4px}
+  html[data-skin="mono"] body.wide .tabbar{margin:8px;border:1px solid var(--sep);border-radius:11px;padding-bottom:4px}
   .opbrand span{display:block}
 }
 
 @media (max-width:380px){.opbrand img{width:34px;height:34px}.topbar{padding-left:7px}.notifybtn{width:36px}}
+
+/* ===== Telegram skin (standart): qorong'i rejim zaxira ranglari (Telegramdan tashqarida ochilganda) ===== */
+html:not([data-skin="mono"])[data-scheme="dark"]{
+  --bg:var(--tg-theme-bg-color,#17212b);--sec:var(--tg-theme-secondary-bg-color,#0e1621);--text:var(--tg-theme-text-color,#f5f5f5);
+  --hint:var(--tg-theme-hint-color,#7d8b99);--link:var(--tg-theme-link-color,#6ab3f3);--sep:rgba(255,255,255,.08);--chat-bg:#0e1621}
+html:not([data-skin="mono"]) .headbadge{background:var(--red)}
+html:not([data-skin="mono"]) .opcomposer button{background:var(--accent);color:#fff}
+html:not([data-skin="mono"]) .crow .ava{width:54px;height:54px}
+html:not([data-skin="mono"]) .tabbar button.on .ic{stroke:var(--accent)}
+
+/* ===== Reaksiyalar ===== */
+.rxc{display:inline-flex;align-items:center;justify-content:center;height:22px;min-width:30px;padding:0 7px;margin-right:6px;border-radius:11px;
+  font-size:14px;line-height:1;cursor:pointer;background:color-mix(in srgb,var(--accent) 16%,transparent);color:inherit;-webkit-text-fill-color:initial}
+.mrow.o .rxc{background:color-mix(in srgb,var(--meta-out) 22%,transparent)}
+.bub.media.nocap .rxc,.bub.stick .rxc,.bub.emo .rxc{background:rgba(255,255,255,.25);height:18px;min-width:24px;padding:0 5px;font-size:12px}
+.rxc.pop{animation:rxPop .35s cubic-bezier(.2,1.6,.4,1)}
+@keyframes rxPop{0%{transform:scale(.3)}100%{transform:scale(1)}}
+/* Menyu ochiq xabar — Telegramdek ajralib turadi */
+.mrow.menu-on .bub{filter:brightness(.93);transform:scale(.985);transition:transform .15s,filter .15s}
+html[data-scheme="dark"] .mrow.menu-on .bub{filter:brightness(1.18)}
+
+/* ===== Emoji / stiker paneli ===== */
+#stickerpanel{display:block;padding:0;max-height:300px;overflow:hidden;flex-direction:column}
+#stickerpanel:not(.hide){display:flex}
+.emtabs{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--sep);flex-shrink:0}
+.emtabs button{flex:1;border:0;background:none;padding:7px 0;border-radius:10px;font-size:14px;font-weight:600;color:var(--hint);cursor:pointer}
+.emtabs button.on{background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent)}
+.embody{overflow-y:auto;padding:4px 8px 8px;flex:1}
+.emh{font-size:12.5px;font-weight:600;color:var(--hint);padding:8px 4px 4px;position:sticky;top:-4px;background:var(--bg);z-index:1}
+.emg{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr))}
+.emg button{border:0;background:none;font-size:26px;height:44px;border-radius:10px;cursor:pointer;padding:0;line-height:1;transition:transform .1s}
+.emg button:hover{background:var(--sec)}.emg button:active{transform:scale(.85)}
+.stkg{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:4px;padding-top:6px}
+
+/* ===== Chatlar ro'yxati — Telegram detallari ===== */
+.crow .cfront{transition:background .12s,transform .2s}
+@media (hover:hover){ .crow .cfront:hover{background:color-mix(in srgb,var(--text) 4%,var(--bg))} }
+.crow .cfront:active{background:color-mix(in srgb,var(--text) 7%,var(--bg))}
+.crow mark,.lmark{background:none;color:var(--accent);font-weight:600;padding:0}
+.crow .badge{animation:pop .2s ease-out}
+.crow.pinned .l2 .ic-pin{opacity:.6}
+.skel{display:flex;align-items:center;gap:12px;padding:10px 12px}
+.skel .sa{width:54px;height:54px;border-radius:50%;background:var(--sec);flex-shrink:0}
+.skel .sl{flex:1}.skel .sl div{height:12px;border-radius:6px;background:var(--sec);margin:6px 0}
+.skel .sl div:last-child{width:62%}
+.skel .sa,.skel .sl div{animation:pulse 1.2s ease-in-out infinite}
+
+/* ===== Uslub tanlash ===== */
+#skinseg button{min-width:0}
+
+/* =====================================================================
+   TELEGRAM 1:1 — o'lchamlar, bo'shliqlar, tugmalar (Telegram Web A / mobil)
+   «Gulnora» uslubi o'z qoidalarini saqlaydi (ular html[data-skin="mono"] bilan kuchliroq).
+   ===================================================================== */
+html:not([data-skin="mono"]):not([data-theme]){
+  --text:var(--tg-theme-text-color,#000);--hint:var(--tg-theme-hint-color,#707579);
+  --sec:var(--tg-theme-secondary-bg-color,#f4f4f5);--sep:rgba(0,0,0,.09)}
+html:not([data-skin="mono"])[data-theme="light"]{--text:#000;--hint:#707579;--sec:#f4f4f5;--sep:rgba(0,0,0,.09);--accent:#3390ec;--link:#3390ec}
+html:not([data-skin="mono"])[data-scheme="dark"]{--sep:rgba(255,255,255,.07)}
+html:not([data-skin="mono"]) body{font-size:16px;letter-spacing:0}
+
+/* --- sarlavha paneli: 56px, ikonka tugmalari 40px --- */
+.topbar{min-height:56px;padding:0 8px;gap:4px}
+.topbar .t{font-size:19px;font-weight:600;padding-left:8px;letter-spacing:-.01em}
+.iconbtn{width:40px;height:40px;color:var(--hint)}
+.iconbtn .ic{width:24px;height:24px}
+.opbrand{display:flex;align-items:center;flex:0 0 auto;margin-left:4px}
+.opbrand img{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#808080;display:block}
+.opbrand span{display:none}
+.notifybtn{position:relative}
+.headbadge{position:absolute;right:3px;top:3px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;display:flex;align-items:center;
+  justify-content:center;background:var(--red);color:#fff;border:2px solid var(--bg);font-size:10.5px;font-weight:600;box-sizing:content-box}
+
+/* --- qidiruv: Telegram «pill» 42px, fokusda ko'k ramka --- */
+.searchbox{padding:6px 8px 8px}
+.searchbox .in{height:42px;border-radius:22px;padding:0 14px;gap:10px;background:var(--sec);border:2px solid transparent;transition:border-color .15s,background .15s}
+.searchbox .in:focus-within{border-color:var(--accent);background:var(--bg)}
+.searchbox .in:focus-within > .ic{color:var(--accent)!important}
+.searchbox input{font-size:16px}
+.searchbox input::placeholder,#csearch input::placeholder{color:var(--hint)}
+
+/* --- papkalar (tablar): 15px, 3px chiziq --- */
+.folders{gap:0;padding:0 6px;min-height:46px;align-items:stretch}
+.folders button{padding:0 12px;font-size:15px;font-weight:500;gap:6px;border-radius:8px 8px 0 0;transition:color .15s,background .15s}
+@media (hover:hover){ .folders button:hover{background:color-mix(in srgb,var(--text) 4%,transparent)} }
+.folders button.on{font-weight:600}
+.folders button.on::after{left:10px;right:10px;height:3px;border-radius:3px 3px 0 0}
+.folders .fc{min-width:20px;height:20px;padding:0 6px;border-radius:10px;font-size:12px;font-weight:600;background:color-mix(in srgb,var(--hint) 55%,transparent);color:#fff}
+.folders button.on .fc{background:var(--accent)}
+@media (max-width:420px){ .folders button{padding:0 10px;font-size:14.5px} }
+
+/* --- chatlar ro'yxati: 72px qator, 54px avatar, ichki ajratgich --- */
+.cfront{gap:0;padding:0 0 0 9px;min-height:72px;align-items:center}
+.cfront .ava,.chanava{width:54px;height:54px;font-size:20px;margin-right:12px}
+.cfront .mid{align-self:stretch;padding:9px 12px 9px 0;border-bottom:1px solid var(--sep);justify-content:center;gap:3px}
+.crow:last-child .mid{border-bottom-color:transparent}
+.l1{gap:8px;min-height:22px}
+.l1 .nm{font-size:16px;font-weight:600;letter-spacing:-.005em}
+.l1 .tm{font-size:12.5px;gap:3px;color:var(--hint)}
+.l1 .tm svg{color:var(--green)}
+.l2{gap:8px;margin-top:0;min-height:22px}
+.l2 .pv{font-size:15px;line-height:22px}
+.l2 .pv .me{color:var(--text)}
+.l2 .pv .dr{color:#e53935}
+.l2 .badge{min-width:22px;height:22px;border-radius:11px;padding:0 7px;font-size:13px;font-weight:600}
+.l1 .chip,.brc{flex-shrink:1;min-width:0}
+.crow.sel .cfront{background:var(--accent)!important;box-shadow:none!important}
+.crow.sel .cfront .mid{border-bottom-color:transparent}
+.crow.sel .nm,.crow.sel .pv,.crow.sel .pv .me,.crow.sel .tm,.crow.sel .l1 .tm svg,.crow.sel .pzl,.crow.sel .pv .dr{color:#fff!important}
+.crow.sel .badge{background:#fff;color:var(--accent)}
+.crow.sel .brc,.crow.sel .chip,.crow.sel .wait-pill{background:rgba(255,255,255,.22);color:#fff}
+.crow.pinned .cfront{background:var(--bg)}
+/* SLA ogohlantirishi — yumshoq */
+.crow.wait-warn .cfront{background:color-mix(in srgb,#f2b233 8%,var(--bg));box-shadow:inset 3px 0 #f0a92a}
+.crow.wait-danger .cfront{background:color-mix(in srgb,#e34b4b 8%,var(--bg));box-shadow:inset 3px 0 #e53935}
+.wait-pill{height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:11px;border:0;font-size:12px;font-weight:600;
+  color:#a86400;background:color-mix(in srgb,#f0a92a 18%,var(--bg))}
+.wait-danger .wait-pill{color:#fff;background:#e53935}
+.autoclose-pill{height:22px;border-radius:11px;padding:0 8px;border:0}
+.cacts button{width:74px;font-size:12.5px;font-weight:500}
+/* kompyuter: Telegram Web kabi yumaloq qatorlar, ajratgichsiz */
+body.wide .crow{margin:0 8px;border-radius:12px}
+body.wide .cfront{border-radius:12px;padding-left:8px}
+body.wide .cfront .mid{border-bottom:0}
+body.wide #chatlist{padding:4px 0 8px}
+
+/* --- pastki tab paneli: Telegram iOS (yassi, 27px ikonka) --- */
+.tabbar{padding:0 0 var(--safe-b);border-top:1px solid var(--sep);background:color-mix(in srgb,var(--bg) 94%,transparent);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px)}
+.tabbar button{padding:6px 0 4px;gap:2px;font-size:10.5px;font-weight:500;border-radius:0;min-height:50px}
+.tabbar button .ic{width:27px;height:27px;stroke-width:1.8}
+.tabbar button.on{color:var(--accent);background:none;font-weight:600}
+.tabbar button.on .ic{stroke-width:2.1}
+.tabbar .tdot{top:2px;left:calc(50% + 5px);min-width:18px;height:18px;font-size:11px;font-weight:600;box-sizing:border-box}
+body.wide .tabbar{margin:0;border:0;border-top:1px solid var(--sep);border-radius:0}
+
+/* --- chat sarlavhasi --- */
+#chat .topbar{gap:2px;padding:0 6px}
+#c-ava{width:42px;height:42px;font-size:17px;margin-left:2px}
+.ctitle{padding-left:10px}
+.ctitle .n{font-size:16px;font-weight:600;line-height:1.3}
+.ctitle .s{font-size:14px;line-height:1.3}
+
+/* --- «Yetkazib berish / Olib ketish» — Telegramning yuqori amallar paneli kabi --- */
+#fulfillbar{gap:0;padding:0;min-height:44px;align-items:stretch}
+.ffbtn{border:0;border-radius:0;background:none;color:var(--accent);font-size:14.5px;font-weight:500;padding:0 8px;gap:7px;transition:background .15s,color .15s}
+.ffbtn + .ffbtn{border-left:1px solid var(--sep)}
+@media (hover:hover){ .ffbtn:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)} }
+.ffbtn.on.d{background:color-mix(in srgb,#31b545 13%,var(--bg));color:#1f8f33;border-color:var(--sep)}
+.ffbtn.on.p{background:color-mix(in srgb,#3390ec 13%,var(--bg));color:#2a7ed3;border-color:var(--sep)}
+html[data-scheme="dark"] .ffbtn.on.d{color:#5fd270}
+html[data-scheme="dark"] .ffbtn.on.p{color:#6ab3f3}
+
+/* --- qadalgan / izoh / pauza panellari: 48px --- */
+.bar2{min-height:48px;padding:5px 8px 5px 12px;gap:10px}
+.bar2 .ln{width:2px}
+.bar2 .bt{font-size:14px;font-weight:600;line-height:1.3}
+.bar2 .bs{font-size:14px;line-height:1.3}
+#tagsbar{padding:7px 12px;gap:6px}
+#csearch{padding:6px 8px;gap:4px}
+#csearch input{height:40px;padding:0 16px;border-radius:20px;font-size:16px}
+
+/* --- xabarlar: 16px matn, Telegram pufakchalari, kompyuterda 728px ustun --- */
+#msgs{padding:8px max(8px,calc((100% - 728px)/2)) 10px}
+.mrow{padding:1px 6px}
+.mrow.gend{margin-bottom:7px}
+.bub{max-width:min(calc(100% - 48px),480px);padding:6px 9px 7px 11px;border-radius:15px;font-size:16px;line-height:1.3125;
+  letter-spacing:0;box-shadow:0 1px 2px rgba(16,35,47,.15)}
+html[data-scheme="dark"] .bub{box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.mrow.c .bub{border-bottom-left-radius:6px}
+.mrow.o .bub{border-bottom-right-radius:6px}
+.mrow.c:not(.gstart) .bub{border-top-left-radius:6px}
+.mrow.o:not(.gstart) .bub{border-top-right-radius:6px}
+.mrow.c.gend .bub.tail{border-bottom-left-radius:0}
+.mrow.o.gend .bub.tail{border-bottom-right-radius:0}
+.mrow.gend .bub.tail::before{width:9px;height:16px}
+.mrow.c.gend .bub.tail::before{left:-8px;clip-path:path("M9 0 V16 H0 C4 15 8 11 9 4 Z")}
+.mrow.o.gend .bub.tail::before{right:-8px;clip-path:path("M0 0 V16 H9 C5 15 1 11 0 4 Z")}
+.meta{font-size:12px;margin:8px 0 -6px 12px;gap:3px;top:0}
+.bub.media{padding:2px}
+.ph,.album,.vid{border-radius:13px}
+.rq{margin:2px 0 5px;padding:4px 8px;border-radius:5px;border-left-width:3px}
+.rq .rqn,.rq .rqt{font-size:14px}
+.dsep{margin:12px 0 10px}
+.dsep span{font-size:14px;font-weight:500;padding:3px 10px;border-radius:14px;background:rgba(0,0,0,.22)}
+.unsep{margin:12px -6px;font-size:14px;font-weight:500;padding:4px 0;color:var(--hint);background:color-mix(in srgb,var(--bg) 80%,transparent);border-radius:8px}
+.sysm span{font-size:14px;font-weight:500;padding:3px 10px;background:rgba(0,0,0,.22)}
+.rxc{height:24px;min-width:34px;padding:0 8px;font-size:15px;margin-right:8px;border-radius:12px}
+#fab{width:48px;height:48px;right:14px;bottom:14px;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+#fab .badge{top:-8px;min-width:22px;height:22px}
+
+/* --- yozish paneli: mobil — Telegram iOS/Android --- */
+.cwrap{border-top:1px solid var(--sep)}
+.composer{gap:2px;padding:5px 6px 5px 4px;align-items:flex-end}
+.composer .cbtn{width:46px;height:46px;color:var(--hint)}
+.composer .cbtn .ic{width:26px;height:26px}
+@media (hover:hover){ .composer .cbtn:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)} }
+.inwrap{min-height:42px;border-radius:21px;padding:0 4px 0 14px;background:var(--sec);border:1px solid transparent;margin:2px 0}
+.inwrap .cbtn{width:38px;height:42px}
+.inwrap .cbtn .ic{width:24px;height:24px}
+#ed{padding:10px 0;font-size:16px;line-height:1.3125}
+#sendbtn{color:var(--accent)}
+#sendbtn .ic{width:28px;height:28px}
+#replybar{padding:8px 6px 4px 14px;gap:12px}
+#replybar .ln{width:2px}
+#rb-title,#rb-text{font-size:14px}
+.panel{border-bottom:1px solid var(--sep)}
+.qr{padding:10px 16px;gap:12px}
+
+/* --- kompyuter: Telegram Web — yozish maydoni fon ustida «suzadi» --- */
+body.wide #chat .cwrap{background:transparent;border-top:0;padding:0 max(8px,calc((100% - 728px)/2)) 14px}
+body.wide #chat{overflow:hidden}
+body.wide #chat .chatbody{overflow:visible}
+body.wide #chat #wall{top:0;left:0;right:0;bottom:-420px}
+body.wide #chat #walldim{bottom:-420px}
+body.wide #chat .composer{padding:0 6px;gap:0;align-items:flex-end}
+body.wide #chat #attachbtn{width:54px;height:54px;background:var(--bg);border-radius:16px 0 0 16px;box-shadow:-1px 1px 2px rgba(16,35,47,.12)}
+body.wide #chat .inwrap{min-height:54px;margin:0;border-radius:0 16px 16px 0;background:var(--bg);border:0;padding:0 8px 0 2px;box-shadow:1px 1px 2px rgba(16,35,47,.12)}
+body.wide #chat .inwrap .cbtn{height:54px}
+body.wide #chat #ed{padding:16px 0}
+body.wide #chat #mic,body.wide #chat #sendbtn{width:54px;height:54px;margin-left:8px;background:var(--bg);box-shadow:0 1px 2px rgba(16,35,47,.15)}
+body.wide #chat #sendbtn{background:var(--accent);color:#fff}
+body.wide #chat #sendbtn .ic{width:24px;height:24px}
+body.wide #chat #recui{background:var(--bg);border-radius:16px;height:54px;padding:0 10px}
+body.wide #chat #replybar,body.wide #chat .panel,body.wide #chat #resumebar,body.wide #chat #pauseresume{background:var(--bg);margin:0 6px 6px;border-radius:14px;box-shadow:0 1px 2px rgba(16,35,47,.15)}
+body.wide #chat #replybar{padding:8px 8px 8px 14px}
+body.wide #chat .panel{border-bottom:0}
+html[data-scheme="dark"] body.wide #chat #attachbtn,html[data-scheme="dark"] body.wide #chat .inwrap{box-shadow:none}
+
+/* --- kontekst menyu: Telegram Web (shaffof + blur) --- */
+.tgf-menu{min-width:220px;padding:4px 0;border-radius:12px;background:color-mix(in srgb,var(--bg) 84%,transparent);
+  backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
+  box-shadow:0 4px 24px rgba(0,0,0,.18),0 0 0 .5px rgba(0,0,0,.06)}
+.tgf-mi{margin:1px 4px;padding:0 12px;min-height:36px;border-radius:7px;gap:16px;font-size:14.5px;font-weight:500}
+.tgf-mi svg{width:20px;height:20px;opacity:.85}
+.tgf-mh{padding:6px 16px 4px;font-size:12.5px}
+.tgf-rx{padding:4px 8px 6px;gap:0}
+.tgf-rx button{width:36px;height:36px;font-size:22px}
+
+/* --- sozlamalar / profil: Telegram «Settings» --- */
+.prof{padding:24px 16px 20px}
+.prof .ava{width:110px;height:110px;font-size:44px;margin-bottom:12px}
+.prof h3{font-size:22px;font-weight:600;margin:0 0 3px}
+.prof .sub{font-size:15px}
+.list{margin:12px;border-radius:12px;border:0;box-shadow:none}
+.list .item+.item{border-top:0;position:relative}
+.list .item+.item::before{content:"";position:absolute;top:0;right:0;left:60px;border-top:1px solid var(--sep)}
+.item{min-height:50px;padding:8px 14px;gap:16px;font-size:16px}
+#tab-prof .item .ic{width:30px;height:30px;padding:5px;border-radius:8px}
+.item .sub{font-size:13.5px;margin-top:2px}
+.cards{gap:8px;padding:12px 12px 0}
+.card{border-radius:12px;padding:12px 4px;border:0}
+.card b{font-size:20px;font-weight:600}
+.card span{font-size:12.5px}
+.seg{border-radius:9px;padding:2px;gap:2px}
+.seg button{padding:6px 11px;border-radius:7px;font-size:13.5px}
+.switch{width:46px;height:28px;border-radius:14px}
+.switch::after{width:24px;height:24px;top:2px;left:2px}
+.switch.on::after{left:20px}
+.switch.on{background:#34c759}
+
+/* --- pastki oyna (sheet) va tugmalar --- */
+.sheet{border-radius:16px 16px 0 0;padding-top:16px}
+.sheet h3{font-size:18px;font-weight:600;margin:6px 18px 12px}
+@media (min-width:700px){ .sheet{border-radius:16px} }
+.btn{min-height:54px;padding:0 16px;border-radius:12px;font-size:16px;font-weight:600}
+.sbtn{min-height:50px;padding:0 14px;border-radius:12px;font-size:16px;font-weight:600;margin:8px 16px 6px}
+.field input,textarea.inp,input.inp{border-radius:12px;font-size:16px}
+.field input{height:54px;padding:0 16px}
+
+/* --- kirish ekrani --- */
+#login{gap:12px}
+#login .logo.brand-logo{width:120px;height:120px;padding:0;overflow:hidden;border-radius:50%;background:#808080;box-shadow:none;margin-bottom:10px}
+#login .logo.brand-logo img{display:block;width:100%;height:100%;object-fit:cover}
+#login h2{font-size:26px;font-weight:600}
+#login p{font-size:15px;margin-bottom:14px}
+
+/* --- kompyuter: chat tanlanmaganda — Telegramdagi fon + «pill» --- */
+html:not([data-skin="mono"]) #pane-empty{--chat-bg:linear-gradient(135deg,#d0e6b3 0%,#a6cfa4 38%,#8bc0a5 68%,#c1dcaa 100%);background:var(--chat-bg)}
+html:not([data-skin="mono"])[data-scheme="dark"] #pane-empty{--chat-bg:linear-gradient(160deg,#0f1b28 0%,#13222f 50%,#0e1621 100%)}
+html:not([data-skin="mono"]) #pane-empty::after{content:"";position:absolute;inset:0;background-image:var(--pat);background-size:300px;opacity:var(--pat-op);pointer-events:none}
+html:not([data-skin="mono"]) #pane-empty .pe-in{position:relative;z-index:1;padding:0}
+html:not([data-skin="mono"]) #pane-empty .pe-logo,html:not([data-skin="mono"]) #pane-empty .pe-s{display:none}
+html:not([data-skin="mono"]) #pane-empty .pe-t{display:inline-block;padding:4px 12px;border-radius:16px;background:rgba(0,0,0,.22);
+  color:#fff;font-size:15px;font-weight:500;backdrop-filter:blur(8px)}
+
+/* --- bildirishnoma (toast) --- */
+#toast{background:rgba(0,0,0,.78);border-radius:10px;padding:11px 16px;font-size:14.5px;backdrop-filter:blur(10px)}
+body.wide .crow .cacts{visibility:hidden}
+body.wide .crow.swiped .cacts{visibility:visible}
+body.wide .crow.wait-warn .cfront,body.wide .crow.wait-danger .cfront{box-shadow:none}

@@ -38,6 +38,11 @@ const css = `
 .tgf-sp.open{color:inherit;-webkit-text-fill-color:currentColor;background:color-mix(in srgb,var(--hint) 14%,transparent);filter:none;cursor:text}
 .tgf-a{color:var(--link,#3390ec);text-decoration:none;word-break:break-all}
 .tgf-a:hover{text-decoration:underline}
+.tgf-rx{display:flex;gap:2px;padding:2px 6px 6px;margin-bottom:4px;border-bottom:1px solid var(--sep);overflow-x:auto;scrollbar-width:none}
+.tgf-rx::-webkit-scrollbar{display:none}
+.tgf-rx button{flex:0 0 auto;width:34px;height:34px;border:0;border-radius:50%;background:none;font-size:21px;line-height:1;cursor:pointer;padding:0;transition:transform .12s}
+.tgf-rx button:hover{transform:scale(1.22);background:var(--sec,rgba(0,0,0,.05))}
+.tgf-rx button.on{background:color-mix(in srgb,var(--accent,#3390ec) 18%,transparent)}
 .tgf-menu{position:fixed;z-index:9999;min-width:220px;max-width:300px;padding:6px 0;border-radius:12px;
   background:var(--bg);color:var(--text);box-shadow:0 10px 38px rgba(0,0,0,.28),0 0 0 1px var(--sep);
   animation:tgfIn .14s ease-out;transform-origin:top left;user-select:none;-webkit-user-select:none;
@@ -95,7 +100,7 @@ function icon(n){ return n && IC[n] ? `<svg viewBox="0 0 24 24">${IC[n]}</svg>` 
 
 /* ---------------- kontekst menyu (umumiy) ---------------- */
 let _menu = null;
-function closeMenu(){ if(_menu){ _menu.remove(); _menu=null; } }
+function closeMenu(){ if(_menu){ const m=_menu; _menu=null; m.remove(); try{ m.onClose && m.onClose(); }catch(e){} } }
 function menu(x, y, items){
   closeMenu();
   const m = document.createElement("div"); m.className = "tgf-menu";
@@ -103,6 +108,17 @@ function menu(x, y, items){
     if(!it) return;
     if(it === "sep"){ m.insertAdjacentHTML("beforeend", '<div class="tgf-ms"></div>'); return; }
     if(it.header){ m.insertAdjacentHTML("beforeend", `<div class="tgf-mh">${escT(it.header)}</div>`); return; }
+    if(it.reactions){   // Telegramdek tezkor reaksiyalar qatori
+      const r = document.createElement("div"); r.className = "tgf-rx";
+      it.reactions.forEach(em=>{
+        const b = document.createElement("button"); b.type = "button"; b.textContent = em;
+        if(em === it.active) b.className = "on";
+        b.addEventListener("mousedown", e=>e.preventDefault());
+        b.addEventListener("click", e=>{ e.stopPropagation(); closeMenu(); try{ it.onPick && it.onPick(em === it.active ? "" : em); }catch(err){ console.error(err); } });
+        r.appendChild(b);
+      });
+      m.appendChild(r); return;
+    }
     const d = document.createElement("div");
     d.className = "tgf-mi" + (it.disabled?" dis":"") + (it.danger?" danger":"");
     d.innerHTML = icon(it.icon) + `<span>${escT(it.label)}</span>` + (it.key?`<span class="k">${escT(it.key)}</span>`:"");
