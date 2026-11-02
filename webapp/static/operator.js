@@ -1299,8 +1299,9 @@ const CMP = TGF.Composer($("ed"), {
   },
   onKey: (e, c)=>{
     if(cmdOpen() && (e.key==="ArrowUp" || e.key==="ArrowDown")){ e.preventDefault(); cmdMove(e.key==="ArrowUp" ? -1 : 1); return; }
-    if(cmdOpen() && e.key==="Tab"){ e.preventDefault(); const x=CMDLIST[CMDSEL]; if(x){ if(x.kind==="br" || BRANCH_CMDS.includes(x.id)) pickCmdItem(x); else c.setText(x.c); } return; }
+    if(cmdOpen() && e.key==="Tab"){ e.preventDefault(); const x=CMDLIST[CMDSEL]; if(x){ if(x.kind==="br" || x.kind==="tpl" || BRANCH_CMDS.includes(x.id)) pickCmdItem(x); else c.setText(x.c); } return; }
     if(e.key==="Escape" && BRMODE){ e.preventDefault(); e.stopPropagation(); BRMODE = null; c.clear(); hidePanels(); return; }
+    if(e.key==="Escape" && cmdOpen()){ e.preventDefault(); e.stopPropagation(); CMDLIST=[];CMDSEL=-1;$("cmdpanel").classList.add("hide");updateBackBtn();return; }
     if(e.key==="ArrowUp" && c.isEmpty() && CH && !CH.editMid){
       const last = [...CH.order].reverse().map(i=>CH.msgs.get(i)).find(m=>m.own && m.cmid && m.type==="text" && !String(m.text).startsWith("👨‍💼"));
       if(last){ e.preventDefault(); startEdit(last.mid); }
@@ -1481,6 +1482,7 @@ function cmdHighlight(){
 function cmdMove(d){ if(!CMDLIST.length) return; CMDSEL = (CMDSEL + d + CMDLIST.length) % CMDLIST.length; cmdHighlight(); haptic("sel"); }
 function cmdRunSelected(){ const x = CMDLIST[CMDSEL]; if(!x) return false; pickCmdItem(x); return true; }
 function pickCmdItem(x){
+  if(x.kind==="tpl"){ hidePanels(); CMP.setText(x.t.text); CMP.focusEnd(); haptic("sel"); return; }
   if(x.kind==="br"){ BRMODE = null; CMP.clear(); hidePanels(); runBranchCmd(x.cm.id, x.b); return; }
   if(BRANCH_CMDS.includes(x.id)){   // filial buyrug'i: ro'yxat chiqadi, yozib qidiriladi
     BRMODE = x; CMP.setText(x.c + " "); haptic("sel"); return;
@@ -1495,6 +1497,18 @@ function branchRowsHtml(list, sel, attr){
 }
 function updateCmd(v){
   const p = $("cmdpanel"); v = v || "";
+  const quick=/^\*([^\n]*)$/.exec(v.trimStart());
+  if(quick){
+    const query=quick[1].trim().toLowerCase();
+    if(!TPLS){CMDLIST=[];CMDSEL=-1;p.innerHTML='<div class="spinner"></div>';p.classList.remove("hide");ensureTpls().then(()=>{if(/^\*[^\n]*$/.test(CMP.getText().trimStart()))updateCmd(CMP.getText());});return;}
+    const matches=TPLS.filter(t=>!query||String(t.text||"").toLowerCase().includes(query));
+    const prev=CMDLIST[CMDSEL]?.t?.id;
+    CMDLIST=matches.map(t=>({kind:"tpl",t,c:"*"+quick[1],d:t.text}));
+    const pi=CMDLIST.findIndex(x=>x.t.id===prev);CMDSEL=CMDLIST.length?(pi>=0?pi:0):-1;
+    if(matches.length){p.innerHTML=`<div class="phint">${esc(T("Tezkor javoblar · ↑↓ tanlash · Enter qo'shish"))}</div>`+
+      matches.map((t,i)=>`<div class="qr${i===CMDSEL?" sel":""}" data-ci="${i}"><svg class="ic" viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg><div class="tx">${esc(t.text)}</div>${t.own?'<span class="own">MENIKI</span>':""}</div>`).join("");p.classList.remove("hide");cmdHighlight();return;}
+    p.classList.add("hide");CMDLIST=[];CMDSEL=-1;return;
+  }
   const bc = brCmdOf(v);
   if(bc){
     BRMODE = bc.cm;
@@ -1571,6 +1585,8 @@ async function openBranchPicker(id){
 function hidePanels(){ ["cmdpanel","quickpanel","stickerpanel"].forEach(i=>$(i).classList.add("hide")); updateBackBtn(); }
 let TPLS = null;
 async function loadTpls(){ const r = await GET("/api/templates").catch(()=>null); TPLS = r && r.ok ? r.items : []; return TPLS; }
+let TPLS_LOADING = null;
+function ensureTpls(){ if(TPLS!==null)return Promise.resolve(TPLS); if(!TPLS_LOADING)TPLS_LOADING=loadTpls().finally(()=>{TPLS_LOADING=null;}); return TPLS_LOADING; }
 async function toggleQuick(){
   const p = $("quickpanel"); const was = !p.classList.contains("hide"); hidePanels(); if(was) return;
   await loadTpls();
