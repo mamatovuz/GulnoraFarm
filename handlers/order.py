@@ -19,6 +19,13 @@ router = Router()
 
 # Albom (bir nechta rasm/hujjat birga) yig'gich
 _albums: dict[str, dict] = {}
+_order_locks: dict[int, asyncio.Lock] = {}
+
+
+def _order_lock(user_id: int) -> asyncio.Lock:
+    # Telegram can deliver consecutive photo updates before the first handler
+    # clears the order state. Serialize the open-order check and creation.
+    return _order_locks.setdefault(user_id, asyncio.Lock())
 
 OK_KEYS = {"photo": "order_ok_photo", "document": "order_ok_document",
            "video": "order_ok_video", "text": "order_ok_text"}
@@ -191,24 +198,25 @@ async def _finalize_album(gid, message: Message, state: FSMContext, bot: Bot):
     data = _albums.pop(gid, None)
     if not data or not data["items"]:
         return
-    lang = await q.get_lang(message.from_user.id)
-    await q.set_user_username(message.from_user.id, message.from_user.username)
-    if await _merge_into_open(message, state, bot, data.get("msgs") or [message]):
-        return
-    user = await q.get_user(message.from_user.id)
-    items = data["items"]
-    first_ct = items[0][0]
-    order_id = await q.create_order(message.from_user.id, user["branch_id"], first_ct)
-    for (ct, fid, cap, mid, fname, mime) in items:
-        await q.add_message(order_id, "client", ct, cap, fid, mid,
-                            file_name=fname, mime_type=mime)
-    await q.set_user_active_order(message.from_user.id, order_id)
-    await state.clear()
-    await message.answer(
-        loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id) + await _hours_suffix(lang),
-        reply_markup=await main_kb(message.from_user.id))
-    await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2],
-                                     filename=items[0][4])
+    async with _order_lock(message.from_user.id):
+        lang = await q.get_lang(message.from_user.id)
+        await q.set_user_username(message.from_user.id, message.from_user.username)
+        if await _merge_into_open(message, state, bot, data.get("msgs") or [message]):
+            return
+        user = await q.get_user(message.from_user.id)
+        items = data["items"]
+        first_ct = items[0][0]
+        order_id = await q.create_order(message.from_user.id, user["branch_id"], first_ct)
+        for (ct, fid, cap, mid, fname, mime) in items:
+            await q.add_message(order_id, "client", ct, cap, fid, mid,
+                                file_name=fname, mime_type=mime)
+        await q.set_user_active_order(message.from_user.id, order_id)
+        await state.clear()
+        await message.answer(
+            loc.t(OK_KEYS.get(first_ct, "order_ok_photo"), lang, id=order_id) + await _hours_suffix(lang),
+            reply_markup=await main_kb(message.from_user.id))
+        await deliver_order_to_operators(bot, order_id, items[0][0], items[0][1], items[0][2],
+                                         filename=items[0][4])
 
 
 @router.message(OrderFlow.waiting_content, F.text)
@@ -355,26 +363,27 @@ async def client_resume(call: CallbackQuery, bot: Bot):
 
 
 async def _create_order(message, state, bot, content_type):
-    lang = await q.get_lang(message.from_user.id)
-    await q.set_user_username(message.from_user.id, message.from_user.username)
-    user = await q.get_user(message.from_user.id)
-    if user and user["status"] == "blocked":
-        await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
-        return
-    if await _pending_branch_blocked(message, lang):
-        return
-    # Ochiq murojaat bo'lsa — yangisini ochmaymiz, eskisiga qo'shamiz
-    if await _merge_into_open(message, state, bot, [message]):
-        return
-    if await _flood_blocked(message, lang):
-        return
-    order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
-    await save_message_from_message(order_id, "client", message)
-    await q.set_user_active_order(message.from_user.id, order_id)
-    await state.clear()
-    await message.answer(loc.t(OK_KEYS[content_type], lang, id=order_id) + await _hours_suffix(lang),
-                         reply_markup=await main_kb(message.from_user.id))
-    await send_first_content_to_operators(bot, order_id, message)
+    async with _order_lock(message.from_user.id):
+        lang = await q.get_lang(message.from_user.id)
+        await q.set_user_username(message.from_user.id, message.from_user.username)
+        user = await q.get_user(message.from_user.id)
+        if user and user["status"] == "blocked":
+            await message.answer("⛔ Siz botdan foydalanishdan cheklangansiz.")
+            return
+        if await _pending_branch_blocked(message, lang):
+            return
+        # Ochiq murojaat bo'lsa — yangisini ochmaymiz, eskisiga qo'shamiz
+        if await _merge_into_open(message, state, bot, [message]):
+            return
+        if await _flood_blocked(message, lang):
+            return
+        order_id = await q.create_order(message.from_user.id, user["branch_id"], content_type)
+        await save_message_from_message(order_id, "client", message)
+        await q.set_user_active_order(message.from_user.id, order_id)
+        await state.clear()
+        await message.answer(loc.t(OK_KEYS[content_type], lang, id=order_id) + await _hours_suffix(lang),
+                             reply_markup=await main_kb(message.from_user.id))
+        await send_first_content_to_operators(bot, order_id, message)
 
 
 # -------- Proxy-chat: ochiq murojaati bor mijozning erkin xabari operatorga ketadi --------
@@ -393,16 +402,17 @@ async def client_proxy(message: Message, state: FSMContext, bot: Bot):
     # Majburiy filial tanlash — operator so'ragan bo'lsa, tanlamaguncha bloklanadi
     if await _pending_branch_blocked(message, lang):
         return
-    order = await q.open_order_of(message.from_user.id)
-    if order:
-        active = order["id"]
-        if active != user["active_order_id"]:
-            await q.set_user_active_order(message.from_user.id, active)
-        await save_message_from_message(active, "client", message)
-        await forward_client_to_operator(bot, order, message)
-        await message.answer(loc.t("proxy_sent", lang))
-        # Ish vaqtidan tashqarida — kuniga bir marta avto-javob
-        await _night_autoreply(message, lang)
-        return
+    async with _order_lock(message.from_user.id):
+        order = await q.open_order_of(message.from_user.id)
+        if order:
+            active = order["id"]
+            if active != user["active_order_id"]:
+                await q.set_user_active_order(message.from_user.id, active)
+            await save_message_from_message(active, "client", message)
+            await forward_client_to_operator(bot, order, message)
+            await message.answer(loc.t("proxy_sent", lang))
+            # Ish vaqtidan tashqarida — kuniga bir marta avto-javob
+            await _night_autoreply(message, lang)
+            return
     # ochiq murojaat yo'q
     await message.answer(loc.t("use_menu", lang), reply_markup=await main_kb(message.from_user.id))

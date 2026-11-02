@@ -10,7 +10,6 @@ const isTouch = () => matchMedia("(pointer:coarse)").matches;
 function haptic(k){ try{ tg.HapticFeedback && (k==="sel"?tg.HapticFeedback.selectionChanged():tg.HapticFeedback.impactOccurred(k||"light")); }catch(e){} }
 function toast(t, ms){ const e=$("toast"); e.textContent=T(t); e.classList.remove("hide"); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.add("hide"), ms||2200); }
 function alert2(t){ t = T(t); try{ tg.showAlert(t); }catch(e){ toast(t, 3500); } }
-function confirm2(t){ t = T(t); return new Promise(res=>{ try{ tg.showConfirm(t, ok=>res(!!ok)); }catch(e){ res(window.confirm(t)); } }); }
 
 /* ---------- to'liq ekran (fullscreen) — admin mini app'dagidek ---------- */
 function isFS(){ try{ return !!tg.isFullscreen; }catch(e){ return false; } }
@@ -483,7 +482,7 @@ function chatRowHtml(c, done){
   return `<div class="crow${c.pinned&&!done?" pinned":""}${c.order_id===CUR?" sel":""}${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}" ${done?'data-done="1"':""}>
     ${done?"":`<div class="cacts"><button class="a1" data-sw="pin">${c.pinned?"Olib<br>tashlash":"Qadash"}</button><button class="a2" data-sw="read">${unread?"O'qilgan":"O'qilmagan"}</button><button class="a3" data-sw="arch">${c.archived?"Arxivdan":"Arxiv"}</button></div>`}
     <div class="cfront">${avaHtml(c.name)}
-      <div class="mid"><div class="l1"><span class="nm">${st}${esc(c.name)}</span>${tags}<span class="tm">${tm}</span></div>
+      <div class="mid"><div class="l1"><span class="nm">${st}${esc(c.name)}</span><span class="order-tag">#${c.order_id}</span>${tags}<span class="tm">${tm}</span></div>
         <div class="l2"><span class="pv">${pv}</span>${wait.html}${close}${done && c.rating?`<span style="color:var(--orange);font-size:13px">${c.rating}★</span>`:""}${right}</div></div></div></div>`;
 }
 function remainingLabel(ts){
@@ -677,7 +676,7 @@ function generalRowHtml(c){
   const unread=+c.unread||(c.marked_unread?1:0);
   const wait=closed?{cls:"",html:""}:waitInfo(c);
   return `<div class="crow${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
-    <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span><span class="tm">${esc(c.time||"")}</span></div>
+    <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="order-tag">#${c.order_id}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span><span class="tm">${esc(c.time||"")}</span></div>
     <div class="l2"><span class="pv">${pv}</span>${wait.html}${unread?`<span class="badge">${unread>99?"99+":unread}</span>`:""}</div></div></div></div>`;
 }
 function generalClientRowHtml(c){
@@ -1181,10 +1180,7 @@ function copySel(){
 async function deleteSelected(){
   if(!SELM || !SELM.size) return;
   const own=[...SELM].filter(mid=>{ const m=CH&&CH.msgs.get(mid); return m&&m.own; });
-  const skipped=SELM.size-own.length;
   if(!own.length){ alert2("Faqat operator yuborgan xabarlarni o'chirish mumkin"); return; }
-  const note=skipped ? ` ${skipped} ta mijoz xabari o'chirilmaydi.` : "";
-  if(!await confirm2(`${own.length} ta xabar mijoz chatidan ham o'chiriladi.${note} Davom etasizmi?`)) return;
   const r=await POST("/api/msg_delete_many",{mids:own}).catch(()=>null);
   if(!r||!r.ok){ alert2((r&&r.error)||"Xabarlar o'chirilmadi"); return; }
   (r.deleted||[]).forEach(mid=>{ const i=CH.order.indexOf(mid); if(i>=0) CH.order.splice(i,1); CH.msgs.delete(mid); });
@@ -1211,9 +1207,6 @@ function renderPinbar(){
 function jumpPinned(){ if(CH.pinned) jumpTo(CH.pinned.mid); }
 function unpin(e){ pinMsg(0); }
 async function deleteMsg(mid){
-  const m = CH.msgs.get(mid);
-  if(!await confirm2(m && m.cmid ? "Xabar mijozda ham o'chiriladi. O'chirasizmi?"
-                                  : "Bu xabar mijoz chatida topilmadi — faqat yozishmadan o'chiriladi. O'chirasizmi?")) return;
   const r = await POST("/api/msg_del", { mid }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"O'chirilmadi"); return; }
   toast(r.info || "O'chirildi"); haptic("medium");
@@ -1525,7 +1518,6 @@ async function runCmd(c){
 }
 async function runBranchCmd(id, b){
   if(!CUR || !b) return;
-  if(id==="changebranch" && !await confirm2(T("Filial «{n}» qilib almashtirilsinmi? Mijozga filial ma'lumoti yuboriladi.", {n: b.name}))) return;
   const r = await POST("/api/cmd", { order_id: CUR, cmd: id, arg: b.id }).catch(()=>null);
   toast(r && r.ok ? r.info : ((r && r.error) || "Xatolik"), 2600);
   if(r && r.ok && id==="changebranch" && CH){ CH.branch = r.branch; CH.branchId = r.branch_id; updateSub(); }
@@ -1579,7 +1571,7 @@ async function toggleQuick(){
 $("quickpanel").addEventListener("click", async e=>{
   const del = e.target.closest("[data-tdel]"), snd = e.target.closest("[data-tsend]"), add = e.target.closest("[data-tadd]"), row = e.target.closest("[data-tpl]");
   if(add) return addTpl(()=>toggleQuick().then(()=>toggleQuick()));
-  if(del){ e.stopPropagation(); if(!await confirm2("Shablon o'chirilsinmi?")) return; await POST("/api/tpl_del",{id:+del.dataset.tdel}); hidePanels(); toggleQuick(); return; }
+  if(del){ e.stopPropagation(); await POST("/api/tpl_del",{id:+del.dataset.tdel}); hidePanels(); toggleQuick(); return; }
   const t = TPLS && TPLS.find(x=>x.id===+(snd||row||{}).dataset?.[snd?"tsend":"tpl"]);
   if(!t) return;
   hidePanels();
@@ -1685,7 +1677,7 @@ function sendDocFile(f){
 }
 /* rasm(lar) oldindan ko'rish + izoh (formatlash bilan) */
 let pendingMedia = null;
-const ME={i:0,original:[],history:[],work:null,mode:"none",crop:null,drag:false,drawing:false,last:null,cssW:0,cssH:0,seq:0};
+const ME={i:0,original:[],history:[],work:null,mode:"none",crop:null,drag:false,drawing:false,last:null,cssW:0,cssH:0,viewZoom:1,seq:0};
 const MMC = TGF.Composer($("mm-cap"), { placeholder: T("Izoh qo'shing..."), onEnter: ()=>sendMedia() });
 function openMedia(datas){
   pendingMedia=datas.slice(); ME.original=datas.slice(); ME.history=datas.map(()=>[]); ME.i=0; ME.mode="none"; ME.crop=null; MMC.clear();
@@ -1706,7 +1698,7 @@ function refreshMediaThumbs(){
 $("mm-thumbs").addEventListener("click",e=>{ const b=e.target.closest("[data-mi]"); if(b)loadMediaEditor(+b.dataset.mi); });
 function loadMediaEditor(i){
   if(!pendingMedia||!pendingMedia[i])return;
-  ME.i=i; ME.mode="none"; ME.crop=null; ME.drag=false; ME.drawing=false; ME.last=null;
+  ME.i=i; ME.mode="none"; ME.crop=null; ME.drag=false; ME.drawing=false; ME.last=null; ME.viewZoom=1;
   const seq=++ME.seq, img=new Image(); $("mm-loading").classList.remove("hide");
   img.onload=()=>{
     if(seq!==ME.seq||!pendingMedia)return;
@@ -1724,6 +1716,7 @@ function layoutMediaEditor(){
   ME.cssW=Math.max(1,Math.round(ME.work.width*scale)); ME.cssH=Math.max(1,Math.round(ME.work.height*scale));
   const c=$("mm-canvas"), d=Math.min(2,devicePixelRatio||1);
   c.style.width=ME.cssW+"px"; c.style.height=ME.cssH+"px"; c.width=Math.round(ME.cssW*d); c.height=Math.round(ME.cssH*d);
+  c.style.transform=`scale(${ME.viewZoom})`;
   renderMediaCanvas();
 }
 function renderMediaCanvas(){
@@ -1764,6 +1757,13 @@ function setMediaMode(mode){
 }
 function mediaCrop(){ setMediaMode("crop"); }
 function mediaDraw(){ setMediaMode("draw"); }
+function mediaRotate(){
+  if(!ME.work)return;
+  mediaSnapshot();
+  const src=ME.work,out=document.createElement("canvas"); out.width=src.height;out.height=src.width;
+  const x=out.getContext("2d");x.translate(out.width/2,out.height/2);x.rotate(Math.PI/2);x.drawImage(src,-src.width/2,-src.height/2);
+  ME.work=out;ME.mode="none";ME.crop=null;ME.viewZoom=1;saveMediaWork();layoutMediaEditor();
+}
 function updateMediaTools(){
   const canvas=$("mm-canvas"); canvas.classList.toggle("crop",ME.mode==="crop"); canvas.classList.toggle("draw",ME.mode==="draw");
   $("mm-crop").classList.toggle("on",ME.mode==="crop"); $("mm-draw").classList.toggle("on",ME.mode==="draw");
@@ -1788,6 +1788,11 @@ function mediaReset(){
   mediaSnapshot(); pendingMedia[ME.i]=ME.original[ME.i]; refreshMediaThumbs(); loadMediaEditor(ME.i);
 }
 const MMCAN=$("mm-canvas");
+MMCAN.addEventListener("wheel",e=>{
+  if(!e.ctrlKey||!ME.work)return;
+  e.preventDefault();ME.viewZoom=Math.max(1,Math.min(4,ME.viewZoom*(e.deltaY<0?1.12:1/1.12)));
+  MMCAN.style.transform=`scale(${ME.viewZoom})`;
+},{passive:false});
 MMCAN.addEventListener("pointerdown",e=>{
   if(!ME.work||ME.mode==="none")return; e.preventDefault(); MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
   const p=mediaPoint(e);
@@ -1806,7 +1811,7 @@ MMCAN.addEventListener("pointerup",finishMediaPointer); MMCAN.addEventListener("
 $("mm-color").addEventListener("input",e=>{ document.querySelector(".mm-color span").style.background=e.target.value; if(ME.mode!=="draw")setMediaMode("draw"); });
 window.addEventListener("resize",()=>{ if(pendingMedia)layoutMediaEditor(); });
 function closeMedia(){
-  pendingMedia=null; ME.seq++; ME.work=null; ME.crop=null; ME.mode="none"; ME.history=[]; ME.original=[];
+  pendingMedia=null; ME.seq++; ME.work=null; ME.crop=null; ME.mode="none"; ME.history=[]; ME.original=[];ME.viewZoom=1;
   $("mm-canvas").width=0; $("mm-canvas").height=0; $("mm-thumbs").innerHTML="";
   $("mediamodal").classList.add("hide"); updateBackBtn();
 }
@@ -1945,27 +1950,23 @@ function chatMenu(el){
   ]);
 }
 async function closeOrder(oid){
-  if(!await confirm2("Murojaatni yakunlaysizmi? Mijozga baholash yuboriladi.")) return;
   const r = await POST("/api/close", { order_id: oid }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"Yakunlab bo'lmadi. Internetni tekshiring."); return; }
   toast("Murojaat yakunlandi ✓"); haptic("medium");
   if(oid===CUR) backToList(); kickSync();
 }
 async function cancelOrder(oid){
-  if(!await confirm2("Murojaat bekor qilinsinmi? Mijozga «bekor qilindi» xabari boradi.")) return;
   const r = await POST("/api/cancel", { order_id: oid }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"Bajarilmadi"); return; }
   toast(r.info || "Bekor qilindi"); haptic("medium");
   if(oid===CUR) backToList(); kickSync();
 }
 async function rejectOrder(){
-  if(!await confirm2("Отказ: murojaat Отказ kanaliga joylanadi. Chat ochiq qoladi — davom ettirishingiz mumkin. Davom etamizmi?")) return;
   const r = await POST("/api/reject", { order_id: CUR }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"Bajarilmadi"); return; }
   CH.rejected = true; updateSub(); toast(r.info || "Отказ"); haptic("medium");
 }
 async function hideOrder(oid){
-  if(!await confirm2("Chat ro'yxatdan o'chirilsinmi?")) return;
   const r = await POST("/api/hide", { order_id: oid }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"O'chirilmadi"); return; }
   if(oid===CUR) backToList(); ST.chats = ST.chats.filter(c=>c.order_id!==oid); delete ST.chatMap[oid]; renderChatList(); updateBadges();
@@ -2546,7 +2547,6 @@ function openCatalog(mode){
           CMP.focusEnd(); CMP.insertText(`${p.name} — ${p.price?fmtMoney(p.price)+" "+SOM():"?"} ${p.in_stock?"✅":"❌ "+T("hozircha yo'q")}\n`); return; }
         if(add){ const p=_catItems[+add.dataset.padd]; billAdd(p.name, p.price); add.classList.add("done"); haptic("light"); toast(T("Hisobga qo'shildi: {n}", {n: p.name}), 1400); updBillCount(); return; }
         if(wt){ const p=_catItems[+wt.dataset.pwait];
-          if(!await confirm2(T("«{n}» kelganda mijozga avtomatik xabar yuborilsinmi?", {n: p.name}))) return;
           const r = await POST("/api/stock_wait", { order_id: CUR, product_id: p.id }).catch(()=>null);
           toast(r && r.ok ? (r.info||"OK") : ((r&&r.error)||"Xatolik")); if(r && r.ok){ wt.remove(); kickSync(); } }
       });
@@ -2596,11 +2596,10 @@ function openBill(){
         if(e.target.closest("[data-fromcat]")){ sync(); return openCatalog("bill"); }
         if(e.target.closest("[data-manual]")){ const bb=sync(); bb.items.push({name:"", qty:1, price:0}); setBill(bb); openBill();
           setTimeout(()=>{ const ins=document.querySelectorAll(".brow .bn"); ins.length && ins[ins.length-1].focus(); }, 80); return; }
-        if(e.target.closest("[data-clearbill]")){ if(!await confirm2(T("Hisob-kitob tozalansinmi?"))) return; LS.del(billKey()); return openBill(); }
+        if(e.target.closest("[data-clearbill]")){ LS.del(billKey()); return openBill(); }
         if(e.target.closest("[data-sendbill]")){
           const bb = sync(); bb.items = bb.items.filter(i=>i.name.trim());
           if(!bb.items.length){ toast(T("Ro'yxat bo'sh")); return; }
-          if(!await confirm2(T("Mijozga {s} so'mlik hisob-kitob yuborilsinmi?", {s: fmtMoney(billTotal(bb))}))) return;
           const res = await POST("/api/cmd", { order_id: CUR, cmd: "billitems", items: bb.items, delivery: bb.delivery, note: bb.note }).catch(()=>null);
           if(!res || !res.ok){ alert2((res&&res.error)||"Xatolik"); return; }
           LS.del(billKey()); closeSheet(); toast(res.info||"Hisob-kitob yuborildi"); haptic("medium"); kickSync();
@@ -2713,11 +2712,11 @@ WIDE_MQ.addEventListener && WIDE_MQ.addEventListener("change", ()=>{ if(CURSCREE
 /* ============================================================
    UMUMIY: data-act delegatsiyasi
    ============================================================ */
-const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout:()=>confirm2("Hisobdan chiqasizmi?").then(ok=>ok&&logout()),
+const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout,
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
   cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
-  closeMedia, sendMedia, mediaCrop, mediaDraw, mediaApplyCrop, mediaUndo, mediaReset,
+  closeMedia, sendMedia, mediaCrop, mediaDraw, mediaRotate, mediaApplyCrop, mediaUndo, mediaReset,
   closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
   openNotifications, closeOperatorChat, sendOperator };
 document.addEventListener("click", e=>{

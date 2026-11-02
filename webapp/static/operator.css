@@ -654,6 +654,12 @@ html[data-scheme="dark"] #selbar .seldelete{background:#352121;border-color:#633
 .notify-kind{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;flex:0 0 auto;background:var(--sec)}.notify-row.unread .notify-kind{background:color-mix(in srgb,var(--accent) 14%,var(--sec))}
 .notify-main{flex:1;min-width:0}.notify-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto}.notify-row.read .notify-dot{background:transparent;border:1px solid var(--hint)}
 .notify-row .nt{font-weight:700;font-size:14px;line-height:1.3}.notify-row .nb{font-size:12.5px;color:var(--hint);margin-top:4px;line-height:1.4}.notify-row .ntime{font-size:10.5px;color:var(--hint);margin-top:7px;display:flex;align-items:center;gap:5px}.notify-chev{font-size:24px;color:var(--hint);line-height:36px}
+.order-tag{display:inline-flex;align-items:center;flex:0 0 auto;padding:2px 6px;border-radius:7px;background:color-mix(in srgb,var(--accent) 11%,var(--bg));color:var(--accent);font-size:10px;font-weight:750;line-height:1.35;letter-spacing:.02em}
+.notify-head{gap:12px!important;align-items:center!important}.notify-head-icon{background:color-mix(in srgb,var(--accent) 15%,var(--bg));color:var(--accent);box-shadow:none}
+.notify-tools{padding:10px 14px;background:var(--bg)}.notify-tools button{min-height:38px;border-radius:11px;font-size:12.5px}
+.notify-list{gap:2px;padding:8px 10px 12px;background:var(--bg)}.notify-row{gap:12px;padding:13px;border-radius:14px;margin:2px 0;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.notify-row:hover{transform:none;box-shadow:0 3px 12px rgba(20,30,50,.08)}.notify-row.unread{box-shadow:inset 3px 0 0 var(--accent),0 1px 2px rgba(20,30,50,.04)}
+.notify-kind{width:40px;height:40px;border-radius:12px}.notify-row .nt{font-size:14px}.notify-row .nb{font-size:13px;line-height:1.45}.notify-row .ntime{font-size:11px}
 .autoclose-pill{display:inline-flex;align-items:center;gap:4px;color:#9a6100;background:#fff6df;border:1px solid #ead09b;border-radius:7px;padding:1px 6px;font-size:10.5px;font-weight:700;white-space:nowrap}
 html[data-scheme="dark"] .autoclose-pill{background:#352b18;border-color:#665229;color:#f1c86d}
 
