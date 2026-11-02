@@ -284,6 +284,7 @@ function closeAllOverlays(){ closeSheet(); closeViewer(); closeMedia(); TGF.clos
 function openSheet(html, onMount){
   // har safar yangi element: oldingi oynaning click handlerlari to'planib qolmasin
   const old = $("sheet-body"), nb = old.cloneNode(false); old.replaceWith(nb);
+  nb.classList.remove("notify-sheet");
   const s = $("sheet"); nb.innerHTML = html; if(window.I18N) I18N.translate(nb); s.classList.remove("hide");
   $("sheet-body").scrollTop = 0; onMount && onMount($("sheet-body")); updateBackBtn();
 }
@@ -731,14 +732,14 @@ function rememberScroll(){
   const fromBottom = MSGS.scrollHeight - MSGS.scrollTop - MSGS.clientHeight;
   SCROLLMEM[CUR] = fromBottom > 200 ? MSGS.scrollHeight - MSGS.scrollTop : 0;
 }
-async function openChat(oid, name, shared=false){
+async function openChat(oid, name, shared=false, readOnly=false){
   if(!oid) return;
   rememberScroll();
   if(recActive()) finishRec(false);
   if(SELM) endSelect();
   saveDraftNow(); clearTimeout(_draftT);
   CUR = oid;
-  CH = { oid, name: name||"", shared:!!shared, returnTab:ACTIVE_TAB, msgs: new Map(), order: [], pending: [], maxMid: 0, since: "", hasMore: false,
+  CH = { oid, name: name||"", shared:!!shared, readOnly:!!readOnly, returnTab:ACTIVE_TAB, msgs: new Map(), order: [], pending: [], maxMid: 0, since: "", hasMore: false,
          loadingOlder: false, lastRead: 0, notes: [], pinned: null, tags: [], status: "", replyTo: null, editMid: null,
          fabN: 0, search: null, draftReady: false };
   $("c-name").textContent = name || ""; const av=$("c-ava"); av.textContent = ini(name); av.style.background = avaBg(name);
@@ -767,7 +768,7 @@ async function openChat(oid, name, shared=false){
   loadNote();
   kickSync();
 }
-function reopenChat(){ if(CUR) openChat(CUR, CH && CH.name, CH && CH.shared); }
+function reopenChat(){ if(CUR) openChat(CUR, CH && CH.name, CH && CH.shared, CH && CH.readOnly); }
 function addMsg(m){
   if(!CH) return;
   if(!CH.msgs.has(m.mid)){ CH.order.push(m.mid); CH.order.sort((a,b)=>a-b); }
@@ -794,6 +795,7 @@ function updateSub(){
   const s = $("c-sub"); if(s.classList.contains("typing")) return;
   const st = CH.status==="done" ? T("yakunlangan") : CH.status==="canceled" ? T("bekor qilingan") : "";
   s.textContent = [CH.operatorName ? T("Operator")+": "+CH.operatorName : "", CH.branch ? "📍 " + CH.branch : "", CH.phone,
+    CH.readOnly ? "Faqat ko'rish · boshqa operator murojaati" : "",
     CH.autoCloseAt ? "⏱ "+remainingLabel(CH.autoCloseAt) : "", st, CH.rejected ? "🚫 " + T("Otkaz") : "", "#"+CH.oid].filter(Boolean).join(" · ");
 }
 let peerTypingTimer=null;
@@ -1086,6 +1088,13 @@ function msgMenu(mid, x, y){
   const open = CH.status==="new" || CH.status==="in_progress";
   const canEdit = m.own && m.cmid && m.type==="text" && !String(m.text||"").startsWith("👨‍💼 Admin");
   const media = m.file_id && ["photo","video","animation","document","voice","audio"].includes(m.type);
+  if(CH.readOnly){
+    const items=[{header:(m.own?T("Siz"):(CH.name||T("Mijoz")))+" · "+(m.ts||"").slice(0,16)}];
+    if(m.text)items.push({label:"Nusxa olish",icon:"copy",onClick:()=>copyText(m.text)});
+    if(m.type==="photo"&&m.file_id)items.push({label:"Rasmni ko'rish",icon:"🖼️",onClick:()=>openViewer(mid)});
+    else if(media)items.push({label:"Faylni ochish / yuklab olish",icon:"⬇️",onClick:()=>openExternal(mediaUrl(m))});
+    TGF.menu(x,y,items);return;
+  }
   const isPinned = CH.pinned && CH.pinned.mid === mid;
   const row = $("m"+mid); if(row) row.classList.add("menu-on");
   const mm = TGF.menu(x, y, [
@@ -1113,6 +1122,7 @@ function redrawMsg(mid){
   n.outerHTML = rowHtml(m, prevOf(mid), nextOf(mid), false); initVoicePlayers(); bindMediaLoad(); markPicked();
 }
 async function reactMsg(mid, em){
+  if(CH?.readOnly)return;
   const m = CH && CH.msgs.get(mid); if(!m) return;
   const old = m.reaction || ""; m.reaction = em; redrawMsg(mid); haptic("light");
   const n = $("m"+mid); const c = n && n.querySelector(".rxc"); if(c) c.classList.add("pop");
@@ -1196,6 +1206,7 @@ function jumpTo(mid){
   row.classList.remove("hl"); void row.offsetWidth; row.classList.add("hl");
 }
 async function pinMsg(mid){
+  if(CH?.readOnly)return;
   const r = await POST("/api/pin", { order_id: CUR, mid }).catch(()=>null);
   if(!r || !r.ok){ toast((r&&r.error)||"Bajarilmadi"); return; }
   CH.pinned = mid ? CH.msgs.get(mid) : null; renderPinbar(); toast(mid ? "Xabar qadaldi" : "Qadash olib tashlandi");
@@ -1207,6 +1218,7 @@ function renderPinbar(){
 function jumpPinned(){ if(CH.pinned) jumpTo(CH.pinned.mid); }
 function unpin(e){ pinMsg(0); }
 async function deleteMsg(mid){
+  if(CH?.readOnly)return;
   const r = await POST("/api/msg_del", { mid }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"O'chirilmadi"); return; }
   toast(r.info || "O'chirildi"); haptic("medium");
@@ -1217,6 +1229,7 @@ async function deleteMsg(mid){
 
 /* ---------- javob / tahrir paneli ---------- */
 function setReply(mid){
+  if(CH?.readOnly)return;
   const m = CH.msgs.get(mid); if(!m || CH.status==="done" || CH.status==="canceled") return;
   if(CH.editMid) cancelEdit();
   CH.replyTo = mid;
@@ -1246,6 +1259,7 @@ function cancelEdit(){
 let CURFF = "";
 function applyFulfill(kind){ CURFF = kind||""; $("ff-delivery").classList.toggle("on", CURFF==="delivery"); $("ff-pickup").classList.toggle("on", CURFF==="pickup"); }
 async function fulfill(el){
+  if(CH?.readOnly)return;
   const kind = el.dataset.k, prev = CURFF, next = CURFF===kind ? "" : kind;
   applyFulfill(next); haptic("sel");
   const r = await POST("/api/cmd", { order_id: CUR, cmd: "fulfillment", arg: next }).catch(()=>null);
@@ -1254,9 +1268,9 @@ async function fulfill(el){
 }
 function applyChatStatus(st){
   const closed = st==="done" || st==="canceled";
-  $("composer").classList.toggle("hide", closed);
-  $("resumebar").classList.toggle("hide", !closed);
-  $("fulfillbar").classList.toggle("hide", false);
+  $("composer").classList.toggle("hide", closed || !!CH.readOnly);
+  $("resumebar").classList.toggle("hide", !closed || !!CH.readOnly);
+  $("fulfillbar").classList.toggle("hide", !!CH.readOnly);
   if(closed){ $("resume-lbl").textContent = st==="canceled" ? "Bu murojaat bekor qilingan" : "Bu murojaat yakunlangan"; hidePanels(); $("replybar").classList.add("hide"); if(recActive()) finishRec(false); }
 }
 async function resume(){
@@ -1265,7 +1279,7 @@ async function resume(){
   applyChatStatus("in_progress"); CH.status="in_progress"; updateSub(); kickSync(); CMP.focus();
 }
 function renderTagsbar(){
-  const t = CH.tags||[]; $("tagsbar").classList.toggle("hide", !t.length);
+  const t = CH.tags||[]; $("tagsbar").classList.toggle("hide", !t.length || !!CH.readOnly);
   $("tagsbar").innerHTML = t.map(x=>`<span class="chip">#${esc(x)}</span>`).join("") + `<span class="chip" style="background:none;color:var(--hint)">✎</span>`;
 }
 
@@ -1311,7 +1325,7 @@ $("sendbtn").addEventListener("touchend", e=>{ if(_sendLP==="fired"){ e.preventD
 $("sendbtn").addEventListener("touchmove", ()=>{ if(_sendLP!=="fired") clearTimeout(_sendLP); }, {passive:true});
 let _lastDraft = {};
 function saveDraftNow(){
-  if(!CUR || !CH || CH.editMid || !CH.draftReady) return;
+  if(!CUR || !CH || CH.readOnly || CH.editMid || !CH.draftReady) return;
   const h = CMP.isEmpty() ? "" : CMP.getHTML();
   if(_lastDraft[CUR] === h) return; _lastDraft[CUR] = h;
   const c = ST.chatMap[CUR]; if(c) c.draft = h;
@@ -1335,7 +1349,7 @@ function saveQueue(q){ LS.set(QKEY(), JSON.stringify(q)); }
 function loadPendingFromQueue(){ if(!CH) return; loadQueue().filter(p=>p.order_id===CUR).forEach(p=>{ if(!CH.pending.find(x=>x.lid===p.lid)) CH.pending.push(Object.assign({}, p, {state:"queued"})); }); }
 async function send(silent){
   silent = silent === true;
-  if(recActive() || !CUR) return;
+  if(recActive() || !CUR || CH?.readOnly) return;
   if(CMP.isEmpty()) return;
   const html = CMP.getHTML(), text = TGF.toPlain(html).trim();
   if(!text) return;
@@ -1677,7 +1691,8 @@ function sendDocFile(f){
 }
 /* rasm(lar) oldindan ko'rish + izoh (formatlash bilan) */
 let pendingMedia = null;
-const ME={i:0,original:[],history:[],work:null,mode:"none",crop:null,drag:false,drawing:false,last:null,cssW:0,cssH:0,viewZoom:1,seq:0};
+const ME={i:0,original:[],history:[],work:null,mode:"none",crop:null,drag:false,drawing:false,last:null,cssW:0,cssH:0,
+  viewZoom:1,viewX:0,viewY:0,pan:null,pinch:null,pointers:new Map(),seq:0};
 const MMC = TGF.Composer($("mm-cap"), { placeholder: T("Izoh qo'shing..."), onEnter: ()=>sendMedia() });
 function openMedia(datas){
   pendingMedia=datas.slice(); ME.original=datas.slice(); ME.history=datas.map(()=>[]); ME.i=0; ME.mode="none"; ME.crop=null; MMC.clear();
@@ -1698,7 +1713,7 @@ function refreshMediaThumbs(){
 $("mm-thumbs").addEventListener("click",e=>{ const b=e.target.closest("[data-mi]"); if(b)loadMediaEditor(+b.dataset.mi); });
 function loadMediaEditor(i){
   if(!pendingMedia||!pendingMedia[i])return;
-  ME.i=i; ME.mode="none"; ME.crop=null; ME.drag=false; ME.drawing=false; ME.last=null; ME.viewZoom=1;
+  ME.i=i; ME.mode="none"; ME.crop=null; ME.drag=false; ME.drawing=false; ME.last=null; resetMediaView();
   const seq=++ME.seq, img=new Image(); $("mm-loading").classList.remove("hide");
   img.onload=()=>{
     if(seq!==ME.seq||!pendingMedia)return;
@@ -1716,9 +1731,23 @@ function layoutMediaEditor(){
   ME.cssW=Math.max(1,Math.round(ME.work.width*scale)); ME.cssH=Math.max(1,Math.round(ME.work.height*scale));
   const c=$("mm-canvas"), d=Math.min(2,devicePixelRatio||1);
   c.style.width=ME.cssW+"px"; c.style.height=ME.cssH+"px"; c.width=Math.round(ME.cssW*d); c.height=Math.round(ME.cssH*d);
-  c.style.transform=`scale(${ME.viewZoom})`;
+  mediaViewTransform();
   renderMediaCanvas();
 }
+function resetMediaView(){ME.viewZoom=1;ME.viewX=0;ME.viewY=0;ME.pan=null;ME.pinch=null;ME.pointers.clear();mediaViewTransform();}
+function clampMediaView(){
+  const maxX=ME.cssW*(ME.viewZoom-1)/2,maxY=ME.cssH*(ME.viewZoom-1)/2;
+  ME.viewX=Math.max(-maxX,Math.min(maxX,ME.viewX));ME.viewY=Math.max(-maxY,Math.min(maxY,ME.viewY));
+}
+function mediaViewTransform(){
+  const c=$("mm-canvas");if(c)c.style.transform=`translate3d(${ME.viewX}px,${ME.viewY}px,0) scale(${ME.viewZoom})`;
+}
+function mediaZoom(f){
+  ME.viewZoom=Math.max(1,Math.min(6,ME.viewZoom*f));
+  if(ME.viewZoom===1)ME.viewX=ME.viewY=0;clampMediaView();mediaViewTransform();
+}
+function mediaZoomIn(){mediaZoom(1.4);}
+function mediaZoomOut(){mediaZoom(1/1.4);}
 function renderMediaCanvas(){
   if(!ME.work)return;
   const c=$("mm-canvas"), x=c.getContext("2d"), d=c.width/ME.cssW;
@@ -1762,7 +1791,7 @@ function mediaRotate(){
   mediaSnapshot();
   const src=ME.work,out=document.createElement("canvas"); out.width=src.height;out.height=src.width;
   const x=out.getContext("2d");x.translate(out.width/2,out.height/2);x.rotate(Math.PI/2);x.drawImage(src,-src.width/2,-src.height/2);
-  ME.work=out;ME.mode="none";ME.crop=null;ME.viewZoom=1;saveMediaWork();layoutMediaEditor();
+  ME.work=out;ME.mode="none";ME.crop=null;resetMediaView();saveMediaWork();layoutMediaEditor();
 }
 function updateMediaTools(){
   const canvas=$("mm-canvas"); canvas.classList.toggle("crop",ME.mode==="crop"); canvas.classList.toggle("draw",ME.mode==="draw");
@@ -1789,34 +1818,51 @@ function mediaReset(){
 }
 const MMCAN=$("mm-canvas");
 MMCAN.addEventListener("wheel",e=>{
-  if(!e.ctrlKey||!ME.work)return;
-  e.preventDefault();ME.viewZoom=Math.max(1,Math.min(4,ME.viewZoom*(e.deltaY<0?1.12:1/1.12)));
-  MMCAN.style.transform=`scale(${ME.viewZoom})`;
+  if(!(e.ctrlKey||e.metaKey)||!ME.work)return;
+  e.preventDefault();mediaZoom(e.deltaY<0?1.15:.87);
 },{passive:false});
 MMCAN.addEventListener("pointerdown",e=>{
-  if(!ME.work||ME.mode==="none")return; e.preventDefault(); MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
+  if(!ME.work)return;
+  if(ME.mode==="none"){
+    ME.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
+    if(ME.pointers.size===2){const pts=[...ME.pointers.values()];ME.pinch={d:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),z:ME.viewZoom};ME.pan=null;}
+    else if(ME.viewZoom>1)ME.pan={id:e.pointerId,x:e.clientX,y:e.clientY};
+    return;
+  }
+  e.preventDefault(); MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
   const p=mediaPoint(e);
   if(ME.mode==="crop"){ME.crop={x1:p.x,y1:p.y,x2:p.x,y2:p.y};ME.drag=true;renderMediaCanvas();updateMediaTools();}
   else{mediaSnapshot();ME.drawing=true;ME.last=p;drawMediaLine(p,p);renderMediaCanvas();}
 });
 MMCAN.addEventListener("pointermove",e=>{
+  if(ME.pointers.has(e.pointerId))ME.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ME.pinch&&ME.pointers.size>=2){const pts=[...ME.pointers.values()];ME.viewZoom=Math.max(1,Math.min(6,ME.pinch.z*Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y)/ME.pinch.d));if(ME.viewZoom===1)ME.viewX=ME.viewY=0;clampMediaView();mediaViewTransform();return;}
+  if(ME.pan&&ME.pan.id===e.pointerId){ME.viewX+=e.clientX-ME.pan.x;ME.viewY+=e.clientY-ME.pan.y;ME.pan.x=e.clientX;ME.pan.y=e.clientY;clampMediaView();mediaViewTransform();return;}
   if(ME.drag&&ME.mode==="crop"){const p=mediaPoint(e);ME.crop.x2=p.x;ME.crop.y2=p.y;renderMediaCanvas();updateMediaTools();}
   else if(ME.drawing&&ME.mode==="draw"){const p=mediaPoint(e);drawMediaLine(ME.last,p);ME.last=p;renderMediaCanvas();}
 });
 function finishMediaPointer(){
+  ME.pointers.clear();ME.pinch=null;ME.pan=null;
   if(ME.drawing){ME.drawing=false;saveMediaWork();}
   if(ME.drag){ME.drag=false;updateMediaTools();} ME.last=null;
 }
 MMCAN.addEventListener("pointerup",finishMediaPointer); MMCAN.addEventListener("pointercancel",finishMediaPointer);
+MMCAN.addEventListener("dblclick",()=>{mediaZoom(ME.viewZoom>1?1:2.2);});
+let mediaTapAt=0;
+MMCAN.addEventListener("pointerup",e=>{
+  if(e.pointerType!=="touch"||ME.mode!=="none")return;
+  const now=Date.now();if(now-mediaTapAt<300){mediaZoom(ME.viewZoom>1?1:2.4);mediaTapAt=0;}else mediaTapAt=now;
+});
 $("mm-color").addEventListener("input",e=>{ document.querySelector(".mm-color span").style.background=e.target.value; if(ME.mode!=="draw")setMediaMode("draw"); });
 window.addEventListener("resize",()=>{ if(pendingMedia)layoutMediaEditor(); });
 function closeMedia(){
-  pendingMedia=null; ME.seq++; ME.work=null; ME.crop=null; ME.mode="none"; ME.history=[]; ME.original=[];ME.viewZoom=1;
+  pendingMedia=null; ME.seq++; ME.work=null; ME.crop=null; ME.mode="none"; ME.history=[]; ME.original=[];resetMediaView();
   $("mm-canvas").width=0; $("mm-canvas").height=0; $("mm-thumbs").innerHTML="";
   $("mediamodal").classList.add("hide"); updateBackBtn();
 }
 async function sendMedia(){
-  if(!pendingMedia || !CUR) return;
+  if(!pendingMedia || !CUR || CH?.readOnly) return;
   if(ME.drawing)finishMediaPointer();
   if(ME.mode==="crop"&&ME.crop)mediaApplyCrop();
   const capH = MMC.isEmpty() ? "" : MMC.getHTML(), cap = TGF.toPlain(capH).trim(), datas = pendingMedia; closeMedia();
@@ -1929,6 +1975,12 @@ function openDoc(mid){
 /* ---------- chat menyusi ---------- */
 function chatMenu(el){
   const r = el.getBoundingClientRect();
+  if(CH.readOnly){
+    TGF.menu(r.right-250,r.bottom+4,[
+      {label:"Mijoz kartasi",icon:"👤",onClick:clientCard},
+      {label:"Yozishmadan qidirish",icon:"⌕",onClick:chatSearch},
+    ]);return;
+  }
   const open = CH.status==="new" || CH.status==="in_progress";
   TGF.menu(r.right - 250, r.bottom + 4, [
     {label:"Mijoz kartasi", icon:"<svg viewBox='0 0 24 24'><circle cx='12' cy='8' r='4'/><path d='M4 21c0-4 4-6 8-6s8 2 8 6'/></svg>", onClick:clientCard},
@@ -2016,6 +2068,7 @@ function csNext(){ const S=CH.search; if(!S||!S.hits.length) return; S.i=(S.i+1)
 
 /* ---------- teglar / ichki izoh / o'tkazish ---------- */
 async function openTags(){
+  if(CH?.readOnly)return;
   const r = await GET("/api/tags").catch(()=>null); const preset = r && r.ok ? r.tags : [];
   const sel = new Set(CH.tags||[]); const all = [...new Set([...preset, ...sel])];
   openSheet(`<h3>Murojaat teglari</h3><div class="tagpick">${all.map(t=>`<button data-tag="${esc(t)}" class="${sel.has(t)?"on":""}">#${esc(t)}</button>`).join("")}<button data-newtag style="border-style:dashed;color:var(--accent)">+ Yangi</button></div><button class="sbtn" data-savetags>Saqlash</button>`,
@@ -2053,7 +2106,7 @@ async function openTransfer(){
 /* ---------- mijoz kartasi / izoh / eslatma ---------- */
 async function clientCard(){
   if(!CUR) return;
-  const r = await GET("/api/client_info", { order_id: CUR }).catch(()=>null);
+  const r = await GET("/api/client_info", { order_id: CUR, shared:CH.shared?1:"" }).catch(()=>null);
   if(!r || !r.ok){ toast("Ma'lumot topilmadi"); return; }
   const c = r.client;
   const stl = s => s==="done"?"Yakunlangan":s==="canceled"?"Bekor":s==="new"?"Yangi":"Jarayonda";
@@ -2064,12 +2117,12 @@ async function clientCard(){
       <div style="color:var(--hint);font-size:13px;margin-top:4px"><span class="pz-keep">${esc(c.branch)||esc(T("Filial tanlanmagan"))}</span> · ${esc(T("ro'yxatdan"))}: ${esc(c.reg)||"—"}</div></div>
     <div class="list" style="background:var(--sec)">
       ${c.phone?`<a class="item" href="tel:${esc(c.phone)}" style="text-decoration:none;color:inherit"><svg class="ic ic-green" viewBox="0 0 24 24" style="width:30px;height:30px;padding:5px;border-radius:8px;color:#fff"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg><div class="lbl">${esc(c.phone)}<div class="sub">Qo'ng'iroq qilish</div></div></a>`:""}
-      ${c.note?`<div class="item" data-act="openNote"><svg class="ic ic-orange" viewBox="0 0 24 24" style="width:30px;height:30px;padding:5px;border-radius:8px;color:#fff"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/></svg><div class="lbl" style="white-space:pre-wrap">${esc(c.note)}<div class="sub">Izoh</div></div></div>`:""}
+      ${c.note?`<div class="item" ${CH.readOnly?"":'data-act="openNote"'}><svg class="ic ic-orange" viewBox="0 0 24 24" style="width:30px;height:30px;padding:5px;border-radius:8px;color:#fff"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/></svg><div class="lbl" style="white-space:pre-wrap">${esc(c.note)}<div class="sub">Izoh</div></div></div>`:""}
     </div>
     <h3 style="font-size:14px;color:var(--hint);margin:12px 16px 4px">Murojaatlari</h3>
-    ${r.orders.map(o=>`<div class="item" ${o.can_open?`data-ord="${o.id}"`:'style="opacity:.72;cursor:default"'}><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span>${o.can_open?"":`<div class="sub">${esc(T("Boshqa operator murojaati — faqat qisqa tarix"))}</div>`}</div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
+    ${r.orders.map(o=>`<div class="item history-order ${o.can_open?"clickable":""}" ${o.can_open?`data-ord="${o.id}" data-readonly="${o.read_only?1:0}"`:'style="opacity:.72;cursor:default"'}><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span>${o.read_only?`<div class="sub">${esc(T("Boshqa operator murojaati · ko'rish uchun bosing"))}</div>`:""}</div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}${o.can_open?" ›":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
     el=>el.addEventListener("click", e=>{
-      const o = e.target.closest("[data-ord]"); if(o){ const shared=!!CH.shared; closeSheet(); openChat(+o.dataset.ord, c.name, shared); return; }
+      const o = e.target.closest("[data-ord]"); if(o){ const readOnly=o.dataset.readonly==="1", shared=!!CH.shared||readOnly; closeSheet(); openChat(+o.dataset.ord, c.name, shared, readOnly); return; }
       const p = e.target.closest("[data-prof]"); if(p){ try{ tg.openTelegramLink("https://t.me/"+p.dataset.prof); }catch(err){} }
     }));
 }
@@ -2080,7 +2133,7 @@ async function loadNote(){
   $("notebanner").classList.toggle("hide", !curNote); $("note-text-b").textContent = curNote;
 }
 function openNote(){
-  if(!CUR) return;
+  if(!CUR || CH?.readOnly) return;
   openSheet(`<h3>Mijoz haqida izoh</h3><textarea class="inp" id="note-text" rows="5" placeholder="Masalan: doimiy mijoz, diabetik, faqat naqd to'laydi">${esc(curNote)}</textarea><button class="sbtn" data-savenote>Saqlash</button>`,
     el=>{ setTimeout(()=>{ const t=$("note-text"); t && t.focus(); },150); el.querySelector("[data-savenote]").onclick = async()=>{
       const note = $("note-text").value.trim(); const r = await POST("/api/note", { order_id: CUR, note }).catch(()=>null);
@@ -2633,7 +2686,7 @@ async function openNotifications(){
   const icons={reminder:"⏰",unfinished:"⌛",new_orders:"📥",pause:"⏸",rating:"⭐",auto_close:"⏱",operator_message:"💬"};
   const unread=r.items.filter(n=>!n.read).length;
   const when=s=>{ if(!s)return ""; const d=s.slice(8,10)+"."+s.slice(5,7)+" · "+s.slice(11,16); return d; };
-  const html=`<div class="shead notify-head"><div class="notify-head-icon">🔔</div><div><b>${esc(T("Bildirishnomalar"))}</b><div class="notify-summary">${unread?`${unread} ta yangi bildirishnoma`:"Hammasi o'qilgan"}</div></div><button data-close>✕</button></div>
+  const html=`<div class="notify-head"><div class="notify-head-icon">🔔</div><div class="notify-head-copy"><b>${esc(T("Bildirishnomalar"))}</b><div class="notify-summary">${unread?`${unread} ta yangi bildirishnoma`:"Hammasi o'qilgan"}</div></div><button class="notify-close" data-close aria-label="Yopish">✕</button></div>
     <div class="notify-tools"><button data-notify-all ${unread?"":"disabled"}>✓ Barchasini o'qilgan qilish</button><button data-notify-refresh>↻ Yangilash</button></div>
     <div class="notify-list">${r.items.length?r.items.map(n=>`
     <div class="notify-row ${n.read?"read":"unread"}" data-notify="${n.id}" data-kind="${esc(n.kind)}" ${n.order_id?`data-order="${n.order_id}"`:""}>
@@ -2641,6 +2694,7 @@ async function openNotifications(){
       ${n.body?`<div class="nb">${esc(n.body)}</div>`:""}<div class="ntime"><span class="notify-dot"></span>${esc(when(n.created_at))}${n.order_id?`<span> · #${n.order_id}</span>`:""}</div></div><span class="notify-chev">›</span></div>`).join(""):
       `<div class="empty"><div class="big">🔕</div>Bildirishnoma yo'q</div>`}</div>`;
   openSheet(html,el=>{
+    el.classList.add("notify-sheet");
     el.querySelector("[data-close]").onclick=closeSheet;
     el.querySelector("[data-notify-refresh]").onclick=()=>openNotifications();
     el.querySelector("[data-notify-all]").onclick=async e=>{
@@ -2716,7 +2770,7 @@ const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logou
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
   cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
-  closeMedia, sendMedia, mediaCrop, mediaDraw, mediaRotate, mediaApplyCrop, mediaUndo, mediaReset,
+  closeMedia, sendMedia, mediaCrop, mediaDraw, mediaZoomIn, mediaZoomOut, mediaRotate, mediaApplyCrop, mediaUndo, mediaReset,
   closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
   openNotifications, closeOperatorChat, sendOperator };
 document.addEventListener("click", e=>{

@@ -2221,7 +2221,7 @@ async def api_client_info(request):
     if not u:
         return _json({"ok": False, "error": "topilmadi"}, 404)
     note = await q.get_client_note(order["user_id"])
-    orders = await q.orders_by_user(order["user_id"])
+    orders = await q.orders_by_user(order["user_id"], limit=None)
     return _json({"ok": True,
                   "fulfillment": order["fulfillment"] or "",
                   "client": {"name": u["full_name"] or u["phone"] or "Mijoz",
@@ -2231,10 +2231,10 @@ async def api_client_info(request):
                   "orders": [{"id": o["id"], "status": o["status"],
                               "date": (o["created_at"] or "")[:10],
                               "rating": o["rating"] or 0,
-                              "can_open": o["operator_id"] == op["id"] or
-                                          (shared and o["status"] == "in_progress" and bool(o["operator_id"])) or
-                                          (o["status"] == "new" and not o["operator_id"])}
-                             for o in orders[:12]]})
+                              "can_open": o["operator_id"] == op["id"] or bool(o["operator_id"]) or
+                                          (o["status"] == "new" and not o["operator_id"]),
+                              "read_only": bool(o["operator_id"] and o["operator_id"] != op["id"])}
+                             for o in orders]})
 
 
 # ---------------- API: yakunlangan murojaatni davom ettirish ----------------

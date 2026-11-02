@@ -404,11 +404,14 @@ async def set_order_feedback(order_id, feedback):
     await db.commit()
 
 
-async def orders_by_user(user_id):
+async def orders_by_user(user_id, limit=30):
     db = await get_db()
-    cur = await db.execute(
-        "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 30", (user_id,)
-    )
+    sql = "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC"
+    args = [user_id]
+    if limit is not None:
+        sql += " LIMIT ?"
+        args.append(max(1, int(limit)))
+    cur = await db.execute(sql, args)
     return await cur.fetchall()
 
 
