@@ -181,6 +181,44 @@ async def monthly_op_report_loop(bot):
             pass
 
 
+async def monthly_admin_report_loop(bot):
+    """Har oyning 1-sanasida adminlarga o'tgan oy bo'yicha umumiy hisobot yuboradi."""
+    from datetime import timedelta
+    from config import now_local
+    months = ["", "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+              "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"]
+    while True:
+        try:
+            n = now_local()
+            key = n.strftime("%Y-%m")
+            if n.day == 1 and n.hour >= 9 and (await q.get_setting("last_monthly_admin_report", "")) != key:
+                b_end = n.replace(day=1).strftime("%Y-%m-%d 00:00:00")
+                prev = n.replace(day=1) - timedelta(days=1)
+                a_start = prev.replace(day=1).strftime("%Y-%m-%d 00:00:00")
+                r = await q.period_report(a_start, b_end)
+                ops = await q.monthly_op_stats(a_start, b_end)
+                top = "\n".join(
+                    f"{['🥇', '🥈', '🥉', '4.', '5.'][i]} {o['name']} — {o['done'] or 0} ta yakun"
+                    for i, o in enumerate(ops[:5]) if o["done"])
+                text = (f"📊 <b>Oylik hisobot — {months[prev.month]} {prev.year}</b>\n\n"
+                        f"💊 Jami murojaatlar: <b>{r['total']}</b>\n"
+                        f"🆕 Yangi: {r['new']}   🔄 Jarayonda: {r['prog']}\n"
+                        f"🟢 Yakunlangan: {r['done']}   🔴 Bekor qilingan: {r['canceled']}\n"
+                        f"🚚 Yetkazib berish: {r['delivery']}   🏬 Olib ketish: {r['pickup']}\n"
+                        f"⏱ O'rtacha birinchi javob: {round(r['resp'])} daqiqa\n"
+                        f"✅ O'rtacha yakunlash: {round(r['resol'])} daqiqa\n\n"
+                        f"<b>Top operatorlar:</b>\n{top or '—'}")
+                for aid in await q.notify_recipient_ids():
+                    try:
+                        await bot.send_message(aid, text)
+                    except Exception:
+                        pass
+                await q.set_setting("last_monthly_admin_report", key)
+        except Exception:
+            pass
+        await asyncio.sleep(1800)
+
+
 async def reminders_loop(bot):
     """Operator eslatmalari: vaqti kelganda operatorga (o'z boti orqali) xabar beradi."""
     while True:
@@ -412,6 +450,8 @@ async def main():
     asyncio.create_task(rate_remind_loop(bot))
     # Oylik operator hisoboti (har oy 1-sanasida)
     asyncio.create_task(monthly_op_report_loop(bot))
+    # Oylik umumiy hisobot (adminlarga)
+    asyncio.create_task(monthly_admin_report_loop(bot))
     # Rejalashtirilgan ommaviy xabarlar
     asyncio.create_task(sched_bc_loop(bot))
     # Mini app (CRM) web serveri — bot bilan bir jarayonda

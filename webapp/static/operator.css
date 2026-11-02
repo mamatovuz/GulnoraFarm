@@ -308,6 +308,13 @@ html[data-scheme="dark"] .note .nb{background:#3d3418;color:#f0dc9a}
 #rb-title{font-size:13.5px;color:var(--accent);font-weight:600}
 #rb-text{font-size:13.5px;color:var(--hint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .composer{display:flex;align-items:flex-end;gap:2px;padding:6px 6px}
+.chat-actions{display:flex;align-items:center;gap:7px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:0 10px 8px;white-space:nowrap}
+.chat-actions::-webkit-scrollbar{display:none}
+.chat-actions button{flex:0 0 auto;border:1px solid var(--sep);border-radius:10px;background:var(--sec);color:var(--text);padding:8px 11px;font:inherit;font-size:12.5px;font-weight:600;line-height:1.2;cursor:pointer;min-height:34px}
+.chat-actions button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.chat-actions button.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,var(--sep));background:color-mix(in srgb,var(--red) 7%,var(--bg))}
+.chat-actions button:active{transform:scale(.97)}
+.composer.rec ~ #chat-actions{display:none}
 .composer .cbtn{width:44px;height:44px;border-radius:50%;border:none;background:none;color:var(--hint);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:color .15s,background .15s,transform .15s}
 .composer .cbtn:hover{color:var(--accent)}
 .inwrap{flex:1;min-width:0;display:flex;align-items:flex-end;background:var(--sec);border-radius:22px;padding:0 4px 0 14px;min-height:44px}

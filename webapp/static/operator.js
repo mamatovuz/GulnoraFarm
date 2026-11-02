@@ -676,9 +676,10 @@ function generalRowHtml(c){
     (c.last_sender==="operator"?`<span class="me">Javob: </span>`:"")+esc(c.preview||"");
   const unread=+c.unread||(c.marked_unread?1:0);
   const wait=closed?{cls:"",html:""}:waitInfo(c);
+  const autoClose=!closed&&c.auto_close_at?`<span class="autoclose-pill" data-close="${esc(c.auto_close_at)}">⏱ ${remainingLabel(c.auto_close_at)}</span>`:"";
   return `<div class="crow${wait.cls}" data-oid="${c.order_id}" data-name="${esc(c.name)}"><div class="cfront">${avaHtml(c.name)}
     <div class="mid"><div class="l1"><span class="nm">${esc(c.name)}</span><span class="order-tag">#${c.order_id}</span><span class="op-owner">${esc(c.operator_name||"Operator")}</span><span class="tm">${esc(c.time||"")}</span></div>
-    <div class="l2"><span class="pv">${pv}</span>${wait.html}${unread?`<span class="badge">${unread>99?"99+":unread}</span>`:""}</div></div></div></div>`;
+    <div class="l2"><span class="pv">${pv}</span>${wait.html}${autoClose}${unread?`<span class="badge">${unread>99?"99+":unread}</span>`:""}</div></div></div></div>`;
 }
 function generalClientRowHtml(c){
   const labels={in_progress:"Jarayonda",done:"Yakunlangan",canceled:"Bekor qilingan",new:"Yangi"};
@@ -1269,6 +1270,8 @@ async function fulfill(el){
 function applyChatStatus(st){
   const closed = st==="done" || st==="canceled";
   $("composer").classList.toggle("hide", closed || !!CH.readOnly);
+  $("chat-actions").classList.toggle("hide", closed || !!CH.readOnly);
+  $("reject-action").classList.toggle("hide", !!CH.rejected);
   $("resumebar").classList.toggle("hide", !closed || !!CH.readOnly);
   $("fulfillbar").classList.toggle("hide", !!CH.readOnly);
   if(closed){ $("resume-lbl").textContent = st==="canceled" ? "Bu murojaat bekor qilingan" : "Bu murojaat yakunlangan"; hidePanels(); $("replybar").classList.add("hide"); if(recActive()) finishRec(false); }
@@ -1299,7 +1302,7 @@ const CMP = TGF.Composer($("ed"), {
   },
   onKey: (e, c)=>{
     if(cmdOpen() && (e.key==="ArrowUp" || e.key==="ArrowDown")){ e.preventDefault(); cmdMove(e.key==="ArrowUp" ? -1 : 1); return; }
-    if(cmdOpen() && e.key==="Tab"){ e.preventDefault(); const x=CMDLIST[CMDSEL]; if(x){ if(x.kind==="br" || x.kind==="tpl" || BRANCH_CMDS.includes(x.id)) pickCmdItem(x); else c.setText(x.c); } return; }
+    if(cmdOpen() && e.key==="Tab"){ e.preventDefault(); const x=CMDLIST[CMDSEL]; if(x){ if(x.kind==="br" || x.kind==="tpl" || x.kind==="sticker" || BRANCH_CMDS.includes(x.id)) pickCmdItem(x); else c.setText(x.c); } return; }
     if(e.key==="Escape" && BRMODE){ e.preventDefault(); e.stopPropagation(); BRMODE = null; c.clear(); hidePanels(); return; }
     if(e.key==="Escape" && cmdOpen()){ e.preventDefault(); e.stopPropagation(); CMDLIST=[];CMDSEL=-1;$("cmdpanel").classList.add("hide");updateBackBtn();return; }
     if(e.key==="ArrowUp" && c.isEmpty() && CH && !CH.editMid){
@@ -1483,6 +1486,7 @@ function cmdMove(d){ if(!CMDLIST.length) return; CMDSEL = (CMDSEL + d + CMDLIST.
 function cmdRunSelected(){ const x = CMDLIST[CMDSEL]; if(!x) return false; pickCmdItem(x); return true; }
 function pickCmdItem(x){
   if(x.kind==="tpl"){ hidePanels(); CMP.setText(x.t.text); CMP.focusEnd(); haptic("sel"); return; }
+  if(x.kind==="sticker"){ CMP.clear(); hidePanels(); sendStickerId(x.s.id); return; }
   if(x.kind==="br"){ BRMODE = null; CMP.clear(); hidePanels(); runBranchCmd(x.cm.id, x.b); return; }
   if(BRANCH_CMDS.includes(x.id)){   // filial buyrug'i: ro'yxat chiqadi, yozib qidiriladi
     BRMODE = x; CMP.setText(x.c + " "); haptic("sel"); return;
@@ -1497,6 +1501,18 @@ function branchRowsHtml(list, sel, attr){
 }
 function updateCmd(v){
   const p = $("cmdpanel"); v = v || "";
+  const sticker=/^-([^\n]*)$/.exec(v.trimStart());
+  if(sticker){
+    const query=sticker[1].trim().toLowerCase();
+    if(!STICKERS){CMDLIST=[];CMDSEL=-1;p.innerHTML='<div class="spinner"></div>';p.classList.remove("hide");ensureStickers().then(()=>{if(/^-([^\n]*)$/.test(CMP.getText().trimStart()))updateCmd(CMP.getText());});return;}
+    const matches=STICKERS.filter(s=>!query||String(s.id).includes(query));
+    const prev=CMDLIST[CMDSEL]?.s?.id;
+    CMDLIST=matches.map(s=>({kind:"sticker",s,c:"-"+sticker[1]}));
+    const pi=CMDLIST.findIndex(x=>x.s.id===prev);CMDSEL=CMDLIST.length?(pi>=0?pi:0):-1;
+    if(matches.length){p.innerHTML=`<div class="phint">Stikerlar · ↑↓ tanlash · Enter yuborish</div>`+
+      matches.map((s,i)=>`<div class="qr${i===CMDSEL?" sel":""}" data-ci="${i}"><img src="${esc(fileUrl(s.file_id,"sticker"))}" style="width:38px;height:38px;object-fit:contain"><div class="tx">Stiker #${s.id}</div></div>`).join("");p.classList.remove("hide");cmdHighlight();return;}
+    p.classList.add("hide");CMDLIST=[];CMDSEL=-1;return;
+  }
   const quick=/^\*([^\n]*)$/.exec(v.trimStart());
   if(quick){
     const query=quick[1].trim().toLowerCase();
@@ -1634,16 +1650,28 @@ const EMOJI_SETS = {
   "Tibbiyot": "💊 💉 🩺 🩹 🌡️ 🧴 🧪 🦷 👁️ 🫁 🫀 🧠 🤧 🤰 👶 🍼 🍎 🥗 💧 🏥 🚑",
 };
 let STK_TAB = LS.get("stkTab") || "emoji";
+let STICKERS = null, STICKERS_LOADING = null;
+async function ensureStickers(){
+  if(STICKERS) return STICKERS;
+  if(!STICKERS_LOADING) STICKERS_LOADING=GET("/api/stickers").then(r=>{STICKERS=r&&r.ok?r.items||[]:[];return STICKERS;}).catch(()=>{STICKERS=[];return STICKERS;}).finally(()=>{STICKERS_LOADING=null;});
+  return STICKERS_LOADING;
+}
+async function sendStickerId(id){
+  if(!CUR||CH?.readOnly)return;
+  if(pendingBill){exitBill();const r=await POST("/api/cmd",{order_id:CUR,cmd:"bill",sticker_id:id}).catch(()=>null);toast(r&&r.ok?r.info:((r&&r.error)||"Xatolik"));kickSync();return;}
+  const r=await POST("/api/send_sticker",{order_id:CUR,sticker_id:id,shared:CH.shared?1:0}).catch(()=>null);
+  if(!r||!r.ok){toast((r&&r.error)||"Yuborilmadi");return;}kickSync();
+}
 async function renderStickerPanel(){
   const p = $("stickerpanel");
   let body = "";
   if(STK_TAB === "emoji"){
     body = Object.entries(EMOJI_SETS).map(([t, l])=>`<div class="emh">${esc(T(t))}</div><div class="emg">${l.split(" ").map(x=>`<button type="button" data-emo="${x}">${x}</button>`).join("")}</div>`).join("");
   } else {
-    const r = await GET("/api/stickers").catch(()=>null);
-    body = (!r || !r.ok || !r.items.length)
+    const items = await ensureStickers();
+    body = !items.length
       ? `<div class="empty" style="padding:24px 10px">${esc(T("Stiker yo'q. Admin panel → Tayyor javoblar → stiker qo'shing."))}</div>`
-      : `<div class="stkg">${r.items.map(s=>`<img class="stk" loading="lazy" data-stk="${s.id}" src="${esc(fileUrl(s.file_id,"sticker"))}">`).join("")}</div>`;
+      : `<div class="stkg">${items.map(s=>`<img class="stk" loading="lazy" data-stk="${s.id}" src="${esc(fileUrl(s.file_id,"sticker"))}">`).join("")}</div>`;
   }
   p.innerHTML = `<div class="emtabs"><button type="button" data-stab="emoji" class="${STK_TAB==="emoji"?"on":""}">😊 Emoji</button><button type="button" data-stab="stk" class="${STK_TAB==="stk"?"on":""}">🎭 ${esc(T("Stikerlar"))}</button></div><div class="embody">${body}</div>`;
 }
@@ -1657,10 +1685,7 @@ $("stickerpanel").addEventListener("mousedown", e=>{ if(e.target.closest("[data-
 $("stickerpanel").addEventListener("click", async e=>{
   const tb = e.target.closest("[data-stab]"); if(tb){ STK_TAB = tb.dataset.stab; LS.set("stkTab", STK_TAB); haptic("sel"); return renderStickerPanel(); }
   const em = e.target.closest("[data-emo]"); if(em){ CMP.insertText(em.dataset.emo); haptic("sel"); return; }
-  const s = e.target.closest("[data-stk]"); if(!s) return; hidePanels(); const id = +s.dataset.stk;
-  if(pendingBill){ exitBill(); const r=await POST("/api/cmd",{order_id:CUR,cmd:"bill",sticker_id:id}).catch(()=>null); toast(r&&r.ok?r.info:((r&&r.error)||"Xatolik")); kickSync(); return; }
-  const r = await POST("/api/send_sticker",{order_id:CUR,sticker_id:id,shared:CH.shared?1:0}).catch(()=>null);
-  if(!r || !r.ok){ toast((r&&r.error)||"Yuborilmadi"); return; } kickSync();
+  const s = e.target.closest("[data-stk]"); if(!s) return; hidePanels(); await sendStickerId(+s.dataset.stk);
 });
 
 /* ---------- biriktirish ---------- */
@@ -2026,14 +2051,8 @@ function chatMenu(el){
     {label:"Eslatma qo'yish", icon:"<svg viewBox='0 0 24 24'><path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0'/></svg>", onClick:openRemind},
     open && !(CH.pause||{}).paused && {label:"Pauzaga qo'yish", icon:"⏸", onClick:openPause},
     open && (CH.pause||{}).paused && {label:"Pauzadan chiqarish", icon:"▶️", onClick:resumePause},
-    open && {label:"Filialni almashtirish", icon:"📍", onClick:()=>openBranchPicker("changebranch")},
     open && {label:"Dori katalogi", icon:"💊", onClick:()=>openCatalog()},
     open && {label:"Hisob-kitob yaratish", icon:"🧾", onClick:openBill},
-    open && {label:"Boshqa operatorga o'tkazish", icon:"<svg viewBox='0 0 24 24'><path d='M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3'/></svg>", onClick:openTransfer},
-    "sep",
-    open && {label:"Yakunlash", icon:"<svg viewBox='0 0 24 24'><path d='M20 6L9 17l-5-5'/></svg>", onClick:()=>closeOrder(CUR)},
-    !CH.rejected && {label:"Otkaz (kanalga, chat ochiq qoladi)", icon:"🚫", onClick:rejectOrder},
-    open && {label:"Bekor qilish", danger:true, icon:"<svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><path d='M15 9l-6 6M9 9l6 6'/></svg>", onClick:()=>cancelOrder(CUR)},
   ]);
 }
 async function closeOrder(oid){
@@ -2051,7 +2070,7 @@ async function cancelOrder(oid){
 async function rejectOrder(){
   const r = await POST("/api/reject", { order_id: CUR }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"Bajarilmadi"); return; }
-  CH.rejected = true; updateSub(); toast(r.info || "Отказ"); haptic("medium");
+  CH.rejected = true; $("reject-action").classList.add("hide"); updateSub(); toast(r.info || "Отказ"); haptic("medium");
 }
 async function hideOrder(oid){
   const r = await POST("/api/hide", { order_id: oid }).catch(()=>null);
@@ -2803,6 +2822,8 @@ WIDE_MQ.addEventListener && WIDE_MQ.addEventListener("change", ()=>{ if(CURSCREE
    ============================================================ */
 const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout,
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
+  cancelCurrent:()=>cancelOrder(CUR), closeCurrent:()=>closeOrder(CUR), transferCurrent:openTransfer,
+  changeBranch:()=>openBranchPicker("changebranch"),
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
   cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
   closeMedia, sendMedia, mediaCrop, mediaDraw, mediaZoomIn, mediaZoomOut, mediaRotate, mediaApplyCrop, mediaUndo, mediaReset,
