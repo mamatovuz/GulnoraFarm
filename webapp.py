@@ -2231,9 +2231,10 @@ async def api_client_info(request):
                   "orders": [{"id": o["id"], "status": o["status"],
                               "date": (o["created_at"] or "")[:10],
                               "rating": o["rating"] or 0,
+                              "shared": bool(o["operator_id"] and o["operator_id"] != op["id"]),
                               "can_open": o["operator_id"] == op["id"] or bool(o["operator_id"]) or
                                           (o["status"] == "new" and not o["operator_id"]),
-                              "read_only": bool(o["operator_id"] and o["operator_id"] != op["id"])}
+                              "read_only": False}
                              for o in orders]})
 
 
@@ -2251,7 +2252,7 @@ async def api_reopen(request):
         order_id = int(body.get("order_id"))
     except (TypeError, ValueError):
         return _json({"ok": False, "error": "order_id"}, 400)
-    order, denied = await _operator_order(op, order_id)
+    order, denied = await _operator_order(op, order_id, allow_shared=bool(body.get("shared")))
     if denied is not None:
         return denied
     if order["status"] in ("new", "in_progress"):

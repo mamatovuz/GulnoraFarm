@@ -1277,8 +1277,9 @@ function applyChatStatus(st){
   if(closed){ $("resume-lbl").textContent = st==="canceled" ? "Bu murojaat bekor qilingan" : "Bu murojaat yakunlangan"; hidePanels(); $("replybar").classList.add("hide"); if(recActive()) finishRec(false); }
 }
 async function resume(){
-  const r = await POST("/api/reopen", { order_id: CUR }).catch(()=>null);
+  const r = await POST("/api/reopen", { order_id: CUR, shared:CH.shared?1:0 }).catch(()=>null);
   if(!r || !r.ok){ alert2((r&&r.error)||"Ochilmadi"); return; }
+  CH.shared=false; CH.readOnly=false; CH.operatorName=ST.op.name; CH.operatorId=ST.op.id;
   applyChatStatus("in_progress"); CH.status="in_progress"; updateSub(); kickSync(); CMP.focus();
 }
 function renderTagsbar(){
@@ -2174,9 +2175,9 @@ async function clientCard(){
       ${c.note?`<div class="item" ${CH.readOnly?"":'data-act="openNote"'}><svg class="ic ic-orange" viewBox="0 0 24 24" style="width:30px;height:30px;padding:5px;border-radius:8px;color:#fff"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/></svg><div class="lbl" style="white-space:pre-wrap">${esc(c.note)}<div class="sub">Izoh</div></div></div>`:""}
     </div>
     <h3 style="font-size:14px;color:var(--hint);margin:12px 16px 4px">Murojaatlari</h3>
-    ${r.orders.map(o=>`<div class="item history-order ${o.can_open?"clickable":""}" ${o.can_open?`data-ord="${o.id}" data-readonly="${o.read_only?1:0}"`:'style="opacity:.72;cursor:default"'}><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span>${o.read_only?`<div class="sub">${esc(T("Boshqa operator murojaati · ko'rish uchun bosing"))}</div>`:""}</div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}${o.can_open?" ›":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
+    ${r.orders.map(o=>`<div class="item history-order ${o.can_open?"clickable":""}" ${o.can_open?`data-ord="${o.id}" data-shared="${o.shared?1:0}" data-readonly="${o.read_only?1:0}"`:'style="opacity:.72;cursor:default"'}><div class="lbl">#${o.id} <span style="color:var(--hint);font-size:12.5px">· ${esc(o.date)}</span>${o.shared?`<div class="sub">${esc(T("Boshqa operator murojaati · yozish mumkin"))}</div>`:""}</div><div class="val">${stl(o.status)}${o.rating?" · "+o.rating+"★":""}${o.can_open?" ›":""}</div></div>`).join("") || '<div class="empty">Murojaat yo\'q</div>'}`,
     el=>el.addEventListener("click", e=>{
-      const o = e.target.closest("[data-ord]"); if(o){ const readOnly=o.dataset.readonly==="1", shared=!!CH.shared||readOnly; closeSheet(); openChat(+o.dataset.ord, c.name, shared, readOnly); return; }
+      const o = e.target.closest("[data-ord]"); if(o){ const readOnly=o.dataset.readonly==="1", shared=!!CH.shared||o.dataset.shared==="1"||readOnly; closeSheet(); openChat(+o.dataset.ord, c.name, shared, readOnly); return; }
       const p = e.target.closest("[data-prof]"); if(p){ try{ tg.openTelegramLink("https://t.me/"+p.dataset.prof); }catch(err){} }
     }));
 }
