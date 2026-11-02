@@ -1740,12 +1740,19 @@ function clampMediaView(){
   ME.viewX=Math.max(-maxX,Math.min(maxX,ME.viewX));ME.viewY=Math.max(-maxY,Math.min(maxY,ME.viewY));
 }
 function mediaViewTransform(){
-  const c=$("mm-canvas");if(c)c.style.transform=`translate3d(${ME.viewX}px,${ME.viewY}px,0) scale(${ME.viewZoom})`;
+  const c=$("mm-canvas");if(c){c.style.transform=`translate3d(${ME.viewX}px,${ME.viewY}px,0) scale(${ME.viewZoom})`;c.classList.toggle("zoomed",ME.viewZoom>1&&ME.mode==="none");}
 }
-function mediaZoom(f){
-  ME.viewZoom=Math.max(1,Math.min(6,ME.viewZoom*f));
-  if(ME.viewZoom===1)ME.viewX=ME.viewY=0;clampMediaView();mediaViewTransform();
+function mediaSetZoom(next,focusX=null,focusY=null){
+  const old=ME.viewZoom; next=Math.max(1,Math.min(6,next));
+  if(focusX!==null&&focusY!==null&&old!==next){
+    const r=$("mm-stage").getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,ratio=next/old;
+    ME.viewX=(focusX-cx)-((focusX-cx)-ME.viewX)*ratio;
+    ME.viewY=(focusY-cy)-((focusY-cy)-ME.viewY)*ratio;
+  }
+  ME.viewZoom=next;
+  if(next===1)ME.viewX=ME.viewY=0;clampMediaView();mediaViewTransform();
 }
+function mediaZoom(f,focus=null){mediaSetZoom(ME.viewZoom*f,focus?.clientX??null,focus?.clientY??null);}
 function mediaZoomIn(){mediaZoom(1.4);}
 function mediaZoomOut(){mediaZoom(1/1.4);}
 function renderMediaCanvas(){
@@ -1819,11 +1826,12 @@ function mediaReset(){
 const MMCAN=$("mm-canvas");
 MMCAN.addEventListener("wheel",e=>{
   if(!(e.ctrlKey||e.metaKey)||!ME.work)return;
-  e.preventDefault();mediaZoom(e.deltaY<0?1.15:.87);
+  e.preventDefault();mediaZoom(e.deltaY<0?1.15:.87,e);
 },{passive:false});
 MMCAN.addEventListener("pointerdown",e=>{
   if(!ME.work)return;
   if(ME.mode==="none"){
+    if(e.pointerType==="mouse")return;
     ME.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
     MMCAN.setPointerCapture&&MMCAN.setPointerCapture(e.pointerId);
     if(ME.pointers.size===2){const pts=[...ME.pointers.values()];ME.pinch={d:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),z:ME.viewZoom};ME.pan=null;}
@@ -1837,7 +1845,7 @@ MMCAN.addEventListener("pointerdown",e=>{
 });
 MMCAN.addEventListener("pointermove",e=>{
   if(ME.pointers.has(e.pointerId))ME.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(ME.pinch&&ME.pointers.size>=2){const pts=[...ME.pointers.values()];ME.viewZoom=Math.max(1,Math.min(6,ME.pinch.z*Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y)/ME.pinch.d));if(ME.viewZoom===1)ME.viewX=ME.viewY=0;clampMediaView();mediaViewTransform();return;}
+  if(ME.pinch&&ME.pointers.size>=2){const pts=[...ME.pointers.values()],cx=(pts[0].x+pts[1].x)/2,cy=(pts[0].y+pts[1].y)/2;mediaSetZoom(ME.pinch.z*Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y)/ME.pinch.d,cx,cy);return;}
   if(ME.pan&&ME.pan.id===e.pointerId){ME.viewX+=e.clientX-ME.pan.x;ME.viewY+=e.clientY-ME.pan.y;ME.pan.x=e.clientX;ME.pan.y=e.clientY;clampMediaView();mediaViewTransform();return;}
   if(ME.drag&&ME.mode==="crop"){const p=mediaPoint(e);ME.crop.x2=p.x;ME.crop.y2=p.y;renderMediaCanvas();updateMediaTools();}
   else if(ME.drawing&&ME.mode==="draw"){const p=mediaPoint(e);drawMediaLine(ME.last,p);ME.last=p;renderMediaCanvas();}
@@ -1854,6 +1862,17 @@ MMCAN.addEventListener("pointerup",e=>{
   if(e.pointerType!=="touch"||ME.mode!=="none")return;
   const now=Date.now();if(now-mediaTapAt<300){mediaZoom(ME.viewZoom>1?1:2.4);mediaTapAt=0;}else mediaTapAt=now;
 });
+let mediaMousePan=null;
+MMCAN.addEventListener("mousedown",e=>{
+  if(e.button!==0||!ME.work||ME.mode!=="none"||ME.viewZoom<=1)return;
+  e.preventDefault();mediaMousePan={x:e.clientX,y:e.clientY};MMCAN.classList.add("dragging");
+});
+window.addEventListener("mousemove",e=>{
+  if(!mediaMousePan)return;
+  ME.viewX+=e.clientX-mediaMousePan.x;ME.viewY+=e.clientY-mediaMousePan.y;
+  mediaMousePan={x:e.clientX,y:e.clientY};clampMediaView();mediaViewTransform();
+});
+window.addEventListener("mouseup",()=>{if(mediaMousePan){mediaMousePan=null;MMCAN.classList.remove("dragging");}});
 $("mm-color").addEventListener("input",e=>{ document.querySelector(".mm-color span").style.background=e.target.value; if(ME.mode!=="draw")setMediaMode("draw"); });
 window.addEventListener("resize",()=>{ if(pendingMedia)layoutMediaEditor(); });
 function closeMedia(){
