@@ -2116,15 +2116,39 @@ function admRevoke(){ tg.showConfirm("Barcha adminlar (siz ham) qayta kirishi ke
   ADM.token=r.token; localStorage.setItem("adm_token", ADM.token); tg.showAlert("Bekor qilindi ✅"); }); }
 
 // ---- SLA (javob tezligi) ----
-let SLAP="week";
+let SLAP="week", SLAFROM="", SLATO="";
+function _slaIso(d){ return d.toISOString().slice(0,10); }
+function _slaCustomDefaults(){
+  const n=new Date(); n.setHours(0,0,0,0);
+  SLATO=SLATO||_slaIso(n);
+  if(!SLAFROM){ const f=new Date(n); f.setDate(f.getDate()-29); SLAFROM=_slaIso(f); }
+}
+function _slaControls(){
+  const per=[["today","Bugun"],["week","Hafta"],["month","Oy"],["3months","3 oy"],["custom","Davr bo'yicha"]];
+  return `<div class="seg" style="margin:0 0 12px">${per.map(([k,l])=>`<button class="${SLAP===k?"on":""}" onclick="svSla('${k}')" style="padding:7px 12px;font-size:13px">${l}</button>`).join("")}</div>
+    ${SLAP==="custom"?`<div class="card" style="margin:0 0 12px;padding:12px"><div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+      <label style="flex:1;min-width:150px;font-size:12px;color:var(--hint)">Boshlanish sanasi<input id="sla-from" type="date" value="${SLAFROM}" style="display:block;width:100%;margin-top:4px"></label>
+      <label style="flex:1;min-width:150px;font-size:12px;color:var(--hint)">Tugash sanasi<input id="sla-to" type="date" value="${SLATO}" style="display:block;width:100%;margin-top:4px"></label>
+      <button class="sbtn" onclick="applySlaCustom()" style="height:38px">Ko'rsatish</button>
+    </div><div style="font-size:12px;color:var(--hint);margin-top:8px">Istalgan sanalar oralig'ini tanlang (masalan, 30.04.2026 — 30.11.2026).</div></div>`:""}`;
+}
+function applySlaCustom(){
+  const f=document.getElementById("sla-from")?.value||"", t=document.getElementById("sla-to")?.value||"";
+  if(!f||!t){ tg.showAlert("Boshlanish va tugash sanasini tanlang"); return; }
+  if(t<f){ tg.showAlert("Tugash sanasi boshlanish sanasidan oldin bo'lmasin"); return; }
+  SLAFROM=f; SLATO=t; svSla("custom");
+}
 async function svSla(p){
   if(p) SLAP=p;
+  if(SLAP==="custom") _slaCustomDefaults();
   const body=document.getElementById("sv-body");
-  const r=await q("/api/admin/sla","GET",Object.assign(auth(),{period:SLAP}));
-  if(!r.ok){ body.innerHTML='<div class="empty">Xatolik</div>'; return; }
-  const per=[["today","Bugun"],["week","Hafta"],["month","Oy"],["3months","3 oy"]];
+  const params={period:SLAP};
+  if(SLAP==="custom"){ params.from=SLAFROM; params.to=SLATO; }
+  const r=await q("/api/admin/sla","GET",Object.assign(auth(),params));
+  if(!r.ok){ body.innerHTML=_slaControls()+`<div class="empty">${esc(r.error||"Xatolik")}</div>`; return; }
   const col=v=>v==null?"var(--hint)":v>=80?"#2f9e44":v>=50?"#d97706":"#e5484d";
-  body.innerHTML = `<div class="seg" style="margin:0 0 12px">${per.map(([k,l])=>`<button class="${SLAP===k?"on":""}" onclick="svSla('${k}')" style="padding:7px 12px;font-size:13px">${l}</button>`).join("")}</div>
+  const range=r.range_from&&r.range_to?`<div style="font-size:12px;color:var(--hint);margin:-4px 0 10px">📅 ${_fmtD(r.range_from)} — ${_fmtD(r.range_to)}</div>`:"";
+  body.innerHTML = `${_slaControls()}${range}
     <div class="kpi" style="grid-template-columns:1fr 1fr 1fr">
       <div class="tile"><div class="v" style="color:${col(r.overall)}">${r.overall==null?"—":r.overall+"%"}</div><div class="l">Maqsadda (≤ ${r.target} daq)</div></div>
       <div class="tile"><div class="v">${_durTxt(r.first_med)}</div><div class="l">Birinchi javob (median)</div></div>

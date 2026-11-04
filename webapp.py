@@ -4141,15 +4141,29 @@ async def api_admin_sla(request):
     """Operatorlar bo'yicha SLA: birinchi javob vaqti, hal qilish vaqti, maqsadga erishish %."""
     if not await _auth_admin(request, request.query):
         return _json({"ok": False}, 401)
-    period = request.query.get("period", "week")
-    since = _period_start_str(period)
+    period = (request.query.get("period", "week") or "week").strip()
+    until = None
+    if period == "custom":
+        raw_from = (request.query.get("from") or "").strip()[:10]
+        raw_to = (request.query.get("to") or "").strip()[:10]
+        try:
+            date_from = datetime.strptime(raw_from, "%Y-%m-%d")
+            date_to = datetime.strptime(raw_to, "%Y-%m-%d")
+        except ValueError:
+            return _json({"ok": False, "error": "Boshlanish va tugash sanasini tanlang."}, 400)
+        if date_to < date_from:
+            return _json({"ok": False, "error": "Tugash sanasi boshlanish sanasidan oldin bo'lmasin."}, 400)
+        since = date_from.strftime("%Y-%m-%d 00:00:00")
+        until = (date_to + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+    else:
+        since = _period_start_str(period)
     try:
         target = float(await q.get_setting("sla_target_min", "5") or 5)
     except ValueError:
         target = 5
     per = {}
     tot_first = []
-    for r in await q.sla_rows(since):
+    for r in await q.sla_rows(since, until):
         if not r["operator_id"]:
             continue
         d = per.setdefault(r["operator_id"], {"name": r["operator"] or "—", "orders": 0, "done": 0,
@@ -4178,8 +4192,12 @@ async def api_admin_sla(request):
     items.sort(key=lambda x: (x["in_target"] is None, -(x["in_target"] or 0)))
     overall = (round(100 * sum(1 for x in tot_first if x <= target) / len(tot_first))
                if tot_first else None)
+    range_from = since[:10]
+    range_to = ((datetime.strptime(until[:10], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+                if until else now_local().strftime("%Y-%m-%d"))
     return _json({"ok": True, "items": items, "target": target, "overall": overall,
-                  "first_med": q._median(tot_first), "period": period})
+                  "first_med": q._median(tot_first), "period": period,
+                  "range_from": range_from, "range_to": range_to})
 
 
 async def api_admin_admin_role(request):
