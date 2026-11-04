@@ -4071,7 +4071,7 @@ async def _actor_label(actor: str, cache: dict) -> str:
 
 async def api_admin_audit(request):
     tg = await _auth_admin(request, request.query)
-    if not tg or not await _can_manage_admins(tg):
+    if not tg:
         return _json({"ok": False}, 401)
     try:
         page = int(request.query.get("page", "0") or 0)
