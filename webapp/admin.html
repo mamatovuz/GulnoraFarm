@@ -589,7 +589,7 @@
       <div class="item" onclick="openSet('ai')"><svg class="ic" viewBox="0 0 24 24" style="color:#7c5cff"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg><div class="lbl">AI (Gemini / Groq)<div style="font-size:12px;color:var(--hint)">API kalit · Excel'ni AI tahlil qilib filiallarga ajratadi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('daily')"><svg class="ic" viewBox="0 0 24 24" style="color:#f59e0b"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><div class="lbl">Kunlik hisobot va maqsad<div style="font-size:12px;color:var(--hint)">Har kuni Telegramga xulosa · operator kunlik maqsadi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('tags')"><svg class="ic" viewBox="0 0 24 24" style="color:#ec4899"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg><div class="lbl">Teglar<div style="font-size:12px;color:var(--hint)">Murojaat mavzulari ro'yxati</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
-      <div class="item" onclick="openSet('audit')"><svg class="ic" viewBox="0 0 24 24" style="color:#64748b"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg><div class="lbl">Audit jurnali<div style="font-size:12px;color:var(--hint)">Kim nima qildi · o'chirilgan xabarlar</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
+      <div class="item" id="admin-audit-item" onclick="openSet('audit')"><svg class="ic" viewBox="0 0 24 24" style="color:#64748b"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg><div class="lbl">Admin auditi<div style="font-size:12px;color:var(--hint)">Adminlar va bot hisobotlari · kim nima qildi</div></div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
       <div class="item" onclick="openSet('low')"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg><div class="lbl">Sifat nazorati (past baholar)</div><svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px;color:var(--hint)"><path d="M9 18l6-6-6-6"/></svg></div>
     </div>
     <div class="list">
@@ -888,11 +888,13 @@ async function gate(){
   const r = await q("/api/admin/login","POST",{});
   const sp = document.getElementById("gate-spin"), er = document.getElementById("gate-err");
   if(!r.ok){ sp.classList.add("hide"); er.textContent = r.error||"Xatolik"; er.classList.remove("hide"); return; }
-  ADM = { id: r.admin_id, token: r.token, role: r.role||"admin", mk: r.mk||"" };
+  ADM = { id: r.admin_id, token: r.token, role: r.role||"admin", canAudit: !!r.can_audit, mk: r.mk||"" };
   if(ADM.role==="viewer"){
     document.getElementById("tab-set").insertAdjacentHTML("afterbegin",
       '<div class="viewer-banner">👁 Sizda faqat ko\'rish huquqi bor (supervayzer). O\'zgartirishlar bloklangan.</div>');
   }
+  const auditItem=document.getElementById("admin-audit-item");
+  if(auditItem) auditItem.classList.toggle("hide", !ADM.canAudit);
   localStorage.setItem("adm_id", ADM.id); localStorage.setItem("adm_token", ADM.token);
   document.getElementById("gate").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
@@ -2394,23 +2396,33 @@ async function saveTags(){
 }
 
 // ---- Audit jurnali ----
-let AUD={page:0,q:""}, audT=null;
+let AUD={page:0,q:"",admin:null}, audT=null;
 function audDeb(){ clearTimeout(audT); audT=setTimeout(()=>{ AUD.page=0; AUD.q=document.getElementById("aud-q").value.trim(); loadAudit(); },350); }
 async function svAudit(){
-  AUD={page:0,q:""};
-  document.getElementById("sv-body").innerHTML=`<div class="searchbar" style="margin:0 0 10px"><input id="aud-q" placeholder="Qidiruv: #murojaat, operator ismi, amal..." oninput="audDeb()"></div>
+  if(!ADM.canAudit){ document.getElementById("sv-body").innerHTML='<div class="empty">Bu bo‘lim faqat asosiy adminga ko‘rinadi.</div>'; return; }
+  AUD={page:0,q:"",admin:null};
+  document.getElementById("sv-body").innerHTML=`<div class="searchbar" style="margin:0 0 8px"><input id="aud-q" placeholder="Qidiruv: amal, ma'lumot..." oninput="audDeb()"></div>
+    <div id="aud-admins" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 10px"></div>
     <div class="lrows" id="aud-rows"></div><div id="aud-pager" class="pager hide"></div>`;
-  loadAudit();
+  loadAuditAdmins(); loadAudit();
 }
 function goAudPage(p){ AUD.page=p; loadAudit(); }
+async function loadAuditAdmins(){
+  const box=document.getElementById("aud-admins"); if(!box) return;
+  const r=await q("/api/admin/admins","GET",auth()); if(!r.ok) return;
+  const buttons=[`<button class="themeseg on" data-aid="" onclick="setAuditAdmin(null)">✓ Barchasi</button>`].concat((r.items||[]).filter(a=>a.telegram_id).map(a=>`<button class="themeseg" data-aid="${a.telegram_id}" onclick="setAuditAdmin(${a.telegram_id})">○ ${esc(a.name||a.username||a.telegram_id)}</button>`));
+  box.innerHTML=buttons.join("");
+}
+function setAuditAdmin(id){ AUD.admin=id; AUD.page=0; document.querySelectorAll("#aud-admins button").forEach(b=>{ const on=(id===null&&!b.dataset.aid)||(id!==null&&String(id)===b.dataset.aid); b.classList.toggle("on",on); b.textContent=(on?"✓ ":"○ ")+b.textContent.replace(/^[✓○]\s*/,''); }); loadAudit(); }
 async function loadAudit(){
-  const r=await q("/api/admin/audit","GET",Object.assign(auth(),{page:AUD.page,q:AUD.q}));
+  const r=await q("/api/admin/admin_audit","GET",Object.assign(auth(),{page:AUD.page,q:AUD.q,admin_id:AUD.admin||""}));
   if(!r.ok) return;
+  const dkey={bo_lim:"Bo‘lim",fields:"Yuborilgan maydonlar",operator:"Operator",as_operator:"Javob bergan operator",as_operator_id:"Operator ID",to:"O‘tkazilgan operator",from:"Avvalgi operator",sent:"Yuborildi",failed:"Xato",recipients:"Qabul qiluvchilar",date:"Sana",days:"Kunlar",text:"Matn",old:"Avval",new:"Keyin",operator_id:"Operator ID",client:"Mijoz",orders:"Murojaatlar soni",branch:"Filial",closed:"Yopilganlar soni",added:"Qo‘shilgan",updated:"Yangilangan"};
   const det=a=>{ const d=a.details||{};
     if(a.action==="msg_delete") return "Asl matn: "+(d.text||("["+(d.type||"fayl")+"]"));
     if(a.action==="msg_edit") return "Oldin: "+(d.old||"")+"\nKeyin: "+(d.new||"");
     if(a.action==="transfer") return "→ "+(d.to||"");
-    const ks=Object.keys(d); return ks.length? ks.map(k=>k+": "+(typeof d[k]==="object"?JSON.stringify(d[k]):d[k])).join(" · ") : ""; };
+    const ks=Object.keys(d); return ks.length? ks.map(k=>(dkey[k]||k)+": "+(typeof d[k]==="object"?JSON.stringify(d[k]):d[k])).join(" · ") : ""; };
   const danger={msg_delete:1,client_delete:1,op_delete:1,review_delete:1,login_fail:1,admin_sessions_revoked:1};
   document.getElementById("aud-rows").innerHTML = r.items.map(a=>{ const d=det(a);
     return `<div class="audrow"${a.order_id?` style="cursor:pointer" onclick='openTrans(${a.order_id},"audit")'`:""}>

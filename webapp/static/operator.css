@@ -199,6 +199,7 @@ html[data-scheme="dark"] .wp-sand{--chat-bg:linear-gradient(160deg,#2b251a 0%,#3
 #msgs{position:relative;z-index:1;flex:1;overflow-y:auto;overflow-x:hidden;padding:8px 8px 10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .mrow{display:flex;padding:1px 4px;position:relative;transition:transform .2s}
 .mrow.o{justify-content:flex-end}
+.mrow.other-op{justify-content:flex-start}
 .mrow.gend{margin-bottom:6px}
 .mrow.new{animation:msgIn .22s ease-out}
 .mrow.hl .bub{animation:hl 1.6s ease-out}
@@ -209,6 +210,8 @@ html[data-scheme="dark"] .wp-sand{--chat-bg:linear-gradient(160deg,#2b251a 0%,#3
   -webkit-font-smoothing:antialiased;letter-spacing:.005em;
   background:var(--b-in);color:var(--b-in-t);user-select:text;-webkit-user-select:text}
 .mrow.o .bub{background:var(--b-out);color:var(--b-out-t)}
+.mrow.other-op .bub{background:color-mix(in srgb,var(--accent) 10%,var(--b-in));color:var(--b-in-t);border-left:3px solid var(--accent)}
+.opwho{font-size:11px;font-weight:700;color:var(--accent);margin:0 0 3px 2px}
 .mrow.c.gend .bub{border-bottom-left-radius:5px}
 .mrow.o.gend .bub{border-bottom-right-radius:5px}
 .mrow.c:not(.gstart) .bub{border-top-left-radius:6px}

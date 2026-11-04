@@ -812,11 +812,13 @@ async def _daily_report_loop():
             if not client:
                 continue
             text = await daily_report_text(n.date())
-            for aid in await q.notify_recipient_ids():
+            recipients = await q.notify_recipient_ids()
+            for aid in recipients:
                 try:
                     await client.send_message(aid, text)
                 except Exception:
                     pass
+            await q.audit("admin:bot", "report_daily", None, {"date": today, "recipients": len(recipients)})
         except Exception:
             logger.exception("daily report")
 

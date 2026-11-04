@@ -514,7 +514,7 @@ async def init_db():
     # sessiya davri (eski tokenlarni bekor qilish), operatorning shaxsiy shablonlari, admin roli
     await _add_cols(db, "messages", [("html", "TEXT"), ("reply_to_mid", "INTEGER"),
                                      ("edited_at", "TEXT"), ("file_size", "INTEGER"),
-                                     ("extra_cmids", "TEXT")])   # bir nechta xabardan iborat javob (filial: rasm+matn+xarita)
+                                     ("extra_cmids", "TEXT"), ("operator_id", "INTEGER")])   # javob bergan operator
     await _add_cols(db, "orders", [("tags", "TEXT"), ("pinned_mid", "INTEGER"), ("paused_at", "TEXT"),
                                    ("paused_until", "TEXT"), ("paused_total_min", "REAL DEFAULT 0"),
                                    ("pause_remind_min", "INTEGER"), ("pause_next_remind", "TEXT"),

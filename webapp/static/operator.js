@@ -673,7 +673,7 @@ function generalRowHtml(c){
   const status=c.status==="done"?`<span class="me">Yakunlangan · </span>`:
     (c.status==="canceled"?`<span class="pzl">Bekor qilingan · </span>`:"");
   const pv=(c.paused?`<span class="pzl">⏸ ${esc(T("Pauzada"))}</span> `:"")+status+
-    (c.last_sender==="operator"?`<span class="me">Javob: </span>`:"")+esc(c.preview||"");
+    (c.last_sender==="operator"?`<span class="me">Javob${c.last_operator_name?" · "+esc(c.last_operator_name):""}: </span>`:"")+esc(c.preview||"");
   const unread=+c.unread||(c.marked_unread?1:0);
   const wait=closed?{cls:"",html:""}:waitInfo(c);
   const autoClose=!closed&&c.auto_close_at?`<span class="autoclose-pill" data-close="${esc(c.auto_close_at)}">⏱ ${remainingLabel(c.auto_close_at)}</span>`:"";
@@ -690,7 +690,7 @@ function generalClientRowHtml(c){
 }
 function renderGeneralChats(){
   const box=$("general-list"); if(!box)return;
-  const kind=ST.generalKind, qv=$("general-search").value.trim().toLowerCase();
+  const kind=ST.generalKind, qv=$("general-search").value.trim().toLowerCase().replace(/^#/,'');
   $("general-hint").textContent=GENERAL_HINTS[kind]||GENERAL_HINTS.active;
   let list;
   if(kind==="clients"){
@@ -699,7 +699,7 @@ function renderGeneralChats(){
     list=ST.general;
     if(kind==="unread") list=list.filter(c=>(+c.unread||c.marked_unread));
     else if(kind==="paused") list=list.filter(c=>c.paused);
-    list=list.filter(c=>!qv||(c.name||"").toLowerCase().includes(qv)||(c.phone||"").includes(qv)||(c.operator_name||"").toLowerCase().includes(qv)||(c.preview||"").toLowerCase().includes(qv));
+    list=list.filter(c=>!qv||String(c.order_id||"").includes(qv)||(c.name||"").toLowerCase().includes(qv)||(c.phone||"").includes(qv)||(c.operator_name||"").toLowerCase().includes(qv)||(c.preview||"").toLowerCase().includes(qv));
   }
   const st=box.scrollTop;
   box.innerHTML=list.map(kind==="clients"?generalClientRowHtml:generalRowHtml).join("")||`<div class="empty"><div class="big">👥</div>${GENERAL_EMPTY[kind]||GENERAL_EMPTY.active}</div>`;
@@ -840,7 +840,7 @@ function nextOf(mid){ const i = CH.order.indexOf(mid); return i>=0 && i<CH.order
 /* ---------- vaqt chizig'i ---------- */
 function sameGroup(a, b){
   if(!a || !b || a.kind || b.kind) return false;
-  if(a.own !== b.own || isSys(a) || isSys(b)) return false;
+  if(a.own !== b.own || a.sender !== b.sender || a.operator_name !== b.operator_name || isSys(a) || isSys(b)) return false;
   if((a.ts||"").slice(0,10) !== (b.ts||"").slice(0,10)) return false;
   return Math.abs(new Date((b.ts||"").replace(" ","T")) - new Date((a.ts||"").replace(" ","T"))) < 5*60000;
 }
@@ -959,7 +959,7 @@ function docIcon(name, mime){
 function replyQuote(m){
   if(!m.reply_to) return "";
   const r = CH.msgs.get(m.reply_to) || m.reply; if(!r) return "";
-  const who = r.own ? "Siz" : (CH.name || "Mijoz");
+  const who = r.own ? "Siz" : (r.sender==="operator" ? (r.operator_name || "Operator") : (CH.name || "Mijoz"));
   const thumb = r.type==="photo" && r.file_id ? `<img src="${esc(fileUrl(r.file_id,"photo"))}">` : "";
   return `<div class="rq" data-jump="${m.reply_to}">${thumb}<div style="min-width:0"><div class="rqn">${esc(who)}</div><div class="rqt">${esc(msgPreview(r)||"Xabar")}</div></div></div>`;
 }
@@ -974,7 +974,7 @@ function textBlock(m){
 }
 function rowHtml(m, prev, next, isNew){
   if(isSys(m)) return `<div class="sysm" id="m${m.mid}"><span>${esc(m.text)}</span></div>`;
-  const cls = m.own ? "o" : "c";
+  const cls = m.own ? "o" : (m.sender==="operator" ? "other-op" : "c");
   const gstart = !sameGroup(prev, m), gend = !sameGroup(m, next);
   const rowCls = `mrow ${cls}${gstart?" gstart":""}${gend?" gend":""}${isNew?" new":""}`;
   const data = `id="m${m.mid}" data-mid="${m.mid}"`;
@@ -1027,6 +1027,8 @@ function rowHtml(m, prev, next, isNew){
   } else {
     inner = rq + textBlock(m) + metaHtml(m);
   }
+  const opwho = !m.own && m.sender==="operator" && m.operator_name ? `<div class="opwho">${esc(m.operator_name)}</div>` : "";
+  inner = opwho + inner;
   const tail = gend && !bubCls.includes("stick") && !bubCls.includes("emo") ? " tail" : "";
   return `<div class="${rowCls}" ${data}><div class="${bubCls}${tail}">${inner}</div><div class="rpl-ic"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 17l-5-5 5-5M4 12h12a4 4 0 0 1 4 4v4"/></svg></div></div>`;
 }
@@ -1090,7 +1092,7 @@ function msgMenu(mid, x, y){
   const canEdit = m.own && m.cmid && m.type==="text" && !String(m.text||"").startsWith("👨‍💼 Admin");
   const media = m.file_id && ["photo","video","animation","document","voice","audio"].includes(m.type);
   if(CH.readOnly){
-    const items=[{header:(m.own?T("Siz"):(CH.name||T("Mijoz")))+" · "+(m.ts||"").slice(0,16)}];
+    const items=[{header:(m.own?T("Siz"):(m.sender==="operator"?(m.operator_name||T("Operator")):(CH.name||T("Mijoz"))))+" · "+(m.ts||"").slice(0,16)}];
     if(m.text)items.push({label:"Nusxa olish",icon:"copy",onClick:()=>copyText(m.text)});
     if(m.type==="photo"&&m.file_id)items.push({label:"Rasmni ko'rish",icon:"🖼️",onClick:()=>openViewer(mid)});
     else if(media)items.push({label:"Faylni ochish / yuklab olish",icon:"⬇️",onClick:()=>openExternal(mediaUrl(m))});
@@ -1100,7 +1102,7 @@ function msgMenu(mid, x, y){
   const row = $("m"+mid); if(row) row.classList.add("menu-on");
   const mm = TGF.menu(x, y, [
     open && {reactions: REACTIONS, active: rxNorm(m.reaction), onPick: em=>reactMsg(mid, em)},
-    {header: (m.own ? T("Siz") : (CH.name||T("Mijoz"))) + " · " + (m.ts||"").slice(0,16)},
+    {header: (m.own ? T("Siz") : (m.sender==="operator" ? (m.operator_name||T("Operator")) : (CH.name||T("Mijoz")))) + " · " + (m.ts||"").slice(0,16)},
     open && {label:"Javob berish", icon:"<svg viewBox='0 0 24 24'><path d='M9 17l-5-5 5-5M4 12h12a4 4 0 0 1 4 4v4'/></svg>", onClick:()=>setReply(mid)},
     (m.text && m.type!=="location") && {label: m.type==="text" ? "Nusxa olish" : "Izohni nusxalash", icon:"copy", onClick:()=>copyText(m.text)},
     (m.type==="photo" && m.file_id) && {label:"Rasmni nusxalash", icon:"<svg viewBox='0 0 24 24'><rect x='3' y='3' width='18' height='18' rx='3'/><circle cx='9' cy='9' r='2'/><path d='M21 15l-5-5L5 21'/></svg>", onClick:()=>copyImage(fileUrl(m.file_id,"photo"))},

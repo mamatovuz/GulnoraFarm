@@ -496,7 +496,8 @@ async def log_status(order_id, old, new, changed_by):
 # ============================ MESSAGES (proxy-chat) ============================
 async def add_message(order_id, sender, content_type, text=None, file_id=None, tg_msg_id=None,
                       client_msg_id=None, file_name=None, mime_type=None,
-                      html=None, reply_to_mid=None, file_size=None, extra_cmids=None):
+                      html=None, reply_to_mid=None, file_size=None, extra_cmids=None,
+                      operator_id=None):
     """html — Telegram-HTML ko'rinishidagi formatlangan matn (qalin/kursiv...), text esa oddiy matn."""
     # Bot o'zi yasagan xabarlar (filial kartasi, hisob-kitob...) <b> teglari bilan keladi —
     # ular yozishmada «<b>» bo'lib ko'rinmasligi uchun HTML va oddiy matnga ajratamiz.
@@ -507,14 +508,18 @@ async def add_message(order_id, sender, content_type, text=None, file_id=None, t
             text = tghtml.to_plain(html)
     if sender in ("client", "operator"):
         await resume_order(order_id, sender)       # yangi xabar — pauza avtomatik tugaydi
+    if sender == "operator" and not operator_id:
+        owner = await (await get_db()).execute("SELECT operator_id FROM orders WHERE id=?", (order_id,))
+        owner = await owner.fetchone()
+        operator_id = owner[0] if owner and owner[0] else None
     db = await get_db()
     cur = await db.execute(
         "INSERT INTO messages (order_id, sender, content_type, text, file_id, tg_msg_id, "
-        "client_msg_id, file_name, mime_type, created_at, html, reply_to_mid, file_size, extra_cmids) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "client_msg_id, file_name, mime_type, created_at, html, reply_to_mid, file_size, extra_cmids, operator_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (order_id, sender, content_type, text, file_id, tg_msg_id, client_msg_id,
          file_name, mime_type, now(), html, reply_to_mid, file_size,
-         ",".join(str(x) for x in extra_cmids if x) if extra_cmids else None),
+         ",".join(str(x) for x in extra_cmids if x) if extra_cmids else None, operator_id),
     )
     if sender == "client":
         # Mijoz javob bersa /10daqiqa avto-yakunlash bekor qilinadi.
@@ -546,7 +551,7 @@ async def find_order_message(order_id, tg_msg_id=None, client_msg_id=None):
 
 async def get_message(mid):
     db = await get_db()
-    cur = await db.execute("SELECT * FROM messages WHERE id = ?", (mid,))
+    cur = await db.execute("SELECT m.*, op.name AS operator_name FROM messages m LEFT JOIN operators op ON op.id=m.operator_id WHERE m.id = ?", (mid,))
     return await cur.fetchone()
 
 
@@ -930,11 +935,11 @@ async def order_messages_page(order_id, before=None, limit=60):
     db = await get_db()
     if before:
         cur = await db.execute(
-            "SELECT * FROM messages WHERE order_id=? AND id<? ORDER BY id DESC LIMIT ?",
+            "SELECT m.*, op.name AS operator_name FROM messages m LEFT JOIN operators op ON op.id=m.operator_id WHERE m.order_id=? AND m.id<? ORDER BY m.id DESC LIMIT ?",
             (order_id, before, limit))
     else:
         cur = await db.execute(
-            "SELECT * FROM messages WHERE order_id=? ORDER BY id DESC LIMIT ?", (order_id, limit))
+            "SELECT m.*, op.name AS operator_name FROM messages m LEFT JOIN operators op ON op.id=m.operator_id WHERE m.order_id=? ORDER BY m.id DESC LIMIT ?", (order_id, limit))
     rows = await cur.fetchall()
     return list(reversed(rows))
 
@@ -943,8 +948,8 @@ async def order_messages_delta(order_id, after_mid, edited_since):
     """Sinxronlash: yangi (id > after_mid) yoki keyin tahrirlangan xabarlar."""
     db = await get_db()
     cur = await db.execute(
-        "SELECT * FROM messages WHERE order_id=? AND (id>? OR (edited_at IS NOT NULL AND edited_at>=?)) "
-        "ORDER BY id", (order_id, after_mid or 0, edited_since or "9999"))
+        "SELECT m.*, op.name AS operator_name FROM messages m LEFT JOIN operators op ON op.id=m.operator_id WHERE m.order_id=? AND (m.id>? OR (m.edited_at IS NOT NULL AND m.edited_at>=?)) "
+        "ORDER BY m.id", (order_id, after_mid or 0, edited_since or "9999"))
     return await cur.fetchall()
 
 
@@ -953,7 +958,7 @@ async def messages_by_ids(ids):
         return []
     db = await get_db()
     ph = ",".join("?" * len(ids))
-    cur = await db.execute(f"SELECT * FROM messages WHERE id IN ({ph})", tuple(ids))
+    cur = await db.execute(f"SELECT m.*, op.name AS operator_name FROM messages m LEFT JOIN operators op ON op.id=m.operator_id WHERE m.id IN ({ph})", tuple(ids))
     return await cur.fetchall()
 
 
@@ -1814,6 +1819,7 @@ async def op_chats(operator_id):
         "u.full_name, u.phone, u.username, "
         "(SELECT b.name FROM branches b WHERE b.id=COALESCE(o.branch_id, u.branch_id)) AS branch, "
         "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
+        "(SELECT op2.name FROM operators op2 WHERE op2.id=lm.operator_id) AS last_operator_name, "
         "lm.created_at AS last_at, lm.sender AS last_sender, "
         "cs.pinned AS pinned, cs.archived AS archived, cs.marked_unread AS marked_unread, "
         "cs.draft AS draft, cs.last_read_mid AS last_read_mid, "
@@ -1851,6 +1857,7 @@ async def op_general_chats(viewer_operator_id, kind="active"):
         "u.full_name, u.phone, u.username, "
         "(SELECT b.name FROM branches b WHERE b.id=COALESCE(o.branch_id, u.branch_id)) AS branch, "
         "lm.id AS last_mid, lm.text AS last_text, lm.content_type AS last_ct, "
+        "(SELECT op2.name FROM operators op2 WHERE op2.id=lm.operator_id) AS last_operator_name, "
         "lm.created_at AS last_at, lm.sender AS last_sender, "
         "cs.pinned AS pinned, cs.archived AS archived, cs.marked_unread AS marked_unread, "
         "cs.draft AS draft, cs.last_read_mid AS last_read_mid, "
@@ -1873,9 +1880,9 @@ async def general_clients(search=None):
     args = []
     extra = ""
     if search:
-        s = f"%{search.strip()}%"
-        extra = " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.username LIKE ?)"
-        args.extend((s, s, s))
+        s = f"%{search.strip().lstrip('#')}%"
+        extra = " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.username LIKE ? OR CAST(o.id AS TEXT) LIKE ?)"
+        args.extend((s, s, s, s))
     cur = await db.execute(
         "SELECT u.telegram_id, u.full_name, u.phone, u.username, COUNT(o.id) AS cnt, "
         "MAX(o.id) AS last_order, MAX(o.created_at) AS last_at, "
@@ -2396,6 +2403,24 @@ async def audit_page(limit=50, offset=0, order_id=None, search=None):
         conds.append("(actor LIKE ? OR action LIKE ? OR details LIKE ?)")
         params += [f"%{search}%"] * 3
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    cur = await db.execute(f"SELECT COUNT(*) FROM audit_log {where}", tuple(params))
+    total = (await cur.fetchone())[0]
+    cur = await db.execute(f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+                           (*params, limit, offset))
+    return await cur.fetchall(), total
+
+
+async def admin_audit_page(limit=50, offset=0, admin_id=None, search=None):
+    """Faqat admin va bot tomonidan bajarilgan amallar jurnali."""
+    db = await get_db()
+    conds, params = ["actor LIKE 'admin:%'"], []
+    if admin_id:
+        conds.append("actor=?")
+        params.append(f"admin:{int(admin_id)}")
+    if search:
+        conds.append("(actor LIKE ? OR action LIKE ? OR details LIKE ?)")
+        params += [f"%{search}%"] * 3
+    where = "WHERE " + " AND ".join(conds)
     cur = await db.execute(f"SELECT COUNT(*) FROM audit_log {where}", tuple(params))
     total = (await cur.fetchone())[0]
     cur = await db.execute(f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",

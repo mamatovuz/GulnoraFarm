@@ -208,11 +208,13 @@ async def monthly_admin_report_loop(bot):
                         f"⏱ O'rtacha birinchi javob: {round(r['resp'])} daqiqa\n"
                         f"✅ O'rtacha yakunlash: {round(r['resol'])} daqiqa\n\n"
                         f"<b>Top operatorlar:</b>\n{top or '—'}")
-                for aid in await q.notify_recipient_ids():
+                recipients = await q.notify_recipient_ids()
+                for aid in recipients:
                     try:
                         await bot.send_message(aid, text)
                     except Exception:
                         pass
+                await q.audit("admin:bot", "report_monthly", None, {"month": key, "recipients": len(recipients)})
                 await q.set_setting("last_monthly_admin_report", key)
         except Exception:
             pass
@@ -372,11 +374,13 @@ async def weekly_report_loop(bot):
                             f"⏱ O'rtacha javob: {round(r['resp'])} daqiqa\n\n"
                             f"<b>Top operatorlar:</b>\n{top or '—'}")
                     # Faqat bildirishnoma yoqilgan adminlarga (CRM > Bildirishnomalar).
-                    for aid in await q.notify_recipient_ids():
+                    recipients = await q.notify_recipient_ids()
+                    for aid in recipients:
                         try:
                             await bot.send_message(aid, text)
                         except Exception:
                             pass
+                    await q.audit("admin:bot", "report_weekly", None, {"week": wk, "recipients": len(recipients)})
                     await q.set_setting("last_weekly_report", wk)
         except Exception:
             pass

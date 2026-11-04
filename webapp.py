@@ -372,6 +372,7 @@ def _chat_json(r, op_id):
         "paused_until": (r["paused_until"] or "") if "paused_until" in keys else "",
         "auto_close_at": (r["auto_close_at"] or "") if "auto_close_at" in keys else "",
         "operator_name": (r["operator_name"] or "") if "operator_name" in keys else "",
+        "last_operator_name": (r["last_operator_name"] or "") if "last_operator_name" in keys else "",
         "waiting_min": waiting_min,
         "preview": (preview or "")[:90],
         "time": _short_time(r["last_at"] or r["created_at"] or ""),
@@ -434,6 +435,7 @@ def _msg_json(m):
         "mid": m["id"],
         "sender": m["sender"],
         "own": m["sender"] == "operator",
+        "operator_name": (m["operator_name"] if "operator_name" in keys else "") or "",
         "type": m["content_type"] or "text",
         "text": m["text"] or "",
         "html": g("html") or "",
@@ -462,7 +464,8 @@ async def _msgs_with_replies(rows):
         rid = o["reply_to"]
         if rid and rid in refs:
             r = refs[rid]
-            o["reply"] = {"mid": rid, "own": r["sender"] == "operator",
+            o["reply"] = {"mid": rid, "own": r["sender"] == "operator", "sender": r["sender"],
+                          "operator_name": (r["operator_name"] if "operator_name" in r.keys() else "") or "",
                           "type": r["content_type"] or "text", "text": (r["text"] or "")[:120]}
     return out
 
@@ -971,7 +974,7 @@ async def api_send(request):
                                           text or fname, fid, None, client_msg_id=sent.message_id,
                                           file_name=fname,
                                           mime_type=sent.document.mime_type or body.get("media_mime"),
-                                          html=html_text, reply_to_mid=reply_mid, file_size=len(raw))
+                                          html=html_text, reply_to_mid=reply_mid, file_size=len(raw), operator_id=op["id"])
                 await post_operator_to_channel(client, order, send_op["name"], content_type="document",
                                                file_id=fid, src_bot=client, text=text or fname)
             elif media_kind == "photo":
@@ -980,7 +983,7 @@ async def api_send(request):
                     lambda: client.send_photo(uid, BufferedInputFile(raw, "photo.jpg"), caption=cap_p, **rkw))
                 fid = sent.photo[-1].file_id
                 mid = await q.add_message(order_id, "operator", "photo", text or None, fid, None,
-                                          client_msg_id=sent.message_id, html=html_text,
+                                          client_msg_id=sent.message_id, html=html_text, operator_id=op["id"],
                                           reply_to_mid=reply_mid, file_size=len(raw))
                 await post_operator_to_channel(client, order, send_op["name"], content_type="photo",
                                                file_id=fid, src_bot=client, text=text or "")
@@ -1008,7 +1011,7 @@ async def api_send(request):
                     return _json({"ok": False, "error": "ovoz yuborilmadi (format qo'llanmadi)"}, 200)
                 mid = await q.add_message(order_id, "operator", ctype, None, fid, None,
                                           client_msg_id=snt.message_id, reply_to_mid=reply_mid,
-                                          file_size=len(raw))
+                                          file_size=len(raw), operator_id=op["id"])
                 await post_operator_to_channel(client, order, send_op["name"], content_type=ctype,
                                                file_id=fid, src_bot=client, text="🎤 ovozli xabar")
         else:
@@ -1020,7 +1023,7 @@ async def api_send(request):
                                                        text=_htm.escape(text)), **rkw))
             mid = await q.add_message(order_id, "operator", "text", text, None, None,
                                       client_msg_id=snt.message_id, html=html_text,
-                                      reply_to_mid=reply_mid)
+                                      reply_to_mid=reply_mid, operator_id=op["id"])
             await post_operator_to_channel(client, order, send_op["name"], text=text)
     except Exception:
         logger.exception("api_send #%s", order_id)
@@ -1715,7 +1718,7 @@ async def api_cmd(request):
             ids = [i for i in ids if i]
             h, plain = _card_html(branch_card_text(b, clang, header))
             await q.add_message(order_id, "operator", "text", plain, None, None, html=h,
-                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
+                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:], operator_id=op["id"])
             return _json({"ok": True, "info": "Filial ma'lumoti yuborildi"})
 
         if cmd == "changebranch":
@@ -1741,7 +1744,7 @@ async def api_cmd(request):
             h, plain = _card_html(branch_card_text(b, clang, header)) if ids else \
                 (None, f"🏥 Filial operator tomonidan o'zgartirildi: {b['name']}")
             await q.add_message(order_id, "operator", "text", plain, None, None, html=h,
-                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:])
+                                client_msg_id=ids[0] if ids else None, extra_cmids=ids[1:], operator_id=op["id"])
             if ids:
                 try:
                     await post_operator_to_channel(client, order, send_op["name"],
@@ -1781,7 +1784,7 @@ async def api_cmd(request):
                 fid = sent.photo[-1].file_id
                 await q.set_order_bill(order_id, billtext, fid)
                 await q.add_message(order_id, "operator", "photo", label, fid, None,
-                                    client_msg_id=sent.message_id)
+                                    client_msg_id=sent.message_id, operator_id=op["id"])
                 await _bill_to_channel(content_type="photo", file_id=fid, text=label)
             elif media_kind == "voice" and media_data:
                 # Brauzer ogg/webm/mp4 yozishi mumkin — voice -> audio -> document zanjiri
@@ -1815,7 +1818,7 @@ async def api_cmd(request):
                     logger.exception("bill caption")
                 await q.set_order_bill(order_id, billtext or "🎤 ovozli hisob-kitob", None)
                 await q.add_message(order_id, "operator", ct2, vlabel, fid, None,
-                                    client_msg_id=sent.message_id)
+                                    client_msg_id=sent.message_id, operator_id=op["id"])
                 await _bill_to_channel(content_type=ct2, file_id=fid, text=vlabel)
             elif sticker_id:
                 tpl = await q.get_template(int(sticker_id))
@@ -1828,7 +1831,7 @@ async def api_cmd(request):
                     logger.exception("bill caption")
                 await q.set_order_bill(order_id, billtext or "🎭 stiker", None)
                 await q.add_message(order_id, "operator", "sticker", label, tpl["sticker"], None,
-                                    client_msg_id=sent.message_id)
+                                    client_msg_id=sent.message_id, operator_id=op["id"])
                 await _bill_to_channel(content_type="sticker", file_id=tpl["sticker"], text=label)
             else:
                 if not billtext:
@@ -1836,7 +1839,7 @@ async def api_cmd(request):
                 sent = await client.send_message(uid, cap)
                 await q.set_order_bill(order_id, billtext, None)
                 await q.add_message(order_id, "operator", "text", label, None, None,
-                                    client_msg_id=sent.message_id)
+                                    client_msg_id=sent.message_id, operator_id=op["id"])
                 await _bill_to_channel(text=label)
             return _json({"ok": True, "info": "Hisob-kitob yuborildi"})
     except Exception:
@@ -1938,7 +1941,7 @@ async def api_send_sticker(request):
     try:
         snt = await client.send_sticker(order["user_id"], tpl["sticker"])
         await q.add_message(order_id, "operator", "sticker", None, tpl["sticker"], None,
-                            client_msg_id=snt.message_id)
+                            client_msg_id=snt.message_id, operator_id=op["id"])
         await post_operator_to_channel(client, order, send_op["name"],
                                        content_type="sticker", file_id=tpl["sticker"], src_bot=client)
     except Exception:
@@ -2413,6 +2416,15 @@ async def _auth_admin(request, data):
         if tg not in ADMIN_IDS and await q.admin_role(tg) == "viewer":
             raise web.HTTPForbidden(text=json.dumps({"ok": False, "error": "Sizda faqat ko'rish huquqi bor"}),
                                     content_type="application/json")
+    # Har bir admin tugmasi bosilishi ham jurnalga kiradi. Maxfiy qiymatlar yozilmaydi,
+    # faqat qaysi bo'lim chaqirilgani va yuborilgan maydonlar nomi saqlanadi.
+    if request.method == "POST" and request.path != "/api/admin/login":
+        try:
+            await q.audit(f"admin:{tg}", "admin_button", None,
+                          {"path": request.path, "fields": sorted(str(k) for k in data.keys()
+                                                                      if k not in {"token", "_init"})})
+        except Exception:
+            pass
     return tg
 
 
@@ -2453,7 +2465,7 @@ async def api_admin_login(request):
     role = "admin" if user["id"] in ADMIN_IDS else await q.admin_role(user["id"])
     return _json({"ok": True, "admin_id": user["id"],
                   "name": user.get("first_name") or "Admin",
-                  "role": role, "mk": _media_key(),
+                  "role": role, "can_audit": await _can_manage_admins(user["id"]), "mk": _media_key(),
                   "token": await _admin_sign(user["id"])})
 
 
@@ -4015,6 +4027,21 @@ _AUDIT_LBL = {
     "auto_assign": "Avto-taqsimlandi", "pin": "Xabar qadaldi", "unpin": "Qadash olindi",
     "tags": "Teglar", "client_note": "Mijoz izohi", "login_fail": "Noto'g'ri login urinishi",
     "admin_role": "Admin roli", "admin_sessions_revoked": "Admin sessiyalari bekor qilindi",
+    "report_daily": "Kunlik hisobot yuborildi", "report_weekly": "Haftalik hisobot yuborildi",
+    "report_monthly": "Oylik hisobot yuborildi",
+    "admin_button": "Admin tugmasi bosildi",
+}
+_ADMIN_PATH_LBL = {
+    "/api/admin/settings_save": "Sozlamalar saqlandi", "/api/admin/branch_save": "Filial saqlandi",
+    "/api/admin/branch_del": "Filial o‘chirildi", "/api/admin/faq_save": "FAQ saqlandi",
+    "/api/admin/faq_del": "FAQ o‘chirildi", "/api/admin/tpl_add": "Tayyor javob qo‘shildi",
+    "/api/admin/tpl_del": "Tayyor javob o‘chirildi", "/api/admin/admin_add": "Admin qo‘shildi",
+    "/api/admin/admin_del": "Admin o‘chirildi", "/api/admin/set_manager": "Asosiy admin o‘zgartirildi",
+    "/api/admin/notify_toggle": "Bildirishnoma sozlandi", "/api/admin/opbot_add": "Operator boti qo‘shildi",
+    "/api/admin/opbot_toggle": "Operator boti holati o‘zgardi", "/api/admin/opbot_del": "Operator boti o‘chirildi",
+    "/api/admin/product_save": "Dori saqlandi", "/api/admin/product_stock": "Dori qoldig‘i o‘zgardi",
+    "/api/admin/product_del": "Dori o‘chirildi", "/api/admin/bc_cancel": "Ommaviy xabar bekor qilindi",
+    "/api/admin/ai_settings_save": "AI sozlamasi saqlandi", "/api/admin/tags_save": "Teglar saqlandi",
 }
 
 
@@ -4023,6 +4050,9 @@ async def _actor_label(actor: str, cache: dict) -> str:
         return cache[actor]
     lbl = actor or "—"
     if actor.startswith("admin:"):
+        if actor == "admin:bot":
+            cache[actor] = "Bot · avtomatik hisobot"
+            return cache[actor]
         try:
             aid = int(actor.split(":", 1)[1])
             u = await q.get_user(aid)
@@ -4040,7 +4070,8 @@ async def _actor_label(actor: str, cache: dict) -> str:
 
 
 async def api_admin_audit(request):
-    if not await _auth_admin(request, request.query):
+    tg = await _auth_admin(request, request.query)
+    if not tg or not await _can_manage_admins(tg):
         return _json({"ok": False}, 401)
     try:
         page = int(request.query.get("page", "0") or 0)
@@ -4055,8 +4086,44 @@ async def api_admin_audit(request):
             det = json.loads(r["details"]) if r["details"] else {}
         except Exception:
             det = {}
+        det_path = det.get("path") if isinstance(det, dict) else None
+        label = _ADMIN_PATH_LBL.get(det_path, _AUDIT_LBL.get(r["action"], r["action"])) if r["action"] == "admin_button" else _AUDIT_LBL.get(r["action"], r["action"])
+        if r["action"] == "admin_button":
+            det = {"bo_lim": label, "fields": det.get("fields", [])}
         items.append({"id": r["id"], "at": r["at"], "actor": await _actor_label(r["actor"] or "", cache),
-                      "action": r["action"], "label": _AUDIT_LBL.get(r["action"], r["action"]),
+                      "action": r["action"], "label": label,
+                      "order_id": r["order_id"], "details": det})
+    return _json({"ok": True, "items": items, "total": total, "page": page})
+
+
+async def api_admin_admin_audit(request):
+    """Asosiy admin uchun faqat admin/bot amallarining alohida jurnali."""
+    tg = await _auth_admin(request, request.query)
+    if not tg or not await _can_manage_admins(tg):
+        return _json({"ok": False}, 401)
+    try:
+        page = int(request.query.get("page", "0") or 0)
+    except ValueError:
+        page = 0
+    raw = (request.query.get("q") or "").strip()
+    aid = request.query.get("admin_id")
+    try:
+        aid = int(aid) if aid else None
+    except (TypeError, ValueError):
+        aid = None
+    rows, total = await q.admin_audit_page(50, page * 50, aid, raw or None)
+    cache, items = {}, []
+    for r in rows:
+        try:
+            det = json.loads(r["details"]) if r["details"] else {}
+        except Exception:
+            det = {}
+        det_path = det.get("path") if isinstance(det, dict) else None
+        label = _ADMIN_PATH_LBL.get(det_path, _AUDIT_LBL.get(r["action"], r["action"])) if r["action"] == "admin_button" else _AUDIT_LBL.get(r["action"], r["action"])
+        if r["action"] == "admin_button":
+            det = {"bo_lim": label, "fields": det.get("fields", [])}
+        items.append({"id": r["id"], "at": r["at"], "actor": await _actor_label(r["actor"] or "", cache),
+                      "action": r["action"], "label": label,
                       "order_id": r["order_id"], "details": det})
     return _json({"ok": True, "items": items, "total": total, "page": page})
 
@@ -4382,6 +4449,7 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/excel", api_admin_excel)
     app.router.add_post("/api/admin/inote", api_admin_inote)
     app.router.add_get("/api/admin/audit", api_admin_audit)
+    app.router.add_get("/api/admin/admin_audit", api_admin_admin_audit)
     app.router.add_get("/api/admin/sla", api_admin_sla)
     app.router.add_post("/api/admin/admin_role", api_admin_admin_role)
     app.router.add_post("/api/admin/revoke_sessions", api_admin_revoke_sessions)
