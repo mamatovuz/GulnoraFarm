@@ -2825,7 +2825,7 @@ WIDE_MQ.addEventListener && WIDE_MQ.addEventListener("change", ()=>{ if(CURSCREE
    ============================================================ */
 const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logout,
   toggleStatus, openWallpaper, openMyTpls, openList, back: goBack, clientCard, chatSearch, chatMenu, fulfill, jumpPinned,
-  cancelCurrent:()=>cancelOrder(CUR), closeCurrent:()=>closeOrder(CUR), transferCurrent:openTransfer,
+  cancelCurrent:()=>cancelOrder(CUR), closeCurrent:()=>closeOrder(CUR), rejectOrder, transferCurrent:openTransfer,
   changeBranch:()=>openBranchPicker("changebranch"),
   unpin, openNote, openTags, toBottom: ()=>toBottom(), clearReply: ()=>clearReply(), attach, toggleQuick, toggleStickers,
   cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
