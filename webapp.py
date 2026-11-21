@@ -962,8 +962,10 @@ async def api_send(request):
     try:
         if media_kind and media_data:
             raw = base64.b64decode(str(media_data).split(",")[-1])
-            cap_h = f"👨‍⚕️ {_htm.escape(send_op['name'])}" + (f": {body_html}" if text else "")
-            cap_p = f"👨‍⚕️ {_htm.escape(send_op['name'])}" + (f": {_htm.escape(text)}" if text else "")
+            # Mijozga statistikadagi asl ism emas, operatorga belgilangan «mijozga ko'rinadigan» nom chiqadi.
+            cname = _htm.escape(op_client_name(send_op))
+            cap_h = f"👨‍⚕️ <b>{cname}</b>" + (f": {body_html}" if text else "")
+            cap_p = f"👨‍⚕️ {cname}" + (f": {_htm.escape(text)}" if text else "")
             if media_kind == "document":
                 fname = str(body.get("media_name") or "hujjat")[:64] or "hujjat"
                 sent = await _send_html(
@@ -1624,7 +1626,8 @@ async def api_channel_accept(request):
     if client:
         clang = await q.get_lang(order["user_id"])
         try:
-            await client.send_message(order["user_id"], loc.t("accept_notify", clang))
+            await client.send_message(order["user_id"],
+                                      loc.t("accept_notify", clang, name=_htm.escape(op_client_name(op))))
         except Exception:
             pass
     return _json({"ok": True, "order_id": order_id})
@@ -2395,6 +2398,18 @@ async def _can_manage_admins(tg_id) -> bool:
     return mgr is not None and int(tg_id) == mgr
 
 
+async def _can_view_admin_audit(tg_id) -> bool:
+    """«Admin auditi»ni ko'ra oladimi? Bosh admin, asosiy admin va ular
+    alohida ruxsat bergan adminlar. Ruxsat berilmagan admin ko'rmaydi."""
+    try:
+        tg_id = int(tg_id)
+    except (TypeError, ValueError):
+        return False
+    if await _can_manage_admins(tg_id):
+        return True
+    return tg_id in await q.audit_admin_ids()
+
+
 async def _auth_admin(request, data):
     """Admin sessiya tokenini tekshiradi (avto-login orqali olingan)."""
     try:
@@ -2465,7 +2480,7 @@ async def api_admin_login(request):
     role = "admin" if user["id"] in ADMIN_IDS else await q.admin_role(user["id"])
     return _json({"ok": True, "admin_id": user["id"],
                   "name": user.get("first_name") or "Admin",
-                  "role": role, "can_audit": await _can_manage_admins(user["id"]), "mk": _media_key(),
+                  "role": role, "can_audit": await _can_view_admin_audit(user["id"]), "mk": _media_key(),
                   "token": await _admin_sign(user["id"])})
 
 
@@ -2673,6 +2688,10 @@ async def _admin_dash_data(query) -> dict:
     oprep = await q.operators_report(since, until)
     opstats = sorted([{"name": o["name"], "done": o["done"]} for o in oprep if o["done"]],
                      key=lambda x: x["done"], reverse=True)[:8]
+    # Operatorlar reytingi (mini app «Reyting» ko'rinishi): qabul, hisob-kitob, yakun, bekor...
+    _rk = ("id", "name", "accepted", "done", "billed", "bill_pct", "canceled", "open", "msgs",
+           "resp", "resol", "rating", "rated")
+    oprating = [{k: o[k] for k in _rk} for o in oprep if o["accepted"] or o["done"]]
     branches = [{"name": b["name"], "cnt": b["cnt"]} for b in await q.branch_counts(since, until)]
     heat = await q.heatmap_data(since, until or q.now())
     tagc = [{"name": n, "cnt": c} for n, c in await q.tag_counts(since, until)][:10]
@@ -2683,7 +2702,8 @@ async def _admin_dash_data(query) -> dict:
     return {"ok": True, "period": period, "gran": gran, "waiting": waiting, "topclients": topclients,
                   "tags": tagc, "escalate_min": esc_min,
                   "pauses": await q.pause_stats(since, until),
-                  "opstats": opstats, "branches": branches, "trend": trend, "heatmap": heat,
+                  "opstats": opstats, "oprating": oprating,
+                  "branches": branches, "trend": trend, "heatmap": heat,
                   "kpi": {"total": rep["total"], "new": rep["new"], "prog": rep["prog"],
                           "done": rep["done"], "canceled": rep["canceled"],
                           "delivery": rep["delivery"], "pickup": rep["pickup"],
@@ -3456,6 +3476,11 @@ async def api_admin_admins(request):
     items = []
     disabled = await q.disabled_admin_ids()
     mgr = await q.get_manager_admin_id()
+    aud = await q.audit_admin_ids()
+
+    def _aud(aid):
+        return aid is not None and (bool(_is_super(aid)) or (mgr is not None and aid == mgr) or aid in aud)
+
     seen = set()
     # .env ADMIN_IDS (bosh admin bu ro'yxatda) — CRM'dan o'chirilganlari ko'rinmaydi
     for aid in ADMIN_IDS:
@@ -3468,6 +3493,7 @@ async def api_admin_admins(request):
             "username": (u["username"] if u and u["username"] else None),
             "name": (u["full_name"] if u and u["full_name"] else "Admin"),
             "super": _is_super(aid), "manager": (mgr is not None and aid == mgr),
+            "audit": _aud(aid),
             "you": aid == tg})
     # DB'dan qo'shilganlar
     for a in await q.list_admins():
@@ -3484,10 +3510,12 @@ async def api_admin_admins(request):
             "pending": aid is None,
             "role": (a["role"] if "role" in a.keys() and a["role"] else "admin"),
             "super": False, "manager": (mgr is not None and aid == mgr),
+            "audit": _aud(aid),
             "you": aid == tg})
     return _json({"ok": True, "items": items,
                   "me_super": bool(_is_super(tg)),
-                  "me_can_manage": await _can_manage_admins(tg)})
+                  "me_can_manage": await _can_manage_admins(tg),
+                  "me_can_audit": await _can_view_admin_audit(tg)})
 
 
 async def api_admin_admin_add(request):
@@ -3572,6 +3600,9 @@ async def api_admin_admin_del(request):
     mgr = await q.get_manager_admin_id()
     if tid is not None and mgr is not None and tid == mgr:
         await q.set_manager_admin_id(None)
+    # Admin auditiga ruxsati bo'lsa — u ham olib tashlanadi (qayta qo'shilsa avtomatik qaytmaydi).
+    if tid is not None:
+        await q.set_audit_admin(tid, False)
     # .env adminini bazadan o'chirib bo'lmaydi (u .env'da yozilgan), shuning uchun
     # uni «o'chirilgan» deb belgilaymiz — admin huquqi va bildirishnomalari olib tashlanadi.
     if tid is not None and tid in ADMIN_IDS:
@@ -3610,6 +3641,31 @@ async def api_admin_set_manager(request):
         return _json({"ok": False, "error": "Avval bu shaxsni admin qiling"})
     await q.set_manager_admin_id(tid)
     return _json({"ok": True, "manager_id": tid})
+
+
+async def api_admin_audit_access(request):
+    """Bosh admin yoki asosiy admin oddiy adminga «Admin auditi»ni ochadi/yopadi."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tg = await _auth_admin(request, body)
+    if not tg:
+        return _json({"ok": False}, 401)
+    if not await _can_manage_admins(tg):
+        return _json({"ok": False, "error": "Faqat bosh admin yoki asosiy admin ruxsat beradi"}, 403)
+    try:
+        tid = int(body.get("telegram_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False, "error": "telegram_id"}, 400)
+    if _is_super(tid) or tid == await q.get_manager_admin_id():
+        return _json({"ok": False, "error": "Bu admin auditni har doim ko'radi"})
+    on = bool(body.get("on"))
+    if on and not await _is_admin(tid):
+        return _json({"ok": False, "error": "Avval bu shaxsni admin qiling"})
+    await q.set_audit_admin(tid, on)
+    await q.audit(f"admin:{tg}", "audit_access", None, {"admin": tid, "on": on})
+    return _json({"ok": True, "audit": on})
 
 
 # ---------------- Admin: bildirishnomalar (kim «Javobsiz murojaat» oladi) ----------------
@@ -4029,7 +4085,7 @@ _AUDIT_LBL = {
     "admin_role": "Admin roli", "admin_sessions_revoked": "Admin sessiyalari bekor qilindi",
     "report_daily": "Kunlik hisobot yuborildi", "report_weekly": "Haftalik hisobot yuborildi",
     "report_monthly": "Oylik hisobot yuborildi",
-    "admin_button": "Admin tugmasi bosildi",
+    "admin_button": "Admin tugmasi bosildi", "audit_access": "Admin auditiga ruxsat",
 }
 _ADMIN_PATH_LBL = {
     "/api/admin/settings_save": "Sozlamalar saqlandi", "/api/admin/branch_save": "Filial saqlandi",
@@ -4042,6 +4098,7 @@ _ADMIN_PATH_LBL = {
     "/api/admin/product_save": "Dori saqlandi", "/api/admin/product_stock": "Dori qoldig‘i o‘zgardi",
     "/api/admin/product_del": "Dori o‘chirildi", "/api/admin/bc_cancel": "Ommaviy xabar bekor qilindi",
     "/api/admin/ai_settings_save": "AI sozlamasi saqlandi", "/api/admin/tags_save": "Teglar saqlandi",
+    "/api/admin/audit_access": "Admin auditiga ruxsat o‘zgartirildi",
 }
 
 
@@ -4079,7 +4136,10 @@ async def api_admin_audit(request):
         page = 0
     raw = (request.query.get("q") or "").strip()
     oid = int(raw.lstrip("#")) if raw.lstrip("#").isdigit() else None
-    rows, total = await q.audit_page(50, page * 50, oid, None if oid else (raw or None))
+    # Admin auditiga ruxsati yo'q admin oddiy auditda ham admin/bot amallarini ko'rmaydi.
+    hide_admin = not await _can_view_admin_audit(tg)
+    rows, total = await q.audit_page(50, page * 50, oid, None if oid else (raw or None),
+                                     hide_admin=hide_admin)
     cache, items = {}, []
     for r in rows:
         try:
@@ -4093,14 +4153,18 @@ async def api_admin_audit(request):
         items.append({"id": r["id"], "at": r["at"], "actor": await _actor_label(r["actor"] or "", cache),
                       "action": r["action"], "label": label,
                       "order_id": r["order_id"], "details": det})
-    return _json({"ok": True, "items": items, "total": total, "page": page})
+    return _json({"ok": True, "items": items, "total": total, "page": page,
+                  "admin_hidden": hide_admin})
 
 
 async def api_admin_admin_audit(request):
-    """Asosiy admin uchun faqat admin/bot amallarining alohida jurnali."""
+    """Faqat admin/bot amallarining alohida jurnali: bosh admin, asosiy admin
+    va ular ruxsat bergan adminlar uchun."""
     tg = await _auth_admin(request, request.query)
-    if not tg or not await _can_manage_admins(tg):
+    if not tg:
         return _json({"ok": False}, 401)
+    if not await _can_view_admin_audit(tg):
+        return _json({"ok": False, "error": "Admin auditiga ruxsat berilmagan"}, 403)
     try:
         page = int(request.query.get("page", "0") or 0)
     except ValueError:
@@ -4167,10 +4231,17 @@ async def api_admin_sla(request):
         if not r["operator_id"]:
             continue
         d = per.setdefault(r["operator_id"], {"name": r["operator"] or "—", "orders": 0, "done": 0,
+                                              "billed": 0, "canceled": 0, "open": 0,
                                               "first": [], "resol": [], "rated": []})
         d["orders"] += 1
         if r["status"] == "done":
             d["done"] += 1
+        elif r["status"] == "canceled":
+            d["canceled"] += 1
+        elif r["status"] in ("new", "in_progress"):
+            d["open"] += 1
+        if r["billed"]:
+            d["billed"] += 1
         if r["first_reply"]:
             m = _mins_between(r["created_at"], r["first_reply"])
             if m is not None and m >= 0:
@@ -4186,6 +4257,8 @@ async def api_admin_sla(request):
     for oid, d in per.items():
         f = d["first"]
         items.append({"id": oid, "name": d["name"], "orders": d["orders"], "done": d["done"],
+                      "billed": d["billed"], "canceled": d["canceled"], "open": d["open"],
+                      "bill_pct": round(100 * d["billed"] / d["orders"]) if d["orders"] else 0,
                       "first_med": q._median(f), "resol_med": q._median(d["resol"]),
                       "in_target": round(100 * sum(1 for x in f if x <= target) / len(f)) if f else None,
                       "rating": round(sum(d["rated"]) / len(d["rated"]), 1) if d["rated"] else None})
@@ -4195,7 +4268,9 @@ async def api_admin_sla(request):
     range_from = since[:10]
     range_to = ((datetime.strptime(until[:10], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
                 if until else now_local().strftime("%Y-%m-%d"))
+    totals = {k: sum(x[k] for x in items) for k in ("orders", "billed", "done", "canceled", "open")}
     return _json({"ok": True, "items": items, "target": target, "overall": overall,
+                  "totals": totals,
                   "first_med": q._median(tot_first), "period": period,
                   "range_from": range_from, "range_to": range_to})
 
@@ -4461,6 +4536,7 @@ def build_app() -> web.Application:
     app.router.add_post("/api/admin/admin_add", api_admin_admin_add)
     app.router.add_post("/api/admin/admin_del", api_admin_admin_del)
     app.router.add_post("/api/admin/set_manager", api_admin_set_manager)
+    app.router.add_post("/api/admin/audit_access", api_admin_audit_access)
     app.router.add_get("/api/admin/notify_list", api_admin_notify_list)
     app.router.add_post("/api/admin/notify_toggle", api_admin_notify_toggle)
     app.router.add_post("/api/admin/broadcast", api_admin_broadcast)

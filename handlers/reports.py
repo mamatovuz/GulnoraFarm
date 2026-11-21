@@ -1,6 +1,7 @@
 """Admin hisobotlari: murojaatlar tarixi (yozishma), mijozlar, operator reytingi,
 soatlik yuklanma, davr hisoboti."""
 from datetime import timedelta
+from html import escape as _esc
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -374,28 +375,39 @@ async def ops_report(call: CallbackQuery):
     _SORTERS = {
         "done": (lambda x: x["done"], True),
         "accepted": (lambda x: x["accepted"], True),
+        "bills": (lambda x: x["billed"], True),
         "rating": (lambda x: x["rating"], True),
         "resp": (lambda x: x["resp"] if x["resp"] > 0 else 1e9, False),  # tez javob = kichik
     }
-    keyf, rev = _SORTERS.get(sort, _SORTERS["done"])
+    if sort not in _SORTERS:
+        sort = "done"
+    keyf, rev = _SORTERS[sort]
     rows.sort(key=keyf, reverse=rev)
-    slabel = {"done": "ko'p yakun", "accepted": "ko'p qabul",
+    slabel = {"done": "ko'p yakun", "accepted": "ko'p qabul", "bills": "ko'p hisob-kitob",
               "rating": "yuqori baho", "resp": "tez javob"}[sort]
+    active = [r for r in rows if r["accepted"] or r["done"]]
     lines = [f"👨‍⚕️ <b>Operatorlar reytingi</b> — {_PLABEL[period]}",
-             f"<i>Saralash: {slabel}</i>\n"]
-    if not any(r["accepted"] or r["done"] for r in rows):
-        lines.append("(bu davrda ma'lumot yo'q)")
+             f"<i>Saralash: {slabel}</i>"]
+    if active:
+        t_acc = sum(r["accepted"] for r in active)
+        t_bill = sum(r["billed"] for r in active)
+        lines.append(f"Jami: 📥 {t_acc} qabul · 🧾 {t_bill} hisob-kitob"
+                     + (f" ({round(100 * t_bill / t_acc)}%)" if t_acc else "")
+                     + f" · 🟢 {sum(r['done'] for r in active)} yakun"
+                     + f" · 🔴 {sum(r['canceled'] for r in active)} bekor\n")
+    else:
+        lines.append("\n(bu davrda ma'lumot yo'q)")
     medals = ["🥇", "🥈", "🥉"]
-    i = 0
-    for r in rows:
-        if not (r["accepted"] or r["done"]):
-            continue
-        i += 1
+    for i, r in enumerate(active, 1):
         place = medals[i - 1] if i <= 3 else f"{i}."
         star = f" ⭐{r['rating']}" if r["rating"] else ""
-        lines.append(f"{place} <b>{r['name']}</b>{star}\n"
-                     f"    📥 {r['accepted']} qabul · 🟢 {r['done']} yakun\n"
+        lines.append(f"{place} <b>{_esc(r['name'] or '—')}</b>{star}\n"
+                     f"    📥 {r['accepted']} qabul · 🧾 {r['billed']} hisob-kitob ({r['bill_pct']}%)\n"
+                     f"    🟢 {r['done']} yakun · 🔴 {r['canceled']} bekor · 🔵 {r['open']} ochiq · 💬 {r['msgs']} xabar\n"
                      f"    ⏱ javob {_dur(r['resp'])} · ✅ yakunlash {_dur(r['resol'])}")
+    text = "\n".join(lines)
+    if len(text) > 4000:   # Telegram xabar chegarasi (4096)
+        text = text[:3990].rsplit("\n", 1)[0] + "\n…"
     b = InlineKeyboardBuilder()
     # davr (saralashni saqlaydi)
     b.row(*[InlineKeyboardButton(text=("• " + t if p == period else t),
@@ -407,10 +419,12 @@ async def ops_report(call: CallbackQuery):
     # saralash (davrni saqlaydi)
     b.row(*[InlineKeyboardButton(text=("• " + t if s == sort else t),
                                  callback_data=f"rep:ops:{period}:{s}")
-            for s, t in (("done", "Ko'p yakun"), ("accepted", "Ko'p qabul"),
-                         ("rating", "Baho"), ("resp", "Tez javob"))])
+            for s, t in (("done", "Ko'p yakun"), ("accepted", "Ko'p qabul"), ("bills", "Hisob-kitob"))])
+    b.row(*[InlineKeyboardButton(text=("• " + t if s == sort else t),
+                                 callback_data=f"rep:ops:{period}:{s}")
+            for s, t in (("rating", "Baho"), ("resp", "Tez javob"))])
     b.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="adm:reports"))
-    await _edit(call, "\n".join(lines), b.as_markup())
+    await _edit(call, text, b.as_markup())
     await call.answer()
 
 

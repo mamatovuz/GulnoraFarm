@@ -1358,9 +1358,17 @@ async def operator_stats(operator_id):
     )
     done = (await cur.fetchone())[0]
     cur = await db.execute(
-        "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND bill IS NOT NULL", (operator_id,)
+        "SELECT COALESCE(SUM(CASE WHEN COALESCE(bill,'')<>'' OR COALESCE(bill_photo,'')<>'' THEN 1 ELSE 0 END),0), "
+        "COALESCE(SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END),0), "
+        "COALESCE(SUM(CASE WHEN status IN ('new','in_progress') THEN 1 ELSE 0 END),0) "
+        "FROM orders WHERE operator_id = ?", (operator_id,)
     )
-    billed = (await cur.fetchone())[0]
+    billed, canceled, open_ = await cur.fetchone()
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM messages m JOIN orders o ON o.id=m.order_id "
+        "WHERE m.sender='operator' AND COALESCE(m.operator_id, o.operator_id)=?", (operator_id,)
+    )
+    msgs = (await cur.fetchone())[0]
     cur = await db.execute(
         "SELECT COUNT(*) FROM orders WHERE operator_id = ? AND status = 'done' AND closed_at LIKE ?",
         (operator_id, today + "%"),
@@ -1380,6 +1388,8 @@ async def operator_stats(operator_id):
     rated_count = row[1] or 0
     return {
         "accepted": accepted, "done": done, "billed": billed,
+        "bill_pct": round(100 * billed / accepted) if accepted else 0,
+        "canceled": canceled, "open": open_, "msgs": msgs,
         "today_done": today_done, "month_done": month_done,
         "avg_rating": avg_rating, "rated_count": rated_count,
     }
@@ -1659,6 +1669,28 @@ async def get_manager_admin_id():
 async def set_manager_admin_id(tid):
     """Asosiy adminni tayinlaydi (None — bekor qiladi)."""
     await set_setting("manager_admin_id", "" if tid is None else str(int(tid)))
+
+
+# ---- «Admin auditi»ga ruxsat berilgan oddiy adminlar ----
+# Bosh admin va asosiy admin auditni doim ko'radi; qolgan adminlar faqat
+# ular shu ro'yxatga qo'shgandagina ko'radi.
+async def audit_admin_ids() -> set:
+    raw = await get_setting("audit_admin_ids", "")
+    if not raw:
+        return set()
+    try:
+        return {int(x) for x in json.loads(raw)}
+    except Exception:
+        return set()
+
+
+async def set_audit_admin(tid, on: bool):
+    ids = await audit_admin_ids()
+    if on:
+        ids.add(int(tid))
+    else:
+        ids.discard(int(tid))
+    await set_setting("audit_admin_ids", json.dumps(sorted(ids)))
 
 
 # ============================ STATISTIKA ============================
@@ -2136,6 +2168,11 @@ async def user_full(tg):
     return await cur.fetchone()
 
 
+# Murojaatda hisob-kitob qilinganmi (matn yoki rasm bilan) — statistikada «hisob-kitob» soni.
+_BILLED_SQL = ("CASE WHEN COALESCE(bill,'')<>'' OR COALESCE(bill_photo,'')<>'' "
+               "THEN 1 ELSE 0 END")
+
+
 async def operators_report(since, until=None):
     """Har operator kesimi (berilgan sanadan beri): qabul, yakun, javob/yakunlash vaqti, reyting."""
     db = await get_db()
@@ -2146,11 +2183,24 @@ async def operators_report(since, until=None):
     U = " AND created_at < ?" if until else ""
     UC = " AND closed_at < ?" if until else ""
     up = (until,) if until else ()
-    # Operatorlar kesimi guruhlangan so'rovlar bilan (har operatorga alohida 5 ta so'rov o'rniga)
+    # Operatorlar kesimi guruhlangan so'rovlar bilan (har operatorga alohida 5 ta so'rov o'rniga).
+    # Bitta o'tishda: qabul, hisob-kitob qilingan, bekor (Отказ), hali ochiq.
     cur = await db.execute(
-        f"SELECT operator_id, COUNT(*) FROM orders WHERE operator_id IS NOT NULL "
+        f"SELECT operator_id, COUNT(*), SUM({_BILLED_SQL}), "
+        f"SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END), "
+        f"SUM(CASE WHEN status IN ('new','in_progress') THEN 1 ELSE 0 END) "
+        f"FROM orders WHERE operator_id IS NOT NULL "
         f"AND created_at>=?{U} GROUP BY operator_id", (since, *up))
-    accepted = {r[0]: r[1] for r in await cur.fetchall()}
+    accepted, billed, canceled, opened = {}, {}, {}, {}
+    for oid, a, b, c, o in await cur.fetchall():
+        accepted[oid], billed[oid], canceled[oid], opened[oid] = a, b or 0, c or 0, o or 0
+    # Operator yuborgan xabarlar soni (davr ichida). Eski xabarlarda operator_id bo'lmasa —
+    # murojaat egasi hisoblanadi.
+    cur = await db.execute(
+        "SELECT COALESCE(m.operator_id, o.operator_id), COUNT(*) FROM messages m "
+        "JOIN orders o ON o.id=m.order_id WHERE m.sender='operator' AND m.created_at>=?"
+        + (" AND m.created_at < ?" if until else "") + " GROUP BY 1", (since, *up))
+    msgs = {r[0]: r[1] for r in await cur.fetchall()}
     done_cnt, resol_vals = {}, {}
     cur = await db.execute(
         f"SELECT operator_id, MAX(0, (julianday(closed_at)-julianday(created_at))*1440 "
@@ -2169,18 +2219,23 @@ async def operators_report(since, until=None):
     for by, m in await cur.fetchall():
         resp_vals.setdefault(by, []).append(m)
     cur = await db.execute(
-        "SELECT operator_id, AVG(rating) FROM orders WHERE operator_id IS NOT NULL "
+        "SELECT operator_id, AVG(rating), COUNT(rating) FROM orders WHERE operator_id IS NOT NULL "
         "AND rating IS NOT NULL GROUP BY operator_id")
-    rats = {r[0]: r[1] for r in await cur.fetchall()}
+    rats = {r[0]: (r[1], r[2]) for r in await cur.fetchall()}
 
     res = []
     for op in ops:
         oid = op["id"]
-        rat = rats.get(oid)
-        res.append({"name": op["name"], "accepted": accepted.get(oid, 0), "done": done_cnt.get(oid, 0),
+        rat, rated = rats.get(oid, (None, 0))
+        acc = accepted.get(oid, 0)
+        bil = billed.get(oid, 0)
+        res.append({"id": oid, "name": op["name"], "accepted": acc, "done": done_cnt.get(oid, 0),
+                    "billed": bil, "bill_pct": round(100 * bil / acc) if acc else 0,
+                    "canceled": canceled.get(oid, 0), "open": opened.get(oid, 0),
+                    "msgs": msgs.get(oid, 0),
                     "resp": _median(resp_vals.get(f"operator:{oid}", [])),
                     "resol": _median(resol_vals.get(oid, [])),
-                    "rating": round(rat, 1) if rat else 0})
+                    "rating": round(rat, 1) if rat else 0, "rated": rated or 0})
     return res
 
 
@@ -2393,9 +2448,12 @@ async def audit(actor, action, order_id=None, details=None):
         pass
 
 
-async def audit_page(limit=50, offset=0, order_id=None, search=None):
+async def audit_page(limit=50, offset=0, order_id=None, search=None, hide_admin=False):
+    """hide_admin=True — admin/bot amallari (admin auditi) chiqarilmaydi."""
     db = await get_db()
     conds, params = [], []
+    if hide_admin:
+        conds.append("(actor IS NULL OR actor NOT LIKE 'admin:%')")
     if order_id:
         conds.append("order_id=?")
         params.append(order_id)
@@ -2468,6 +2526,7 @@ async def sla_rows(since, until=None):
     cur = await db.execute(
         "SELECT o.id, o.operator_id, o.status, o.created_at, o.accepted_at, o.closed_at, o.rating, "
         "o.paused_total_min, op.name AS operator, "
+        "(CASE WHEN COALESCE(o.bill,'')<>'' OR COALESCE(o.bill_photo,'')<>'' THEN 1 ELSE 0 END) AS billed, "
         "(SELECT MIN(m.created_at) FROM messages m WHERE m.order_id=o.id AND m.sender='operator') AS first_reply "
         f"FROM orders o LEFT JOIN operators op ON op.id=o.operator_id WHERE o.created_at>=?{U}",
         (since, until) if until else (since,))

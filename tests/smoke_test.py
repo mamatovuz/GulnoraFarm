@@ -228,6 +228,21 @@ async def main():
                                                        "media_data": raw64, "text": "rasm"})).json()
         photo_mid = r.get("mid") or r.get("message", {}).get("mid")
         check("rasm yuborish", r["ok"] and r["message"]["type"] == "photo", r)
+        # Mijozga statistikadagi asl ism emas, «mijozga ko'rinadigan» nom chiqishi kerak
+        await q.update_operator(op_id, "display_name", "Doktor Nodira")
+        r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "photo",
+                                                       "media_data": raw64})).json()
+        cap = chat_bot.calls[-1][2].get("caption", "")
+        check("rasm captionida mijozga ko'rinadigan nom (asl ism emas)",
+              r["ok"] and "Doktor Nodira" in cap and "Ali" not in cap, cap)
+        acc_oid = await q.create_order(5001, None, "text")
+        r = await (await cli.post("/api/channel_accept", json={**A, "order_id": acc_oid})).json()
+        acc_txt = next((c[1][1] for c in reversed(chat_bot.calls) if c[0] == "text"), "")
+        check("qabul xabarida operator nomi qo'yiladi ({name} qolmaydi)",
+              r["ok"] and "Doktor Nodira" in acc_txt and "{name}" not in acc_txt, (r, acc_txt))
+        await q.set_order_status(acc_oid, "done", "test")
+        await q.set_operator_active_order(op_id, oid)
+        await q.update_operator(op_id, "display_name", None)
         r = await (await cli.post("/api/send", json={**A, "order_id": oid, "media_kind": "document",
                                                        "media_data": raw64, "media_name": "test.txt"})).json()
         doc_mid = r.get("mid") or r.get("message", {}).get("mid")
@@ -326,6 +341,62 @@ async def main():
         check("viewer o'zgartira olmaydi (403)", r.status == 403, r.status)
         r = await (await cli.post("/api/admin/inote", json={**AA, "order_id": oid, "text": "admin izohi"})).json()
         check("admin ichki izoh", r["ok"], r)
+
+        print("ADMIN AUDITI RUXSATI")
+        await q.add_admin(333, "aud", "Aud", added_by=111)
+        await q.add_admin(444, "mgr", "Mgr", added_by=111)
+        T3 = {"admin_id": 333, "token": await webapp._admin_sign(333)}
+        T4 = {"admin_id": 444, "token": await webapp._admin_sign(444)}
+        r = await cli.get("/api/admin/admin_audit", params=T3)
+        check("ruxsatsiz admin — admin auditi yopiq (403)", r.status == 403, r.status)
+        r = await (await cli.get("/api/admin/audit", params=T3)).json()
+        check("ruxsatsiz admin oddiy auditda admin amallarini ko'rmaydi",
+              r["ok"] and r["admin_hidden"] and not any(i["actor"].startswith(("Admin", "Bot")) for i in r["items"]),
+              [i["actor"] for i in r["items"]][:5])
+        r = await (await cli.get("/api/admin/admins", params=T3)).json()
+        check("ruxsatsiz admin: me_can_audit=False", r["ok"] and r["me_can_audit"] is False, r.get("me_can_audit"))
+        r = await cli.post("/api/admin/audit_access", json={**T3, "telegram_id": 333, "on": True})
+        check("oddiy admin o'ziga ruxsat bera olmaydi", r.status == 403, r.status)
+        r = await (await cli.post("/api/admin/audit_access", json={**AA, "telegram_id": 333, "on": True})).json()
+        check("bosh admin ruxsat beradi", r["ok"] and r["audit"], r)
+        r = await (await cli.get("/api/admin/admin_audit", params=T3)).json()
+        check("ruxsat berilgan admin admin auditini ko'radi", r["ok"], r)
+        r = await (await cli.get("/api/admin/audit", params=T3)).json()
+        check("ruxsat berilgan admin oddiy auditda hammasini ko'radi", r["ok"] and not r["admin_hidden"], r.get("admin_hidden"))
+        r = await (await cli.get("/api/admin/admins", params=AA)).json()
+        check("ro'yxatda audit belgisi", any(a["telegram_id"] == 333 and a["audit"] for a in r["items"]), r["items"])
+        r = await (await cli.post("/api/admin/audit_access", json={**AA, "telegram_id": 111, "on": False})).json()
+        check("bosh admindan auditni olib bo'lmaydi", not r["ok"], r)
+        r = await (await cli.post("/api/admin/set_manager", json={**AA, "telegram_id": 444})).json()
+        check("asosiy admin tayinlandi", r["ok"], r)
+        r = await (await cli.get("/api/admin/admin_audit", params=T4)).json()
+        check("asosiy admin auditni doim ko'radi", r["ok"], r)
+        r = await (await cli.post("/api/admin/audit_access", json={**T4, "telegram_id": 333, "on": False})).json()
+        check("asosiy admin ruxsatni yopadi", r["ok"] and not r["audit"], r)
+        r = await cli.get("/api/admin/admin_audit", params=T3)
+        check("yopilgandan keyin yana 403", r.status == 403, r.status)
+        await q.set_audit_admin(333, True)
+        r = await (await cli.post("/api/admin/admin_del", json={**AA, "telegram_id": 333})).json()
+        check("admin o'chirilsa audit ruxsati ham o'chadi", r["ok"] and 333 not in await q.audit_admin_ids(), r)
+        await q.set_manager_admin_id(None)
+
+        print("STATISTIKA: QABUL / HISOB-KITOB")
+        await q.set_order_bill(oid, "Paratsetamol 5000", None)
+        rep = {x["id"]: x for x in await q.operators_report("2000-01-01 00:00:00")}
+        ali = rep.get(op_id, {})
+        check("reytingda hisob-kitob, bekor, ochiq, xabar",
+              ali.get("billed", 0) >= 1 and {"canceled", "open", "msgs", "bill_pct"} <= set(ali)
+              and ali["msgs"] >= 1 and 0 < ali["bill_pct"] <= 100, ali)
+        r = await (await cli.get("/api/admin/sla", params={**AA, "period": "year"})).json()
+        sla_ali = next((x for x in r.get("items", []) if x["id"] == op_id), {})
+        check("SLA: qabul/hisob-kitob/bekor va jami", r["ok"] and sla_ali.get("billed", 0) >= 1
+              and "canceled" in sla_ali and r["totals"]["billed"] >= 1, (sla_ali, r.get("totals")))
+        r = await (await cli.get("/api/admin/dash", params={**AA, "period": "year"})).json()
+        check("dash: operatorlar reytingi (oprating)",
+              r["ok"] and any(x["id"] == op_id and x["billed"] >= 1 for x in r.get("oprating", [])), r.get("oprating"))
+        r = await (await cli.get("/api/admin/op_detail", params={**AA, "id": op_id})).json()
+        check("operator sahifasi: hisob-kitob va bekor", r["ok"] and r["stats"]["billed"] >= 1
+              and "canceled" in r["stats"] and "msgs" in r["stats"], r.get("stats"))
         # sessiyalarni bekor qilish
         r = await (await cli.post("/api/admin/revoke_sessions", json=AA)).json()
         r2 = await cli.get("/api/admin/orders", params=AA)

@@ -366,7 +366,8 @@ async def weekly_report_loop(bot):
                     ops = await q.operators_report(since)
                     ops.sort(key=lambda x: x["done"], reverse=True)
                     medals = ["🥇", "🥈", "🥉", "4.", "5."]
-                    top = "\n".join(f"{medals[i]} {o['name']} — {o['done']} yakun"
+                    top = "\n".join(f"{medals[i]} {o['name']} — 📥 {o['accepted']} qabul · "
+                                    f"🧾 {o['billed']} hisob-kitob · 🟢 {o['done']} yakun"
                                     for i, o in enumerate(ops[:5]) if o["done"])
                     text = ("📬 <b>Haftalik hisobot</b> (o'tgan 7 kun)\n\n"
                             f"💊 Jami murojaatlar: <b>{r['total']}</b>\n"

@@ -774,9 +774,13 @@ async def daily_report_text(day=None):
             m = W._mins_between(r["created_at"], r["first_reply"])
             if m is not None and m >= 0:
                 first.append(m)
-        if r["operator_id"] and r["status"] == "done":
-            by_op[r["operator"] or "—"] = by_op.get(r["operator"] or "—", 0) + 1
-    top = sorted(by_op.items(), key=lambda x: -x[1])[:3]
+        if r["operator_id"]:
+            d = by_op.setdefault(r["operator"] or "—", [0, 0])   # [yakun, hisob-kitob]
+            if r["status"] == "done":
+                d[0] += 1
+            if r["billed"]:
+                d[1] += 1
+    top = sorted(((n, v) for n, v in by_op.items() if v[0]), key=lambda x: -x[1][0])[:3]
     ps = await q.pause_stats(start, end)
     tags = (await q.tag_counts(start, end))[:3]
     lines = [f"📊 <b>Kunlik hisobot — {day.strftime('%d.%m.%Y')}</b>", "",
@@ -787,7 +791,8 @@ async def daily_report_text(day=None):
     if s["avg_r"]:
         lines.append(f"⭐ O'rtacha baho: <b>{round(s['avg_r'], 1)}</b>" + (f"   ⚠️ past baholar: {s['low']}" if s["low"] else ""))
     if top:
-        lines += ["", "🏆 <b>Eng faol operatorlar:</b>"] + [f"{i}. {_htm.escape(n)} — {c} ta" for i, (n, c) in enumerate(top, 1)]
+        lines += ["", "🏆 <b>Eng faol operatorlar:</b>"] + [
+            f"{i}. {_htm.escape(n)} — {c[0]} yakun · 🧾 {c[1]} hisob-kitob" for i, (n, c) in enumerate(top, 1)]
     if tags:
         lines += ["", "🏷 Mavzular: " + ", ".join(f"#{_htm.escape(t)} ({c})" for t, c in tags)]
     return "\n".join(lines)

@@ -130,6 +130,18 @@
   .oprow .nm{font-weight:600;font-size:14.5px}
   .oprow .st{font-size:12px;color:var(--hint);margin-top:1px}
   .oprow .cnt{margin-left:auto;text-align:right;font-size:12.5px;color:var(--hint);line-height:1.5}
+  /* Operatorlar reytingi: qabul, hisob-kitob, yakun, bekor... */
+  .oprate{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--sep);cursor:pointer}
+  .oprate:last-child{border-bottom:none}
+  .oprate .rk{width:26px;flex-shrink:0;font-weight:700;font-size:15px;text-align:center;padding-top:1px}
+  .oprate .nm{font-weight:600;font-size:14.5px}
+  .opchips{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:5px}
+  .opchip{font-size:12px;background:var(--sec);border-radius:7px;padding:2px 7px;color:var(--text);white-space:nowrap}
+  .opdur{font-size:12px;color:var(--hint);margin-top:5px}
+  .opsort{display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 10px}
+  .opsort button{border:none;background:var(--sec);color:var(--text);font-size:12.5px;padding:5px 10px;border-radius:14px;cursor:pointer}
+  .opsort button.on{background:var(--accent);color:#fff}
+  .optot{font-size:12.5px;color:var(--hint);margin-bottom:4px;line-height:1.6}
   .stdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 
   /* Tooltip */
@@ -501,6 +513,7 @@
         <span class="mini-seg">
           <button id="opm-list" onclick="setOpsMode('list')" title="Ro'yxat"><svg class="ic" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
           <button id="opm-chart" onclick="setOpsMode('chart')" title="Diagramma"><svg class="ic" viewBox="0 0 24 24"><path d="M3 5h12M3 12h18M3 19h8"/></svg></button>
+          <button id="opm-rating" onclick="setOpsMode('rating')" title="Reyting"><svg class="ic" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 6h3v1a3 3 0 0 1-3 3M7 6H4v1a3 3 0 0 0 3 3"/></svg></button>
         </span></h3>
       <div id="opslist"></div>
     </div>
@@ -894,8 +907,7 @@ async function gate(){
     document.getElementById("tab-set").insertAdjacentHTML("afterbegin",
       '<div class="viewer-banner">👁 Sizda faqat ko\'rish huquqi bor (supervayzer). O\'zgartirishlar bloklangan.</div>');
   }
-  const auditItem=document.getElementById("admin-audit-item");
-  if(auditItem) auditItem.classList.toggle("hide", !ADM.canAudit);
+  applyAuditAccess();
   localStorage.setItem("adm_id", ADM.id); localStorage.setItem("adm_token", ADM.token);
   document.getElementById("gate").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
@@ -1208,11 +1220,16 @@ async function openOpDetail(id){
       <div style="color:var(--hint);font-size:13.5px;margin-top:3px">@${esc(o.login)} · ${o.online?"🟢 online":"⚪ oflayn"} · ${o.ws}–${o.we}</div>
     </div>
     <div class="kpi">
-      <div class="tile"><div class="v">${s.accepted}</div><div class="l">Qabul qilingan</div></div>
-      <div class="tile"><div class="v">${s.done}</div><div class="l">Yakunlangan</div></div>
+      <div class="tile"><div class="v">${s.accepted}</div><div class="l">📥 Qabul qilingan</div></div>
+      <div class="tile"><div class="v">${s.billed||0}</div><div class="l">🧾 Hisob-kitob (${s.bill_pct||0}%)</div></div>
+      <div class="tile"><div class="v">${s.done}</div><div class="l">🟢 Yakunlangan</div></div>
+      <div class="tile"><div class="v">${s.canceled||0}</div><div class="l">🔴 Bekor qilingan</div></div>
       <div class="tile"><div class="v">${s.today_done}</div><div class="l">Bugun yakunlangan</div></div>
-      <div class="tile"><div class="v">${s.avg_rating||"—"}</div><div class="l">Baho (${s.rated_count} ta)</div></div>
+      <div class="tile"><div class="v">${s.open||0}</div><div class="l">🔵 Hozir ochiq</div></div>
+      <div class="tile"><div class="v">${s.msgs||0}</div><div class="l">💬 Yuborgan xabarlar</div></div>
+      <div class="tile"><div class="v">${s.avg_rating||"—"}</div><div class="l">⭐ Baho (${s.rated_count} ta)</div></div>
     </div>
+    <div style="font-size:12px;color:var(--hint);margin:-4px 2px 12px">Barcha vaqt uchun. Davr bo'yicha — Statistika › Operatorlar › 🏆 Reyting.</div>
     <div class="card"><h3>So'nggi murojaatlari</h3>
       <div class="lrows" style="border-radius:10px">${r.recent.map(x=>`
         <div class="lrow" onclick='openTrans(${x.id},"op")'>
@@ -1453,11 +1470,38 @@ function renderBars(hours){
 let OPSMODE = localStorage.getItem("ops_mode") || "list";
 function setOpsMode(m){ OPSMODE=m; localStorage.setItem("ops_mode",m);
   if(DASH) renderOps(DASH.ops, DASH.kpi.online); }
+let OPSORT = (()=>{ try{ return localStorage.getItem("ops_sort")||"done"; }catch(e){ return "done"; } })();
+function setOpSort(s){ OPSORT=s; try{ localStorage.setItem("ops_sort",s); }catch(e){}
+  if(DASH) renderOps(DASH.ops, DASH.kpi.online); }
+// Reyting: har operator — qabul, hisob-kitob (%), yakun, bekor, ochiq, xabarlar, javob/yakunlash vaqti
+function renderOpRating(box){
+  const st=((DASH&&DASH.oprating)||[]).slice();
+  if(!st.length){ box.innerHTML='<div class="empty">Bu davrda ma\'lumot yo\'q</div>'; return; }
+  const S={done:[o=>o.done,1],accepted:[o=>o.accepted,1],billed:[o=>o.billed,1],
+           rating:[o=>o.rating||0,1],resp:[o=>o.resp>0?o.resp:1e9,0]};
+  const [kf,desc]=S[OPSORT]||S.done;
+  st.sort((a,b)=>desc?kf(b)-kf(a):kf(a)-kf(b));
+  const tot=k=>st.reduce((s,o)=>s+(o[k]||0),0);
+  const tAcc=tot("accepted"), tBill=tot("billed");
+  const sorts=[["done","Ko'p yakun"],["accepted","Ko'p qabul"],["billed","Hisob-kitob"],["rating","Baho"],["resp","Tez javob"]];
+  const chip=(ic,v,l)=>`<span class="opchip">${ic} <b>${v}</b> ${l}</span>`;
+  const medals=["🥇","🥈","🥉"];
+  box.innerHTML=`<div class="opsort">${sorts.map(([k,l])=>`<button class="${OPSORT===k?"on":""}" onclick="setOpSort('${k}')">${l}</button>`).join("")}</div>
+    <div class="optot">Jami: 📥 <b>${tAcc}</b> qabul · 🧾 <b>${tBill}</b> hisob-kitob${tAcc?` (${Math.round(tBill/tAcc*100)}%)`:""} · 🟢 <b>${tot("done")}</b> yakun · 🔴 <b>${tot("canceled")}</b> bekor</div>
+    ${st.map((o,i)=>`<div class="oprate" onclick="openOpDetail(${o.id})">
+      <div class="rk">${medals[i]||(i+1)+"."}</div>
+      <div style="flex:1;min-width:0">
+        <div class="nm">${esc(o.name)}${o.rating?` <span style="color:#d97706;font-size:12.5px;font-weight:500">⭐${o.rating}</span>`:""}</div>
+        <div class="opchips">${chip("📥",o.accepted,"qabul")}${chip("🧾",o.billed,"hisob-kitob ("+o.bill_pct+"%)")}${chip("🟢",o.done,"yakun")}${chip("🔴",o.canceled,"bekor")}${chip("🔵",o.open,"ochiq")}${chip("💬",o.msgs,"xabar")}</div>
+        <div class="opdur">⏱ javob ${fmtDur(o.resp)} · ✅ yakunlash ${fmtDur(o.resol)}</div>
+      </div></div>`).join("")}`;
+}
 function renderOps(ops, online){
-  ["list","chart"].forEach(m=>{ const b=document.getElementById("opm-"+m);
+  ["list","chart","rating"].forEach(m=>{ const b=document.getElementById("opm-"+m);
     if(b) b.classList.toggle("on", OPSMODE===m); });
   document.getElementById("ops-sub").textContent = online + " ta online";
   const box = document.getElementById("opslist");
+  if(OPSMODE==="rating"){ renderOpRating(box); return; }
   if(OPSMODE==="chart"){
     const st=(DASH&&DASH.opstats)||[];
     if(!st.length){ box.innerHTML=`<div class="empty">Bu davrda yakunlangan murojaat yoq</div>`; return; }
@@ -2070,22 +2114,32 @@ async function svAdmins(){
     const del = canDel
       ? `<button class="delbtn" onclick='admDel(${a.telegram_id!=null?a.telegram_id:"null"},"${esc(a.username||"")}","${esc(label)}")'>${DELSVG}</button>`
       : '';
+    const abtn=(bgc,col,on,txt)=>`<button class="sbtn" style="padding:6px 10px;font-size:12px;width:auto;white-space:nowrap;background:${bgc};color:${col}" onclick='${on}'>${txt}</button>`;
     // Asosiy admin tayinlash — faqat bosh adminda ko'rinadi (bosh adminning o'zidan va pendingdan tashqari).
     const mgrBtn = (meSuper && !a.super && !a.pending && a.telegram_id!=null)
-      ? `<button class="sbtn" style="padding:6px 10px;font-size:12px;margin-left:8px;flex-shrink:0;background:${a.manager?'#e5484d':'#2f9e44'}"
-           onclick='admSetMgr(${a.telegram_id},${a.manager?0:1},"${esc(label)}")'>${a.manager?"Olib tashlash":"Asosiy qilish"}</button>`
+      ? abtn(a.manager?'#e5484d':'#2f9e44', "#fff", `admSetMgr(${a.telegram_id},${a.manager?0:1},"${esc(label)}")`,
+             a.manager?"Olib tashlash":"Asosiy qilish")
       : '';
     const nm = esc(a.name||"Admin");
     const isViewer = a.role==="viewer";
     const roleBtn = (canManage && !a.super && !a.you && !a.pending && a.telegram_id!=null && a.role)
-      ? `<button class="sbtn" style="padding:6px 10px;font-size:12px;margin-left:8px;flex-shrink:0;background:${isViewer?'#3390ec':'var(--sec)'};color:${isViewer?'#fff':'var(--text)'}"
-           onclick='admRole(${a.telegram_id},${ja(isViewer?"admin":"viewer")})'>${isViewer?"👁 Faqat ko'rish":"To'liq huquq"}</button>` : "";
+      ? abtn(isViewer?'#3390ec':'var(--sec)', isViewer?'#fff':'var(--text)',
+             `admRole(${a.telegram_id},${ja(isViewer?"admin":"viewer")})`, isViewer?"👁 Faqat ko'rish":"To'liq huquq")
+      : "";
+    // Admin auditi: bosh admin va asosiy admin doim ko'radi; qolganlarga ular ruxsat beradi.
+    const audBadge = (!a.super && !a.manager && a.audit) ? bg("#64748b","Audit") : "";
+    const audBtn = (canManage && !a.super && !a.manager && !a.pending && a.telegram_id!=null)
+      ? abtn(a.audit?'#64748b':'var(--sec)', a.audit?'#fff':'var(--text)',
+             `admAudit(${a.telegram_id},${a.audit?0:1},"${esc(label)}")`, a.audit?"🗂 Audit ochiq":"🗂 Audit yopiq")
+      : "";
+    const btns = (roleBtn||audBtn||mgrBtn)
+      ? `<div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;flex-shrink:0">${roleBtn}${audBtn}${mgrBtn}</div>` : "";
     return `<div class="lrow">
       <div style="width:40px;height:40px;border-radius:12px;background:${avaBg(nm)};color:#fff;
         display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:600">${esc((nm[0]||"A").toUpperCase())}</div>
-      <div class="mid" style="min-width:0"><div class="nm"><span>${nm}${badge}${you}</span></div>
+      <div class="mid" style="min-width:0"><div class="nm"><span>${nm}${badge}${audBadge}${you}</span></div>
         <div class="sub">${sub||"—"}</div></div>
-      ${roleBtn}${mgrBtn}${del}</div>`;
+      ${btns}${del}</div>`;
   }).join("");
   const addCard = canManage ? `
     <div class="card" style="margin-top:12px"><h3>Yangi admin qo'shish</h3>
@@ -2097,10 +2151,15 @@ async function svAdmins(){
     </div></div>` : `
     <div class="card" style="margin-top:12px"><div style="font-size:13px;color:var(--hint);line-height:1.5">
       Admin qo'shish/o'chirish huquqi faqat <b>bosh admin</b> va u tayinlagan <b>asosiy admin</b>da bo'ladi.</div></div>`;
+  const audHint = canManage ? ` «<b style="color:#64748b">🗂 Audit</b>» tugmasi — tanlangan adminga «Admin auditi»ni ochadi.
+      Ruxsat berilmagan adminlar admin auditini (va oddiy auditdagi admin amallarini) ko'rmaydi.` : "";
   const hint = meSuper ? `
     <div style="font-size:13px;color:var(--hint);margin-bottom:10px;line-height:1.5">
       Siz — <b style="color:#e5484d">bosh admin</b>siz. Bitta adminni «<b style="color:#2f9e44">Asosiy qilish</b>» orqali tayinlang —
-      shu admingina boshqa adminlarni qo'sha/o'chira oladi.</div>` : "";
+      shu admingina boshqa adminlarni qo'sha/o'chira oladi.${audHint}</div>`
+    : (canManage ? `<div style="font-size:13px;color:var(--hint);margin-bottom:10px;line-height:1.5">${audHint.trim()}</div>` : "");
+  // Ruxsat o'zgargan bo'lsa (masalan, bosh admin yopib qo'ygan) — menyuni ham yangilaymiz.
+  if(typeof r.me_can_audit==="boolean" && ADM.canAudit!==r.me_can_audit){ ADM.canAudit=r.me_can_audit; applyAuditAccess(); }
   const sec = canManage ? `<div class="card" style="margin-top:12px"><h3>Xavfsizlik</h3>
       <div style="font-size:13px;color:var(--hint);margin-bottom:8px;line-height:1.5">«Faqat ko'rish» tugmasi — adminni supervayzerga aylantiradi: hamma narsani ko'radi, lekin hech narsani o'zgartira olmaydi.</div>
       <button class="sbtn" style="background:#e5484d" onclick="admRevoke()">Barcha admin sessiyalarini bekor qilish</button></div>` : "";
@@ -2154,13 +2213,23 @@ async function svSla(p){
       <div class="tile"><div class="v">${_durTxt(r.first_med)}</div><div class="l">Birinchi javob (median)</div></div>
       <div class="tile"><div class="v">${r.items.length}</div><div class="l">Operator</div></div>
     </div>
+    ${(()=>{ const t=r.totals||{}; const pct=t.orders?Math.round((t.billed||0)/t.orders*100):0;
+      return `<div class="kpi">
+        <div class="tile"><div class="v">${t.orders||0}</div><div class="l">📥 Qabul qilingan</div></div>
+        <div class="tile"><div class="v">${t.billed||0}</div><div class="l">🧾 Hisob-kitob (${pct}%)</div></div>
+        <div class="tile"><div class="v" style="color:#2f9e44">${t.done||0}</div><div class="l">🟢 Yakunlangan</div></div>
+        <div class="tile"><div class="v" style="color:#e5484d">${t.canceled||0}</div><div class="l">🔴 Bekor${t.open?` · 🔵 ${t.open} ochiq`:""}</div></div>
+      </div>`; })()}
     <div class="card"><h3>Operatorlar kesimi</h3>
-      ${r.items.length?`<table class="slat"><tr><th>Operator</th><th>Murojaat</th><th>1-javob</th><th>Hal qilish</th><th>Maqsadda</th></tr>
-      ${r.items.map(o=>`<tr><td><b>${esc(o.name)}</b>${o.rating?`<div style="font-size:11px;color:#d97706">${o.rating}★</div>`:""}</td><td>${o.orders}<div style="font-size:11px;color:var(--hint)">${o.done} yakun</div></td>
+      ${r.items.length?`<table class="slat"><tr><th>Operator</th><th>Qabul</th><th>1-javob</th><th>Hal qilish</th><th>Maqsadda</th></tr>
+      ${r.items.map(o=>`<tr><td><b>${esc(o.name)}</b>${o.rating?`<div style="font-size:11px;color:#d97706">${o.rating}★</div>`:""}</td><td><b>${o.orders}</b>
+          <div style="font-size:11px;color:var(--hint);white-space:nowrap">🧾 ${o.billed||0} (${o.bill_pct||0}%)</div>
+          <div style="font-size:11px;color:var(--hint);white-space:nowrap">🟢 ${o.done} · 🔴 ${o.canceled||0}</div></td>
         <td>${_durTxt(o.first_med)}</td><td>${_durTxt(o.resol_med)}</td>
         <td style="min-width:70px"><b style="color:${col(o.in_target)}">${o.in_target==null?"—":o.in_target+"%"}</b><div class="bar"><div style="width:${o.in_target||0}%;background:${col(o.in_target)}"></div></div></td></tr>`).join("")}</table>`
       :'<div class="empty">Bu davrda ma\'lumot yo\'q</div>'}
-      <div style="font-size:12px;color:var(--hint);margin-top:10px;line-height:1.5">Birinchi javob — murojaat kelganidan operatorning birinchi xabarigacha. Maqsad vaqtini «Avto-taqsimlash» bo'limida o'zgartirasiz.</div>
+      <div style="font-size:12px;color:var(--hint);margin-top:10px;line-height:1.5">Qabul — davrda operatorga tushgan murojaatlar; 🧾 — ulardan hisob-kitob qilinganlari; 🟢 yakunlangan, 🔴 bekor (Отказ).
+        Birinchi javob — murojaat kelganidan operatorning birinchi xabarigacha. Maqsad vaqtini «Avto-taqsimlash» bo'limida o'zgartirasiz.</div>
     </div>`;
 }
 
@@ -2461,6 +2530,21 @@ async function loadAudit(){
   const pages=Math.ceil(r.total/50);
   if(pages>1){ pg.classList.remove("hide"); pg.innerHTML=`<button class="pg-b" ${AUD.page<=0?"disabled":""} onclick="goAudPage(${AUD.page-1})">‹</button><span class="pg-gap" style="min-width:70px">${AUD.page+1} / ${pages}</span><button class="pg-b" ${AUD.page>=pages-1?"disabled":""} onclick="goAudPage(${AUD.page+1})">›</button>`; }
   else pg.classList.add("hide");
+}
+// «Admin auditi» menyusi faqat ruxsati borlarga ko'rinadi; oddiy audit izohi ham shunga mos.
+function applyAuditAccess(){
+  const it=document.getElementById("admin-audit-item");
+  if(it) it.classList.toggle("hide", !ADM.canAudit);
+  const sub=document.querySelector("#audit-item .lbl div");
+  if(sub) sub.textContent = ADM.canAudit ? "Operator, admin va tizim amallari" : "Operator va tizim amallari";
+}
+function admAudit(tid,on,label){
+  const msg = on ? (label+" — «Admin auditi» ochilsinmi? U adminlar va botning barcha amallarini ko'ra oladi.")
+                 : (label+" uchun «Admin auditi» yopilsinmi?");
+  tg.showConfirm(msg, async ok=>{ if(!ok) return;
+    const r=await q("/api/admin/audit_access","POST",Object.assign(auth(),{telegram_id:tid,on:!!on}));
+    if(!r.ok){ tg.showAlert(r.error||"Xatolik"); return; }
+    svAdmins(); });
 }
 async function admSetMgr(tid,on,label){
   const msg = on ? (label+" — asosiy admin qilinsinmi? U admin qo'sha/o'chira oladi.")
