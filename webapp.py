@@ -58,6 +58,63 @@ async def _all_tokens():
     return tokens
 
 
+_INIT_BOT_CACHE: dict = {}
+
+
+async def _init_bot(request, data=None):
+    """Mini app qaysi botdan ochilganini initData imzosidan aniqlaydi.
+    (True, bot_id) — aniqlandi (asosiy bot uchun bot_id=None); (False, None) — initData yo'q/noto'g'ri."""
+    init = (request.headers.get("X-Init-Data", "")
+            or (data or {}).get("_init", "")
+            or request.query.get("_init", ""))
+    if not init:
+        return False, None
+    hit = _INIT_BOT_CACHE.get(init)
+    if hit is not None:
+        return hit
+    res = (False, None)
+    if _check_init(init, BOT_TOKEN):
+        res = (True, None)
+    else:
+        try:
+            bots = await q.list_operator_bots()
+        except Exception:
+            bots = []
+        for b in bots:
+            if b["token"] and _check_init(init, b["token"]):
+                res = (True, b["id"])
+                break
+    if len(_INIT_BOT_CACHE) > 3000:
+        _INIT_BOT_CACHE.clear()
+    _INIT_BOT_CACHE[init] = res
+    return res
+
+
+async def _op_bot_label(op) -> str:
+    """Operator hisobi tegishli bot nomi (xato xabarida ko'rsatish uchun)."""
+    if not op["bot_id"]:
+        return "asosiy bot"
+    try:
+        b = await q.get_operator_bot(op["bot_id"])
+        if b and b["username"]:
+            return "@" + b["username"]
+    except Exception:
+        pass
+    return "o'z botingiz"
+
+
+async def _wrong_bot(request, data, op) -> bool:
+    """Mini app operator hisobi tegishli bo'lmagan BOSHQA botdan ochilganmi?
+    Har bir operator boti — alohida hisob. Bitta qurilmadagi mini app sessiyasi boshqa
+    botga «yopishib» qolmasin (aks holda javoblar boshqa operator nomidan ketadi).
+    initData bo'lmasa (masalan oddiy brauzer) — tekshirib bo'lmaydi, ruxsat beriladi.
+    CRM'da botsiz yaratilgan (bot_id=None) umumiy hisoblar istalgan botdan ochilaveradi."""
+    if not op["bot_id"]:
+        return False
+    found, bid = await _init_bot(request, data)
+    return found and op["bot_id"] != bid
+
+
 async def _auth_user(request, body=None):
     """initData'dan (header/body/query) haqiqiy Telegram foydalanuvchisini qaytaradi.
     Imzo to'g'ri bo'lmasa None — bu faqat onlayn bog'lash uchun, majburiy emas."""
@@ -184,6 +241,11 @@ async def _auth_op(request, data):
         return None, None
     if not _op_token_exp(op, token):
         return None, None
+    if await _wrong_bot(request, data, op):
+        # Boshqa botning sessiyasi (masalan umumiy localStorage'dan) — qayta kirish kerak.
+        raise web.HTTPUnauthorized(
+            text=json.dumps({"ok": False, "error": "other_bot", "bot": await _op_bot_label(op)}),
+            content_type="application/json")
     # Ish vaqtidan tashqarida ham mini app ishlaydi (botdagi /operator kabi).
     return op, None
 
@@ -290,6 +352,10 @@ async def api_login(request):
     _RL.pop(lg_key, None)
     if op["status"] != "active":
         return _json({"ok": False, "error": "Hisob bloklangan"}, 200)
+    # Botdagi /operator kabi: login faqat o'z botida ishlaydi (boshqa botning mini app'idan emas).
+    if await _wrong_bot(request, body, op):
+        return _json({"ok": False, "error": f"⛔ Bu login boshqa botga tegishli ({await _op_bot_label(op)}). "
+                                            f"Iltimos, o'z botingizdan kiring."}, 200)
     # Eski sha256 xeshni pbkdf2 ga jimgina yangilaymiz
     if q.password_needs_upgrade(op["password_hash"]):
         await q.set_password_hash_raw(op["id"], q.hash_password(password))
@@ -1201,8 +1267,9 @@ async def api_inote(request):
 
 
 # ---------------- API: murojaatni boshqa operatorga o'tkazish ----------------
-async def _transfer(order, new_op, actor: str, actor_label: str):
-    """Murojaatni boshqa operatorga o'tkazadi; ikkala operatorni ham bot orqali xabardor qiladi."""
+async def _transfer(order, new_op, actor: str, actor_label: str, self_take: bool = False):
+    """Murojaatni boshqa operatorga o'tkazadi; ikkala operatorni ham bot orqali xabardor qiladi.
+    self_take — operator murojaatni o'zi o'ziga «tortib oldi» (Umumiy bo'limdan)."""
     order_id = order["id"]
     prev_id = order["operator_id"]
     newop_id = new_op["id"]
@@ -1220,24 +1287,38 @@ async def _transfer(order, new_op, actor: str, actor_label: str):
     client = cbot()
     if prev_id and prev_id != newop_id:
         prev = await q.get_operator(prev_id)
-        await q.set_operator_active_order(prev_id, None)
+        # Avvalgi operatorning faol murojaati aynan shu bo'lsagina tozalanadi — boshqa
+        # mijoz bilan yozishayotgan bo'lsa, botdagi javobi o'sha mijozga ketaversin.
+        if prev and prev["active_order_id"] == order_id:
+            await q.set_operator_active_order(prev_id, None)
         await q.set_operator_availability(prev_id, "free")
         if prev and prev["telegram_id"]:
             pb = (botreg.get_operator_bot(prev["bot_id"]) if prev["bot_id"] else client) or client
+            what = (f"{_htm.escape(new_op['name'])} tomonidan o'ziga o'tkazib olindi." if self_take
+                    else f"{actor_label} tomonidan {_htm.escape(new_op['name'])} ga o'tkazildi.")
             try:
-                await pb.send_message(prev["telegram_id"],
-                                      f"ℹ️ Murojaat #{order_id} {actor_label} tomonidan "
-                                      f"{_htm.escape(new_op['name'])} ga o'tkazildi.")
+                await pb.send_message(prev["telegram_id"], f"ℹ️ Murojaat #{order_id} {what}")
             except Exception:
                 pass
-    if new_op["telegram_id"]:
-        nb = (botreg.get_operator_bot(new_op["bot_id"]) if new_op["bot_id"] else client) or client
+    nb = ((botreg.get_operator_bot(new_op["bot_id"]) if new_op["bot_id"] else client) or client
+          if new_op["telegram_id"] else None)
+    if nb:
+        head = (f"🔄 Murojaat #{order_id} sizga o'tkazildi. Endi siz javob berasiz." if self_take
+                else f"🔄 {actor_label} sizga murojaat #{order_id} ni biriktirdi. Endi siz javob berasiz.")
         try:
-            await nb.send_message(new_op["telegram_id"],
-                                  f"🔄 {actor_label} sizga murojaat #{order_id} ni biriktirdi. "
-                                  f"CRM yoki botda oching.")
+            # Botga to'liq murojaat kartasi (mijoz xabari + amal tugmalari) boradi va u faol
+            # murojaat bo'ladi: «Mening murojaatlarim»ga kirib tanlamasdan darhol yozish mumkin.
+            from handlers.operator import _send_order_single
+            import keyboards as kb
+            if not await _send_order_single(nb, new_op["telegram_id"], order_id, head,
+                                            kb.op_order_actions_kb(order_id)):
+                await nb.send_message(new_op["telegram_id"], head)
         except Exception:
-            pass
+            logger.exception("transfer card #%s", order_id)
+            try:
+                await nb.send_message(new_op["telegram_id"], head)
+            except Exception:
+                pass
     if client:
         try:
             await update_group_card(client, order_id)
@@ -1290,8 +1371,14 @@ async def api_transfer(request):
     note = str(body.get("note", "")).strip()[:500]
     if note:
         await q.add_internal_note(order_id, "operator", op["name"], f"↪️ O'tkazish izohi: {note}")
-    if not await _transfer(order, new_op, f"op:{op['name']}", f"Operator {_htm.escape(op['name'])}"):
+    self_take = new_op["id"] == op["id"]
+    if not await _transfer(order, new_op, f"op:{op['name']}", f"Operator {_htm.escape(op['name'])}",
+                           self_take=self_take):
         return _json({"ok": False, "error": "Murojaat holati o'zgardi, qayta ochib ko'ring"}, 409)
+    if self_take:
+        # O'ziga tortib oldi — chat «Chatlar»da ko'rinishi kerak (yashirilmaydi).
+        await q.unhide_chat(op["id"], order_id)
+        return _json({"ok": True, "self": True, "info": f"#{order_id} sizga o'tkazildi"})
     await q.hide_chat(op["id"], order_id)
     return _json({"ok": True, "info": f"#{order_id} → {new_op['name']} ga o'tkazildi"})
 

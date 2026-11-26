@@ -593,6 +593,43 @@ async def main():
         check("active_order_id bo'lmasa ham topiladi", oo and oo["id"] == m1, oo)
         await q.set_order_status(m1, "done", "test")
         check("yopilgan murojaat ochiq emas", await q.open_order_of(5077) is None)
+
+        print("BOTLAR / O'ZIGA OLISH")
+        import hmac as _h, hashlib as _hl
+        from urllib.parse import urlencode
+
+        def mk_init(token, uid=9001):
+            f = {"user": json.dumps({"id": uid, "first_name": "T"}), "auth_date": str(int(time.time()))}
+            dc = "\n".join(f"{k}={f[k]}" for k in sorted(f))
+            sec = _h.new(b"WebAppData", token.encode(), _hl.sha256).digest()
+            f["hash"] = _h.new(sec, dc.encode(), _hl.sha256).hexdigest()
+            return urlencode(f)
+        bot2 = await q.add_operator_bot("999:BOTTWO", "op2bot", "Operator 2")
+        init_main, init_b2 = mk_init("123456:TESTTOKEN"), mk_init("999:BOTTWO")
+        await q.update_operator(op_id, "bot_id", bot2)          # Ali — «Operator 2» botining hisobi
+        r = await cli.get("/api/chats", params=A2, headers={"X-Init-Data": init_b2})
+        check("o'z botidan ochilgan mini app ishlaydi", r.status == 200, r.status)
+        r = await cli.get("/api/chats", params=A2, headers={"X-Init-Data": init_main})
+        j = await r.json()
+        check("boshqa botdan ochilganda sessiya rad etiladi (other_bot)",
+              r.status == 401 and j.get("error") == "other_bot" and j.get("bot") == "@op2bot", (r.status, j))
+        r = await (await cli.post("/api/login", json={"login": "ali", "password": "1234", "_init": init_main})).json()
+        check("boshqa botning mini app'idan login qilib bo'lmaydi", not r["ok"] and "boshqa botga" in r["error"], r)
+        r = await cli.get("/api/chats", params=A2)
+        check("initData'siz (brauzer) avvalgidek ishlaydi", r.status == 200, r.status)
+        await q.update_operator(op_id, "bot_id", None)          # botsiz (CRM) hisob
+        r = await cli.get("/api/chats", params=A2, headers={"X-Init-Data": init_b2})
+        check("botsiz (CRM) hisob istalgan botdan ochiladi", r.status == 200, r.status)
+        t_oid = await q.create_order(5001, None, "text")
+        await q.claim_order(t_oid, op2)
+        await q.hide_chat(op_id, t_oid)          # avval yashirgan bo'lsa ham qaytib chiqishi kerak
+        r = await (await cli.post("/api/transfer", json={**A2, "order_id": t_oid, "to_id": op_id,
+                                                           "shared": 1})).json()
+        check("Umumiydan o'ziga olish", r["ok"] and r.get("self") and (await q.get_order(t_oid))["operator_id"] == op_id, r)
+        r = await (await cli.get("/api/chats", params=A2)).json()
+        check("o'ziga olingan chat «Chatlar»da ko'rinadi",
+              any(c["order_id"] == t_oid for c in r["chats"]), [c["order_id"] for c in r["chats"]])
+        await q.set_order_status(t_oid, "done", "test")
     finally:
         await cli.close()
     print(f"\nNATIJA: {OK} o'tdi, {FAIL} xato")

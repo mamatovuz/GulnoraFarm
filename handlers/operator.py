@@ -608,10 +608,14 @@ async def op_takeover(call: CallbackQuery):
         await q.set_order_status(order_id, "in_progress", f"operator:{op['id']}")
     await q.set_operator_active_order(op["id"], order_id)
     await q.set_operator_availability(op["id"], "busy")
+    # Avval yashirgan bo'lsa ham — mini app «Chatlar»ida qayta ko'rinsin
+    await q.unhide_chat(op["id"], order_id)
     # eski operatorni bo'shatamiz + xabar beramiz (uning o'z boti orqali)
     if prev_op_id:
         prev = await q.get_operator(prev_op_id)
-        await q.set_operator_active_order(prev_op_id, None)
+        # faol murojaati aynan shu bo'lsagina tozalaymiz (boshqa mijozga javobi buzilmasin)
+        if prev and prev["active_order_id"] == order_id:
+            await q.set_operator_active_order(prev_op_id, None)
         await q.set_operator_availability(prev_op_id, "free")
         if prev and prev["telegram_id"]:
             import botreg

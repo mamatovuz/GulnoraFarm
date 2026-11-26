@@ -50,6 +50,13 @@ const Store = {
     try{ tg.CloudStorage.getItem(k,(e,v)=>{ if(done) return; done=true; clearTimeout(t); res(e ? l : (v || l)); }); }catch(e){ done=true; clearTimeout(t); res(l); } }); },
   set(k,v){ LS.set(k,v); if(hasCloud()) try{ tg.CloudStorage.setItem(k, v); }catch(e){} },
   del(k){ LS.del(k); if(hasCloud()) try{ tg.CloudStorage.removeItem(k); }catch(e){} },
+  // Shu botning o'z qiymati. CloudStorage har bot uchun alohida, localStorage esa barcha
+  // botlar mini app'lariga umumiy (bitta domen). Shuning uchun sessiya/saqlangan hisobni
+  // CloudStorage javob bergan bo'lsa faqat undan olamiz — yangi botda boshqa operatorning
+  // sessiyasi ochilib qolmasin. CloudStorage ishlamasa — localStorage (server baribir tekshiradi).
+  getOwn(k){ return new Promise(res=>{ const l=LS.get(k); if(!hasCloud()) return res(l);
+    let done=false; const t=setTimeout(()=>{ if(!done){ done=true; res(l); } }, 1500);
+    try{ tg.CloudStorage.getItem(k,(e,v)=>{ if(done) return; done=true; clearTimeout(t); res(e ? l : (v || null)); }); }catch(e){ done=true; clearTimeout(t); res(l); } }); },
 };
 
 /* ---------- holat ---------- */
@@ -67,7 +74,7 @@ async function api(path, method, body, signal){
   if(method === "GET") r = await fetch(path + "?" + new URLSearchParams(b), o);
   else { o.body = JSON.stringify(b); r = await fetch(path, o); }
   let j; try{ j = await r.json(); }catch(e){ j = { ok:false, error:"Server javobi noto'g'ri" }; }
-  if(r.status === 401 && ST.op.token){ onAuthFail(); }
+  if(r.status === 401 && ST.op.token){ onAuthFail(j && j.error, j && j.bot); }
   return j;
 }
 const GET = (p,b,s)=>api(p,"GET",b,s), POST = (p,b)=>api(p,"POST",b);
@@ -171,9 +178,9 @@ function applyWallpaper(target){
    LOGIN / SESSIYA
    ============================================================ */
 async function saveSession(){ Store.set("op_session", JSON.stringify(ST.op)); }
-async function loadSession(){ try{ return JSON.parse(await Store.get("op_session")||"null"); }catch(e){ return null; } }
+async function loadSession(){ try{ return JSON.parse(await Store.getOwn("op_session")||"null"); }catch(e){ return null; } }
 function saveAcc(login){ Store.set("saved_acc", JSON.stringify({ id:ST.op.id, name:ST.op.name, login, token:ST.op.token })); }
-async function getAcc(){ try{ return JSON.parse(await Store.get("saved_acc")||"null"); }catch(e){ return null; } }
+async function getAcc(){ try{ return JSON.parse(await Store.getOwn("saved_acc")||"null"); }catch(e){ return null; } }
 async function renderSaved(){
   const acc = await getAcc(), box = $("saved-box"), form = $("login-form");
   if(acc){
@@ -194,6 +201,10 @@ async function quickEnter(){
   ST.op = { id: acc.id, name: acc.name, token: acc.token };
   const r = await GET("/api/profile").catch(()=>({ok:false,error:"Internet aloqasi yo'q"}));
   if(!r.ok){
+    if(r.error==="other_bot"){   // boshqa botning saqlangan hisobi — bu botda ishlamaydi
+      Store.del("saved_acc"); ST.op = {}; showForm(); $("in-login").value = "";
+      $("login-err").textContent = otherBotMsg(r.bot); return;
+    }
     ST.op = {}; showForm(); $("in-login").value = acc.login;
     $("login-err").textContent = r.error==="auth" || !r.error ? "Sessiya tugagan — parol bilan kiring." : r.error;
     return;
@@ -217,10 +228,14 @@ async function doLogin(){
 $("btn-login").onclick = doLogin;
 $("in-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 let _authFailShown = false;
-function onAuthFail(){
+function otherBotMsg(bot){
+  return T("Bu hisob boshqa botga tegishli") + (bot ? ` (${bot})` : "") + ". " + T("Shu botdagi o'z login va parolingiz bilan kiring.");
+}
+function onAuthFail(err, bot){
   if(_authFailShown) return; _authFailShown = true;
+  if(err==="other_bot") Store.del("saved_acc");   // boshqa botning hisobi bu yerda taklif qilinmasin
   logout(true);
-  $("login-err").textContent = "Sessiya tugadi. Qayta kiring.";
+  $("login-err").textContent = err==="other_bot" ? otherBotMsg(bot) : "Sessiya tugadi. Qayta kiring.";
   setTimeout(()=>_authFailShown=false, 3000);
 }
 function logout(silent){
@@ -337,7 +352,7 @@ async function syncLoop(gen){
     try{
       const resp = await fetch("/api/sync?"+new URLSearchParams(p), { headers:{ "X-Init-Data": INIT }, signal: syncCtl.signal });
       clearTimeout(tmo);
-      if(resp.status === 401){ onAuthFail(); return; }
+      if(resp.status === 401){ let j=null; try{ j = await resp.json(); }catch(_){} onAuthFail(j && j.error, j && j.bot); return; }
       const r = await resp.json();
       if(gen !== syncGen) return;
       fails = 0; setConn(true);
@@ -2149,14 +2164,22 @@ async function openTransfer(){
   const r = await GET("/api/ops_list").catch(()=>null);
   if(!r || !r.ok){ toast("Ro'yxat yuklanmadi"); return; }
   r.items=(r.items||[]).filter(o=>o.id!==CH.operatorId);
+  // Umumiy bo'limdan: o'zimni ro'yxat boshiga «O'zimga olish» qilib qo'yamiz (adashib boshqaga bermaslik uchun)
+  const me = +ST.op.id;
+  r.items.sort((a,b)=>(b.id===me)-(a.id===me));
   const dot = s => s==="free" ? "var(--green)" : s==="busy" ? "var(--orange)" : "var(--hint)";
   const lbl = s => s==="free" ? "bo'sh" : s==="busy" ? "band" : "oflayn";
   openSheet(`<h3>Kimga o'tkazamiz?</h3>` + (r.items.map(o=>`<div class="item" data-to="${o.id}" data-tn="${esc(o.name)}">${avaHtml(o.name,42)}
-      <div class="lbl">${esc(o.name)}<div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot(o.state)};margin-right:5px"></span>${lbl(o.state)} · ${o.load} ta ochiq suhbat</div></div></div>`).join("") || `<div class="empty" style="padding:24px">Boshqa faol operator yo'q</div>`),
+      <div class="lbl">${o.id===me?`<b>${esc(T("O'zimga olish"))}</b> · ${esc(o.name)}`:esc(o.name)}<div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot(o.state)};margin-right:5px"></span>${lbl(o.state)} · ${o.load} ta ochiq suhbat</div></div></div>`).join("") || `<div class="empty" style="padding:24px">Boshqa faol operator yo'q</div>`),
     el=>el.addEventListener("click", e=>{ const it=e.target.closest("[data-to]"); if(!it) return;
-      TGF.prompt(`${it.dataset.tn} ga o'tkazish`, [{ph:"Izoh (ixtiyoriy): nima kelishildi"}], async ([note])=>{
+      const self = +it.dataset.to===me;
+      TGF.prompt(self ? T("Murojaatni o'zingizga olasizmi?") : `${it.dataset.tn} ga o'tkazish`, [{ph:"Izoh (ixtiyoriy): nima kelishildi"}], async ([note])=>{
         const r2 = await POST("/api/transfer", { order_id: CUR, to_id: +it.dataset.to, note }).catch(()=>null);
-        if(r2 && r2.ok){ closeSheet(); toast(r2.info||"O'tkazildi"); backToList(); } else alert2((r2&&r2.error)||"Xatolik");
+        if(r2 && r2.ok){
+          closeSheet(); toast(r2.info||"O'tkazildi"); backToList();
+          // O'ziga olgan bo'lsa — «Chatlar»da darhol ko'rinsin
+          if(r2.self){ showTab("chats"); kickSync(); }
+        } else alert2((r2&&r2.error)||"Xatolik");
       }); }));
 }
 
@@ -2252,8 +2275,8 @@ async function startRec(mode){
   COMP.classList.add("rec"); $("rectime").textContent = "0:00";   // savat tugmasi darhol ko'rinsin
   if(!navigator.mediaDevices){ recMode=null; COMP.classList.remove("rec"); alert2("Mikrofon mavjud emas"); return; }
   let stream;
-  try{ stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch(e){ if(gen===recGen){ recMode=null; COMP.classList.remove("rec","locked"); alert2("Mikrofonga ruxsat berilmadi"); } return; }
+  try{ stream = await navigator.mediaDevices.getUserMedia({ audio: true }); LS.set("mic_ok","1"); }
+  catch(e){ if(gen===recGen){ recMode=null; COMP.classList.remove("rec","locked"); micDenied(e); } return; }
   if(gen !== recGen){ stream.getTracks().forEach(t=>t.stop()); return; }   // kutish paytida bekor qilindi
   recStream = stream;
   recChunks=[]; opusRec=null; rec=null;
@@ -2481,7 +2504,63 @@ function closeList(){ $("lv-search").classList.add("hide"); show("app","fade"); 
 /* ============================================================
    PROFIL
    ============================================================ */
+/* ---------- mikrofon ruxsati (Profil › «Mikrofonga ruxsat») ----------
+   Birinchi so'rovda «Rad etish» bosilgan bo'lsa, ovozli xabar ishlamay qoladi. Shu yerdan
+   qayta so'raladi; qurilma butunlay bloklagan bo'lsa — qanday yoqish ko'rsatmasi chiqadi. */
+let MIC_STATE = "unknown";
+async function micQuery(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return "none";
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      const p = await navigator.permissions.query({ name: "microphone" });
+      if(!p._gf){ p._gf = 1; p.onchange = ()=>renderMic(p.state); }
+      if(p.state==="granted") LS.set("mic_ok","1");
+      return p.state;            // granted | denied | prompt
+    }
+  }catch(e){}
+  return LS.get("mic_ok")==="1" ? "granted" : "unknown";
+}
+function renderMic(st){
+  MIC_STATE = st;
+  const sw = $("p-micsw"), sub = $("p-micst"); if(!sw || !sub) return;
+  sw.classList.toggle("on", st==="granted");
+  sub.textContent = T({ granted:"Ruxsat berilgan — ovozli xabar yozish mumkin", denied:"Rad etilgan — yoqish uchun bosing",
+    prompt:"Hali ruxsat berilmagan — yoqish uchun bosing", unknown:"Ovozli xabar yozish uchun — yoqish uchun bosing",
+    none:"Bu qurilmada mikrofon yo'q" }[st] || "");
+}
+async function refreshMic(){ renderMic(await micQuery()); }
+async function micPerm(){
+  if(MIC_STATE==="granted"){ toast("Mikrofonga ruxsat berilgan ✅"); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ renderMic("none"); alert2("Bu qurilmada mikrofon mavjud emas"); return; }
+  try{
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t=>t.stop());
+    LS.set("mic_ok","1"); renderMic("granted"); haptic("light"); toast("Mikrofonga ruxsat berildi ✅");
+  }catch(e){ micDenied(e); }
+}
+function micDenied(e){
+  LS.del("mic_ok");
+  if(e && (e.name==="NotFoundError" || e.name==="DevicesNotFoundError")){
+    renderMic("none"); alert2("Mikrofon topilmadi. Qurilmaga mikrofon ulanganini tekshiring."); return;
+  }
+  renderMic("denied"); micHelp();
+}
+function micHelp(){
+  openSheet(`<h3>Mikrofonga ruxsat berilmagan</h3>
+    <div style="padding:0 18px 6px;font-size:14.5px;line-height:1.55;color:var(--text)">
+      Avval «Rad etish» bosilgan bo'lsa, ruxsatni qurilmaning o'zida yoqish kerak:
+      <div style="margin-top:10px"><b>📱 Android:</b> Sozlamalar → Ilovalar → Telegram → Ruxsatlar → Mikrofon → «Ruxsat berish».</div>
+      <div style="margin-top:8px"><b>📱 iPhone:</b> Sozlamalar → Telegram → Mikrofon — yoqing.</div>
+      <div style="margin-top:8px"><b>💻 Kompyuter (Windows):</b> Windows sozlamalari → Maxfiylik va xavfsizlik → Mikrofon — «Mikrofonga kirish» va «Ish stoli ilovalariga ruxsat» yoqilgan bo'lsin.</div>
+      <div style="margin-top:8px"><b>🌐 Brauzer:</b> manzil satridagi 🔒 belgisi → Mikrofon → «Ruxsat berish».</div>
+      <div style="margin-top:10px;color:var(--hint)">So'ng mini app'ni yopib qayta oching va «Qayta urinish»ni bosing. So'ralganda «Ruxsat berish»ni tanlang.</div>
+    </div>
+    <div style="padding:10px 16px 16px"><button class="btn" data-micretry style="width:100%">Qayta urinish</button></div>`,
+    el=>{ el.querySelector("[data-micretry]").onclick = ()=>{ closeSheet(); micPerm(); }; });
+}
+
 async function loadProfile(){
+  refreshMic();
   const r = await GET("/api/profile").catch(()=>null); if(!r || !r.ok) return;
   if(r.token){ ST.op.token = r.token; saveSession(); }
   if(r.mk){ ST.mk = r.mk; LS.set("op_mk", r.mk); }
@@ -2831,7 +2910,7 @@ const ACTS = { toggleSearch, openChannel, quickEnter, showForm, forgetAcc, logou
   cancelRec, send, resume, csPrev, csNext, toggleFS, openPause, resumePause, openCatalog:()=>openCatalog(), openBill,
   closeMedia, sendMedia, mediaCrop, mediaDraw, mediaZoomIn, mediaZoomOut, mediaRotate, mediaApplyCrop, mediaUndo, mediaReset,
   closeViewer, viewerOpen, vPrev, vNext, vRotate, vZoomIn, vZoomOut, endSelect, copySel, deleteSelected, reopenChat,
-  openNotifications, closeOperatorChat, sendOperator };
+  openNotifications, closeOperatorChat, sendOperator, micPerm };
 document.addEventListener("click", e=>{
   if(e.button) return;   // faqat chap tugma (o'ng tugma — kontekst menyu)
   const t = e.target.closest("[data-act]"); if(!t) return;
@@ -2842,7 +2921,18 @@ document.addEventListener("click", e=>{
 });
 document.querySelectorAll(".tabbar button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 /* klaviatura yorliqlari */
+// F7 — sichqonchasiz darhol yozish maydoniga o'tish (ochiq chatda xabar yozish, ichki chatda ham)
+function focusComposer(){
+  if(CURSCREEN==="opchat"){ const i=$("opinput"); if(i){ i.focus(); return true; } }
+  const chatOpen = CUR && CH && (CURSCREEN==="chat" || isWide());
+  if(!chatOpen){ toast("Avval chatni oching", 1400); return false; }
+  if(topOverlay()) closeAllOverlays();
+  const comp = $("composer");
+  if(!comp || comp.offsetParent===null){ toast("Bu chatga yozib bo'lmaydi", 1400); return false; }
+  CMP.focus(); return true;
+}
 document.addEventListener("keydown", e=>{
+  if(e.key==="F7" && !e.ctrlKey && !e.altKey && !e.metaKey){ e.preventDefault(); if(ST.op.token) focusComposer(); return; }
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="c" && SELM && CURSCREEN==="chat" && !getSelection().toString()){ e.preventDefault(); copySel(); return; }
   if(e.key==="Escape" && SELM){ e.preventDefault(); endSelect(); return; }
   if(e.altKey && (e.key==="ArrowUp" || e.key==="ArrowDown")){
